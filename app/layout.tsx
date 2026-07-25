@@ -28,8 +28,11 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "Shiftdeck",
+  },
+  other: {
+    "theme-color": "#f4f5f7",
   },
   openGraph: {
     title: "Shiftdeck",

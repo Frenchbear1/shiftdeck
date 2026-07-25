@@ -398,6 +398,22 @@ export default function HomePage() {
   useEffect(() => {
     if (!hydrated) return;
     document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    const themeColor = theme === "dark" ? "#17191d" : "#f4f5f7";
+    let metaTheme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!metaTheme) {
+      metaTheme = document.createElement("meta");
+      metaTheme.name = "theme-color";
+      document.head.appendChild(metaTheme);
+    }
+    metaTheme.content = themeColor;
+    let statusStyle = document.querySelector<HTMLMetaElement>('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (!statusStyle) {
+      statusStyle = document.createElement("meta");
+      statusStyle.name = "apple-mobile-web-app-status-bar-style";
+      document.head.appendChild(statusStyle);
+    }
+    statusStyle.content = theme === "dark" ? "black-translucent" : "default";
     localStorage.setItem("shiftdeck.theme", theme);
   }, [theme, hydrated]);
 

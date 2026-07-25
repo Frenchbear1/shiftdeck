@@ -533,6 +533,7 @@ main {
 
 .page-title {
   margin: 0 2px -4px;
+  align-items: center;
 }
 
 .page-title h1 {
@@ -550,12 +551,11 @@ main {
 .shift-hours-label {
   justify-self: end;
   margin-left: auto;
-  padding: 8px 11px;
   color: var(--blue);
-  background: var(--blue-soft);
-  border-radius: 999px;
-  font-size: 12px;
+  background: transparent;
+  font-size: 13px;
   font-weight: 800;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -1918,7 +1918,7 @@ main {
   .page-title {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
+    align-items: center;
     gap: 10px;
     padding: 0 4px 1px;
   }
