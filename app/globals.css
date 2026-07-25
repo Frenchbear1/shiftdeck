@@ -542,6 +542,10 @@ main {
   padding: 0;
 }
 
+.date-rail.mobile-tape {
+  scroll-snap-type: x mandatory;
+}
+
 .mobile-select {
   position: relative;
 }
@@ -934,42 +938,14 @@ main {
   font-size: 17px;
 }
 
-.flight-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 24px;
+.flight-panel-heading {
+  margin-bottom: 18px;
 }
 
-.search-field {
-  width: min(390px, 100%);
-  min-height: 43px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 12px;
-  color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-
-.search-field input {
-  width: 100%;
-  border: 0;
-  outline: 0;
-  color: var(--text);
-  background: transparent;
-}
-
-.search-field button {
-  display: grid;
-  place-items: center;
-  padding: 3px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
+.compact-toggle {
+  min-height: 38px;
+  padding: 0 13px;
+  white-space: nowrap;
 }
 
 .source-chip {
@@ -1008,15 +984,19 @@ main {
 
 .flight-card {
   display: grid;
-  grid-template-columns: 130px 1fr 170px;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 20px;
-  min-height: 84px;
-  padding: 14px 16px;
+  gap: 14px;
+  min-height: 68px;
+  padding: 11px 13px;
   background: var(--surface-2);
   border: 1px solid transparent;
   border-radius: 15px;
   transition: transform 150ms ease, border-color 150ms ease;
+}
+
+.flight-card:not(.during) {
+  grid-template-columns: 112px minmax(0, 1fr);
 }
 
 .flight-card:hover {
@@ -1026,6 +1006,10 @@ main {
 .flight-card.during {
   background: var(--blue-soft);
   border-color: color-mix(in srgb, var(--blue) 28%, transparent);
+}
+
+.flight-card.outside-shift {
+  opacity: .72;
 }
 
 .flight-time {
@@ -1094,17 +1078,6 @@ main {
 .during-chip {
   color: var(--blue);
   background: color-mix(in srgb, var(--surface) 70%, transparent);
-}
-
-.flight-status > button {
-  width: 31px;
-  height: 31px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  color: var(--muted);
-  background: transparent;
-  border-radius: 8px;
 }
 
 .flight-note,
@@ -1910,6 +1883,10 @@ main {
     backdrop-filter: blur(14px);
   }
 
+  .mobile-date-picker.week-only {
+    grid-template-columns: 1fr;
+  }
+
   .page-stack > .mobile-date-picker {
     position: sticky;
     top: 75px;
@@ -1918,6 +1895,20 @@ main {
 
   .week-panel .mobile-date-picker {
     margin-top: 16px;
+  }
+
+  .week-panel .date-rail.mobile-tape {
+    display: grid;
+    grid-auto-columns: calc((100% - 16px) / 3);
+    gap: 8px;
+    margin-top: 12px;
+    padding: 0 18px 2px 0;
+    scroll-padding-left: 0;
+  }
+
+  .week-panel .date-rail.mobile-tape .date-pill {
+    min-height: 88px;
+    scroll-snap-align: start;
   }
 
   .mobile-date-picker label {
@@ -2125,19 +2116,26 @@ main {
     grid-column: 1 / -1;
   }
 
-  .flight-toolbar {
-    align-items: stretch;
-    flex-direction: column;
+  .flight-panel-heading {
+    align-items: start;
+    gap: 10px;
   }
 
-  .source-chip {
-    align-self: flex-start;
+  .compact-toggle {
+    min-height: 35px;
+    padding: 0 11px;
+    font-size: 12px;
   }
 
   .flight-card {
-    grid-template-columns: 76px minmax(0, 1fr);
-    gap: 12px;
-    padding: 12px;
+    grid-template-columns: 70px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 60px;
+    padding: 10px;
+  }
+
+  .flight-card:not(.during) {
+    grid-template-columns: 70px minmax(0, 1fr);
   }
 
   .flight-time strong {

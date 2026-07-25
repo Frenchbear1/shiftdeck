@@ -13,10 +13,8 @@ import {
   Home,
   Info,
   Moon,
-  MoreHorizontal,
   Plane,
   Plus,
-  Search,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -180,7 +178,7 @@ export default function HomePage() {
   const [selectedDate, setSelectedDate] = useState("2026-07-26");
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [flightSearch, setFlightSearch] = useState("");
+  const [showAllFlights, setShowAllFlights] = useState(false);
   const [importState, setImportState] = useState<
     "idle" | "reading" | "review" | "done"
   >("idle");
@@ -247,6 +245,10 @@ export default function HomePage() {
     window.scrollTo(0, 0);
   }, [tab]);
 
+  useEffect(() => {
+    setShowAllFlights(false);
+  }, [selectedDate, prefs.person]);
+
   const myShift = useMemo(
     () => getWorkingShift(selectedDate, prefs.person),
     [selectedDate, prefs.person],
@@ -274,13 +276,8 @@ export default function HomePage() {
     () =>
       sampleFlights
         .filter((flight) => flight.date === selectedDate)
-        .filter((flight) =>
-          `${flight.raw} ${flight.origin} ${flight.destination ?? ""}`
-            .toLowerCase()
-            .includes(flightSearch.toLowerCase()),
-        )
         .sort((a, b) => toMinutes(a.start) - toMinutes(b.start)),
-    [selectedDate, flightSearch],
+    [selectedDate],
   );
 
   const flightsDuringShift = useMemo(() => {
@@ -690,8 +687,8 @@ export default function HomePage() {
     return { groups, labels };
   }, [dayShifts, myShift, prefs.person]);
 
-  const renderDateRail = (compact = false) => (
-    <div className={`date-rail ${compact ? "compact" : ""}`}>
+  const renderDateRail = (compact = false, mobileTape = false) => (
+    <div className={`date-rail ${compact ? "compact" : ""} ${mobileTape ? "mobile-tape" : ""}`}>
       {sampleDates.map((date) => {
         const day = compactDay(date);
         const userShift = getWorkingShift(date, prefs.person);
@@ -715,8 +712,8 @@ export default function HomePage() {
   const selectedWeek = sampleDates.indexOf(selectedDate) >= 7 ? 1 : 0;
   const weekDates = sampleDates.slice(selectedWeek * 7, selectedWeek * 7 + 7);
 
-  const renderMobileDatePicker = () => (
-    <div className="mobile-date-picker">
+  const renderMobileDatePicker = (weekOnly = false) => (
+    <div className={`mobile-date-picker ${weekOnly ? "week-only" : ""}`}>
       <label>
         <span>Week</span>
         <div className="mobile-select">
@@ -739,7 +736,7 @@ export default function HomePage() {
           <ChevronDown size={15} />
         </div>
       </label>
-      <label>
+      {!weekOnly && <label>
         <span>Day</span>
         <div className="mobile-select">
           <Clock3 size={16} />
@@ -760,7 +757,7 @@ export default function HomePage() {
           </select>
           <ChevronDown size={15} />
         </div>
-      </label>
+      </label>}
     </div>
   );
 
@@ -834,8 +831,8 @@ export default function HomePage() {
             Manage
           </button>
         </div>
-        {renderMobileDatePicker()}
-        {renderDateRail()}
+        {renderMobileDatePicker(true)}
+        {renderDateRail(false, true)}
       </section>
 
       <section className="panel">
@@ -1027,7 +1024,13 @@ export default function HomePage() {
     </div>
   );
 
-  const renderFlights = () => (
+  const renderFlights = () => {
+    const visibleFlights = showAllFlights || !myShift ? dayFlights : flightsDuringShift;
+    const hiddenFlightCount = myShift
+      ? Math.max(0, dayFlights.length - flightsDuringShift.length)
+      : 0;
+
+    return (
     <div className="page-stack">
       <header className="page-title">
         <div>
@@ -1045,8 +1048,8 @@ export default function HomePage() {
       {renderDateRail(true)}
       <section className="flight-summary">
         <div>
-          <span>Scheduled</span>
-          <strong>{dayFlights.length}</strong>
+          <span>Showing</span>
+          <strong>{visibleFlights.length}</strong>
         </div>
         <div>
           <span>During your shift</span>
@@ -1058,23 +1061,19 @@ export default function HomePage() {
         </div>
       </section>
       <section className="panel flight-panel">
-        <div className="flight-toolbar">
-          <div className="search-field">
-            <Search size={17} />
-            <input
-              value={flightSearch}
-              onChange={(event) => setFlightSearch(event.target.value)}
-              placeholder="Search airport or route"
-              aria-label="Search flights"
-            />
-            {flightSearch && (
-              <button onClick={() => setFlightSearch("")} aria-label="Clear search"><X size={15} /></button>
-            )}
+        <div className="section-heading flight-panel-heading">
+          <div>
+            <span className="eyebrow neutral">{showAllFlights || !myShift ? "Full board" : "Your shift"}</span>
+            <h2>{formatDate(selectedDate, "long")}</h2>
           </div>
-          <span className="source-chip"><ShieldCheck size={14} /> From schedule photo</span>
+          {hiddenFlightCount > 0 && (
+            <button className="button soft compact-toggle" onClick={() => setShowAllFlights((current) => !current)}>
+              {showAllFlights ? "Show shift only" : `Show all ${dayFlights.length}`}
+            </button>
+          )}
         </div>
         {(["Afternoon", "Evening"] as const).map((period) => {
-          const flights = dayFlights.filter((flight) => flight.period === period);
+          const flights = visibleFlights.filter((flight) => flight.period === period);
           if (!flights.length) return null;
           return (
             <div className="flight-group" key={period}>
@@ -1087,7 +1086,7 @@ export default function HomePage() {
                 {flights.map((flight) => {
                   const during = isFlightDuringShift(flight);
                   return (
-                    <article className={`flight-card ${during ? "during" : ""}`} key={flight.id}>
+                    <article className={`flight-card ${during ? "during" : "outside-shift"}`} key={flight.id}>
                       <div className="flight-time">
                         <strong>{formatTime(flight.start)}</strong>
                         <span>{flight.end ? `to ${formatTime(flight.end)}` : "scheduled"}</span>
@@ -1100,10 +1099,11 @@ export default function HomePage() {
                           <small>{flight.destination ? "Destination" : "Single time"}</small>
                         </span>
                       </div>
-                      <div className="flight-status">
-                        {during && <span className="during-chip"><Clock3 size={13} /> During your shift</span>}
-                        <button aria-label={`More about ${flight.raw}`} title={flight.raw}><MoreHorizontal /></button>
-                      </div>
+                      {during && (
+                        <div className="flight-status">
+                          <span className="during-chip"><Clock3 size={13} /> In shift</span>
+                        </div>
+                      )}
                     </article>
                   );
                 })}
@@ -1111,11 +1111,11 @@ export default function HomePage() {
             </div>
           );
         })}
-        {!dayFlights.length && (
+        {!visibleFlights.length && (
           <EmptyState
             icon={<Plane />}
-            title={flightSearch ? "No matching flights" : "No afternoon or evening flights"}
-            copy={flightSearch ? "Try another airport code." : "Nothing was listed in the darker blue rows."}
+            title={myShift ? "No flights during your shift" : "No afternoon or evening flights"}
+            copy={hiddenFlightCount ? "Use Show all to see the rest of the board." : "Nothing was listed in the darker blue rows."}
           />
         )}
         <div className="flight-note">
@@ -1124,7 +1124,8 @@ export default function HomePage() {
         </div>
       </section>
     </div>
-  );
+    );
+  };
 
   const renderImport = () => (
     <div className="page-stack">
