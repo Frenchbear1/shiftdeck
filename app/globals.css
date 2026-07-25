@@ -983,6 +983,9 @@ main {
 }
 
 .time-off-fields {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(190px, .8fr) minmax(340px, 1.4fr);
   align-items: end;
@@ -990,6 +993,8 @@ main {
 }
 
 .time-off-fields label {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   display: grid;
   gap: 7px;
@@ -1002,8 +1007,12 @@ main {
 }
 
 .time-off-fields input {
+  display: block;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   height: 44px;
   padding: 0 13px;
   color: var(--text);
@@ -1013,6 +1022,8 @@ main {
 }
 
 .time-off-range {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -2186,17 +2197,44 @@ main {
   }
 
   .time-off-fields {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     grid-template-columns: 1fr;
     gap: 13px;
   }
 
   .time-off-fields input {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-inline-size: 0 !important;
+    max-inline-size: 100% !important;
     height: 43px;
     font-size: 16px;
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   .time-off-range {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: end;
     gap: 8px;
+  }
+
+  .time-off-range label {
+    width: 0;
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 0;
+  }
+
+  .time-off-range > i {
+    width: 16px;
+    flex: 0 0 16px;
   }
 
   .time-off-status {
