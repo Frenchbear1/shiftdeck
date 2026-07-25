@@ -1644,11 +1644,12 @@ export default function HomePage() {
                 <span>Date</span>
                 <input type="date" value={shiftDraft.date} onChange={(event) => setShiftDraft((current) => ({ ...current, date: event.target.value }))} />
               </label>
-              <div>
+              <div className="time-range-fields">
                 <label>
                   <span>Start</span>
                   <input type="time" value={shiftDraft.start} onChange={(event) => setShiftDraft((current) => ({ ...current, start: event.target.value }))} />
                 </label>
+                <span className="time-range-separator" aria-hidden="true">-</span>
                 <label>
                   <span>Stop</span>
                   <input type="time" value={shiftDraft.end} onChange={(event) => setShiftDraft((current) => ({ ...current, end: event.target.value }))} />
