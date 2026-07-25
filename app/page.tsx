@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Clock3,
   FileImage,
   Home,
@@ -14,7 +15,6 @@ import {
   Plane,
   Plus,
   Settings,
-  ShieldCheck,
   Sparkles,
   Sun,
   Trash2,
@@ -36,6 +36,7 @@ type Tab = "home" | "workers" | "flights" | "import";
 
 type CalendarEvent = {
   id: string;
+  calendarKey: string;
   date: string;
   start: string;
   end: string;
@@ -46,29 +47,47 @@ type CalendarEvent = {
 type Preferences = {
   person: string;
   title: string;
-  calendar: string;
   reminder: string;
   location: string;
   notes: string;
 };
 
-type CalendarFeed = {
-  token: string;
-  feedUrl: string;
-  webcalUrl: string;
-  updatedAt: string;
+type CalendarRecord = {
+  calendarKey: string;
+  person: string;
+  date: string;
+  start: string;
+  end: string;
+  title: string;
+  signature: string;
+  revision: number;
+  status: "confirmed" | "cancelled";
 };
+
+type CalendarHistory = Record<string, CalendarRecord>;
+
+type CalendarChange =
+  | {
+      kind: "upsert";
+      calendarKey: string;
+      event: CalendarEvent;
+      revision: number;
+      signature: string;
+    }
+  | {
+      kind: "cancel";
+      calendarKey: string;
+      record: CalendarRecord;
+      revision: number;
+    };
 
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
   title: "PIE • Work",
-  calendar: "Work",
   reminder: "30",
   location: "St. Pete–Clearwater International Airport",
   notes: "Imported from Shiftdeck",
 };
-
-const HOSTED_FEED_ORIGIN = "https://shiftdeck-schedule.frenchbear.chatgpt.site";
 
 const toMinutes = (time: string) => {
   if (!time) return 0;
@@ -84,9 +103,6 @@ const formatTime = (time: string) => {
     minute: minutes ? "2-digit" : undefined,
   }).format(new Date(2026, 0, 1, hours, minutes));
 };
-
-const compactTime = (time: string) =>
-  formatTime(time).replace(" AM", "a").replace(" PM", "p");
 
 const formatDate = (date: string, style: "short" | "long" = "short") =>
   new Intl.DateTimeFormat("en-US", {
@@ -128,10 +144,28 @@ const shiftsOverlap = (first: Shift, second: Shift) => {
   return aStart < bEnd && bStart < aEnd;
 };
 
-const fingerprint = (event: CalendarEvent) =>
-  `${event.date}|${event.start}|${event.end}|${event.title}`
-    .toLowerCase()
-    .replace(/\s+/g, "-");
+const calendarKeyFor = (person: string, date: string) =>
+  `shift:${person.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${date}`;
+
+const calendarUid = (key: string) =>
+  `${key.toLowerCase().replace(/[^a-z0-9:-]+/g, "-")}@shiftdeck.app`;
+
+const eventSignature = (event: CalendarEvent, prefs: Preferences) =>
+  JSON.stringify([
+    event.date,
+    event.start,
+    event.end,
+    event.title,
+    prefs.location,
+    prefs.reminder,
+  ]);
+
+const revisedTitle = (title: string, revision: number) => {
+  if (revision <= 0) return title;
+  return revision === 1
+    ? `${title} \u2014 Revised`
+    : `${title} \u2014 Revised ${revision}`;
+};
 
 const eventsFor = (shifts: Shift[], person: string, title: string) =>
   shifts
@@ -141,6 +175,7 @@ const eventsFor = (shifts: Shift[], person: string, title: string) =>
     )
     .map((shift) => ({
       id: shift.id,
+      calendarKey: calendarKeyFor(person, shift.date),
       date: shift.date,
       start: shift.start,
       end: shift.end,
@@ -192,11 +227,9 @@ export default function HomePage() {
   const [importMessage, setImportMessage] = useState("");
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [duplicateNotice, setDuplicateNotice] = useState("");
-  const [duplicateExportCount, setDuplicateExportCount] = useState(0);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [calendarFeed, setCalendarFeed] = useState<CalendarFeed | null>(null);
-  const [feedSaving, setFeedSaving] = useState(false);
-  const [staticPagesHost, setStaticPagesHost] = useState(false);
+  const [calendarHistory, setCalendarHistory] = useState<CalendarHistory>({});
+  const [pendingDates, setPendingDates] = useState<string[]>([]);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -205,7 +238,9 @@ export default function HomePage() {
     queueMicrotask(() => {
       const savedPrefs = localStorage.getItem("shiftdeck.preferences");
       const savedTheme = localStorage.getItem("shiftdeck.theme");
-      const savedFeed = localStorage.getItem("shiftdeck.calendarFeed");
+      const savedCalendarHistory = localStorage.getItem(
+        "shiftdeck.calendarHistory",
+      );
       const savedDates = localStorage.getItem("shiftdeck.activeDates");
       let parsedPrefs = DEFAULT_PREFS;
       let parsedDates: string[] = [];
@@ -235,15 +270,14 @@ export default function HomePage() {
           parsedPrefs.title,
         ),
       );
-      if (savedFeed) {
+      if (savedCalendarHistory) {
         try {
-          setCalendarFeed(JSON.parse(savedFeed));
+          setCalendarHistory(JSON.parse(savedCalendarHistory));
         } catch {
-          localStorage.removeItem("shiftdeck.calendarFeed");
+          localStorage.removeItem("shiftdeck.calendarHistory");
         }
       }
       if (savedTheme === "dark") setTheme("dark");
-      setStaticPagesHost(window.location.hostname.endsWith("github.io"));
       setHydrated(true);
     });
   }, []);
@@ -268,10 +302,6 @@ export default function HomePage() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [tab]);
-
-  useEffect(() => {
-    setShowAllFlights(false);
-  }, [selectedDate, prefs.person]);
 
   const importedDateSet = useMemo(() => new Set(importedDates), [importedDates]);
 
@@ -341,7 +371,68 @@ export default function HomePage() {
     });
   }, [dayFlights, myShift]);
 
-  const selectedEvents = events.filter((event) => event.selected);
+  const calendarChanges = useMemo<CalendarChange[]>(() => {
+    if (!pendingDates.length) return [];
+
+    const pendingDateSet = new Set(pendingDates);
+    const currentKeys = new Set(
+      events
+        .filter((event) => pendingDateSet.has(event.date))
+        .map((event) => event.calendarKey),
+    );
+    const changes: CalendarChange[] = events
+      .filter(
+        (event) => event.selected && pendingDateSet.has(event.date),
+      )
+      .flatMap((event) => {
+        const signature = eventSignature(event, prefs);
+        const previous = calendarHistory[event.calendarKey];
+        if (
+          previous?.status === "confirmed" &&
+          previous.signature === signature
+        ) {
+          return [];
+        }
+        return [
+          {
+            kind: "upsert" as const,
+            calendarKey: event.calendarKey,
+            event,
+            revision: previous ? previous.revision + 1 : 0,
+            signature,
+          },
+        ];
+      });
+
+    Object.values(calendarHistory).forEach((record) => {
+      if (
+        record.person === prefs.person &&
+        pendingDateSet.has(record.date) &&
+        record.status === "confirmed" &&
+        !currentKeys.has(record.calendarKey)
+      ) {
+        changes.push({
+          kind: "cancel",
+          calendarKey: record.calendarKey,
+          record,
+          revision: record.revision + 1,
+        });
+      }
+    });
+
+    return changes.sort((first, second) => {
+      const firstDate =
+        first.kind === "upsert" ? first.event.date : first.record.date;
+      const secondDate =
+        second.kind === "upsert" ? second.event.date : second.record.date;
+      return firstDate.localeCompare(secondDate);
+    });
+  }, [calendarHistory, events, pendingDates, prefs]);
+
+  const selectDate = (date: string) => {
+    setSelectedDate(date);
+    setShowAllFlights(false);
+  };
 
   const jumpDate = (amount: number) => {
     if (!scheduleDates.length) return;
@@ -350,7 +441,7 @@ export default function HomePage() {
       scheduleDates.length - 1,
       Math.max(0, current + amount),
     );
-    setSelectedDate(scheduleDates[next]);
+    selectDate(scheduleDates[next]);
   };
 
   const savePrefs = (next: Partial<Preferences>) => {
@@ -362,6 +453,7 @@ export default function HomePage() {
       setEvents(
         eventsFor(importedShifts, person, title),
       );
+      if (next.person) setShowAllFlights(false);
     }
   };
 
@@ -386,6 +478,7 @@ export default function HomePage() {
       )
       .map((shift) => ({
         id: shift.id,
+        calendarKey: calendarKeyFor(prefs.person, shift.date),
         date: shift.date,
         start: shift.start,
         end: shift.end,
@@ -401,9 +494,10 @@ export default function HomePage() {
           `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`),
         );
       });
-      setSelectedDate(detectedDates[0]);
+      selectDate(detectedDates[0]);
     }
     setImportedDates(nextDates);
+    setPendingDates(detectedDates);
     localStorage.setItem("shiftdeck.activeDates", JSON.stringify(nextDates));
     return matching.length;
   };
@@ -460,6 +554,7 @@ export default function HomePage() {
       }
 
       if (!detected.size) {
+        setPendingDates([selectedDate]);
         setImportMessage(
           "The photo was readable, but the grid needs a quick manual review.",
         );
@@ -486,6 +581,7 @@ export default function HomePage() {
       setImportState("review");
       setToast("Schedule ready to review");
     } catch {
+      setPendingDates([selectedDate]);
       setImportState("review");
       setImportProgress(100);
       setImportMessage(
@@ -499,17 +595,29 @@ export default function HomePage() {
     event.target.value = "";
   };
 
-  const updateEvent = (id: string, next: Partial<CalendarEvent>) =>
+  const updateEvent = (id: string, next: Partial<CalendarEvent>) => {
     setEvents((current) =>
       current.map((event) => (event.id === id ? { ...event, ...next } : event)),
     );
+    if (next.date) {
+      setPendingDates((current) =>
+        current.includes(next.date as string)
+          ? current
+          : [...current, next.date as string],
+      );
+    }
+  };
 
   const addEvent = () => {
     const id = `manual-${Date.now()}`;
+    setPendingDates((current) =>
+      current.includes(selectedDate) ? current : [...current, selectedDate],
+    );
     setEvents((current) => [
       ...current,
       {
         id,
+        calendarKey: id,
         date: selectedDate,
         start: "09:00",
         end: "17:00",
@@ -526,6 +634,7 @@ export default function HomePage() {
       "shiftdeck.importHashes",
       "shiftdeck.exportedEvents",
       "shiftdeck.calendarFeed",
+      "shiftdeck.calendarHistory",
       "shiftdeck.activeDates",
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
@@ -538,15 +647,14 @@ export default function HomePage() {
     setImportMessage("");
     setLoadedFiles([]);
     setDuplicateNotice("");
-    setDuplicateExportCount(0);
-    setCalendarFeed(null);
-    setFeedSaving(false);
+    setCalendarHistory({});
+    setPendingDates([]);
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setToast("All Shiftdeck data cleared from this device");
   };
 
-  const buildCalendar = () => {
+  const buildCalendar = (changes: CalendarChange[]) => {
     const stamp = new Date()
       .toISOString()
       .replace(/[-:]/g, "")
@@ -558,26 +666,44 @@ export default function HomePage() {
       "PRODID:-//Shiftdeck//Schedule Export//EN",
       "CALSCALE:GREGORIAN",
       "METHOD:PUBLISH",
-      `X-WR-CALNAME:${safeText(prefs.calendar)}`,
-      ...selectedEvents.flatMap((event) => {
+      "X-WR-CALNAME:Shiftdeck",
+      ...changes.flatMap((change) => {
+        const event =
+          change.kind === "upsert" ? change.event : change.record;
         const overnight = toMinutes(event.end) <= toMinutes(event.start);
+        const title = revisedTitle(event.title, change.revision);
         const eventLines = [
           "BEGIN:VEVENT",
-          `UID:${fingerprint(event)}@shiftdeck.app`,
+          `UID:${calendarUid(change.calendarKey)}`,
           `DTSTAMP:${stamp}`,
+          `LAST-MODIFIED:${stamp}`,
+          `SEQUENCE:${change.revision}`,
           `DTSTART:${icsTime(event.date, event.start)}`,
           `DTEND:${icsTime(event.date, event.end, overnight)}`,
-          `SUMMARY:${safeText(event.title)}`,
-          `LOCATION:${safeText(prefs.location)}`,
-          `DESCRIPTION:${safeText(prefs.notes)}`,
-          `X-SHIFTDECK-FINGERPRINT:${fingerprint(event)}`,
+          `SUMMARY:${safeText(title)}`,
+          `X-SHIFTDECK-REVISION:${change.revision}`,
         ];
-        if (Number.isFinite(reminder) && reminder > 0) {
+
+        if (change.kind === "cancel") {
+          eventLines.push("STATUS:CANCELLED");
+        } else {
+          eventLines.push(
+            "STATUS:CONFIRMED",
+            `LOCATION:${safeText(prefs.location)}`,
+            `DESCRIPTION:${safeText(prefs.notes)}`,
+          );
+        }
+
+        if (
+          change.kind === "upsert" &&
+          Number.isFinite(reminder) &&
+          reminder > 0
+        ) {
           eventLines.push(
             "BEGIN:VALARM",
             `TRIGGER:-PT${reminder}M`,
             "ACTION:DISPLAY",
-            `DESCRIPTION:${safeText(event.title)}`,
+            `DESCRIPTION:${safeText(title)}`,
             "END:VALARM",
           );
         }
@@ -589,88 +715,59 @@ export default function HomePage() {
     return `${lines.join("\r\n")}\r\n`;
   };
 
-  const exportCalendar = async (skipCheck = false) => {
-    if (!selectedEvents.length) {
-      setToast("Choose at least one shift first");
-      return;
-    }
-    const prior: string[] = JSON.parse(
-      localStorage.getItem("shiftdeck.exportedEvents") ?? "[]",
-    );
-    const duplicates = selectedEvents.filter((event) =>
-      prior.includes(fingerprint(event)),
-    );
-    if (duplicates.length && !skipCheck) {
-      setDuplicateExportCount(duplicates.length);
+  const exportCalendar = () => {
+    if (!calendarChanges.length) {
+      setToast("Apple Calendar already has your latest exported schedule");
       return;
     }
 
-    const content = buildCalendar();
+    const content = buildCalendar(calendarChanges);
     const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
-    const file = new File([blob], "shiftdeck-schedule.ics", {
-      type: "text/calendar",
-    });
-    const shareData = { files: [file], title: "My work schedule" };
-    try {
-      if (navigator.canShare?.(shareData)) {
-        await navigator.share(shareData);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "Shiftdeck_Schedule.ics";
+    document.body.appendChild(anchor);
+    anchor.click();
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      anchor.remove();
+    }, 0);
+
+    const nextHistory = { ...calendarHistory };
+    calendarChanges.forEach((change) => {
+      if (change.kind === "upsert") {
+        nextHistory[change.calendarKey] = {
+          calendarKey: change.calendarKey,
+          person: prefs.person,
+          date: change.event.date,
+          start: change.event.start,
+          end: change.event.end,
+          title: change.event.title,
+          signature: change.signature,
+          revision: change.revision,
+          status: "confirmed",
+        };
       } else {
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = file.name;
-        anchor.click();
-        URL.revokeObjectURL(url);
+        nextHistory[change.calendarKey] = {
+          ...change.record,
+          revision: change.revision,
+          status: "cancelled",
+        };
       }
-      const merged = Array.from(
-        new Set([...prior, ...selectedEvents.map(fingerprint)]),
-      );
-      localStorage.setItem("shiftdeck.exportedEvents", JSON.stringify(merged));
-      setDuplicateExportCount(0);
-      setImportState("done");
-      setToast("Calendar file ready — open it with Apple Calendar");
-    } catch {
-      setToast("Export canceled — your selections are still here");
-    }
-  };
+    });
 
-  const syncCalendarFeed = async () => {
-    if (!selectedEvents.length) {
-      setToast("Choose at least one shift first");
-      return;
-    }
-
-    setFeedSaving(true);
-    try {
-      const feedEndpoint = staticPagesHost
-        ? `${HOSTED_FEED_ORIGIN}/api/calendar-feed`
-        : "/api/calendar-feed";
-      const response = await fetch(feedEndpoint, {
-        method: "POST",
-        credentials: staticPagesHost ? "include" : "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: calendarFeed?.token,
-          calendarName: prefs.calendar || "Shiftdeck",
-          ics: buildCalendar(),
-        }),
-      });
-      const payload = (await response.json()) as
-        | CalendarFeed
-        | { error?: string };
-
-      if (!response.ok || !("token" in payload)) {
-        throw new Error("error" in payload ? payload.error : "Could not update feed");
-      }
-
-      setCalendarFeed(payload);
-      localStorage.setItem("shiftdeck.calendarFeed", JSON.stringify(payload));
-      setToast(calendarFeed ? "Subscription feed updated" : "Subscription feed created");
-    } catch {
-      setToast("Calendar subscription could not be saved yet");
-    } finally {
-      setFeedSaving(false);
-    }
+    setCalendarHistory(nextHistory);
+    localStorage.setItem(
+      "shiftdeck.calendarHistory",
+      JSON.stringify(nextHistory),
+    );
+    setImportState("done");
+    setToast(
+      calendarChanges.some((change) => change.revision > 0)
+        ? "Revised shifts are ready for Apple Calendar"
+        : "Schedule is ready for Apple Calendar",
+    );
   };
 
   const isFlightDuringShift = (flight: Flight) => {
@@ -783,7 +880,7 @@ export default function HomePage() {
           <button
             className={`date-pill ${selectedDate === date ? "active" : ""}`}
             key={date}
-            onClick={() => setSelectedDate(date)}
+            onClick={() => selectDate(date)}
             aria-label={`Show ${formatDate(date, "long")}`}
           >
             <span>{day.weekday}</span>
@@ -793,58 +890,6 @@ export default function HomePage() {
           </button>
         );
       })}
-    </div>
-  );
-
-  const selectedWeek = sampleDates.indexOf(selectedDate) >= 7 ? 1 : 0;
-  const weekDates = sampleDates.slice(selectedWeek * 7, selectedWeek * 7 + 7);
-
-  const renderMobileDatePicker = (weekOnly = false) => (
-    <div className={`mobile-date-picker ${weekOnly ? "week-only" : ""}`}>
-      <label>
-        <span>Week</span>
-        <div className="mobile-select">
-          <CalendarDays size={16} />
-          <select
-            value={selectedWeek}
-            onChange={(event) => {
-              const nextWeek = Number(event.target.value);
-              const nextDates = sampleDates.slice(nextWeek * 7, nextWeek * 7 + 7);
-              const firstWorkDay =
-                nextDates.find((date) => getWorkingShift(importedShifts, date, prefs.person)) ??
-                nextDates[0];
-              setSelectedDate(firstWorkDay);
-            }}
-            aria-label="Choose schedule week"
-          >
-            <option value={0}>7/26 – 8/1</option>
-            <option value={1}>8/2 – 8/8</option>
-          </select>
-          <ChevronDown size={15} />
-        </div>
-      </label>
-      {!weekOnly && <label>
-        <span>Day</span>
-        <div className="mobile-select">
-          <Clock3 size={16} />
-          <select
-            value={selectedDate}
-            onChange={(event) => setSelectedDate(event.target.value)}
-            aria-label="Choose schedule day"
-          >
-            {weekDates.map((date) => {
-              const day = compactDay(date);
-              const shift = getWorkingShift(importedShifts, date, prefs.person);
-              return (
-                <option value={date} key={date}>
-                  {day.weekday} {date.slice(5).replace("-", "/")} · {shift ? `${compactTime(shift.start)}–${compactTime(shift.end)}` : "Off"}
-                </option>
-              );
-            })}
-          </select>
-          <ChevronDown size={15} />
-        </div>
-      </label>}
     </div>
   );
 
@@ -1234,9 +1279,23 @@ export default function HomePage() {
           <section className="notice success">
             <Check />
             <div>
-              <b>{importState === "done" ? "Export ready" : "Schedule found"}</b>
+              <b>{importState === "done" ? "Calendar ready" : "Schedule found"}</b>
               <p>{importMessage}</p>
               {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
+              {calendarChanges.length > 0 ? (
+                <button
+                  className="button primary calendar-export-button"
+                  onClick={exportCalendar}
+                >
+                  <CalendarDays />
+                  Export to Apple Calendar
+                </button>
+              ) : (
+                <small className="calendar-current">
+                  <Check />
+                  No new calendar changes to export
+                </small>
+              )}
             </div>
           </section>
 
@@ -1287,73 +1346,6 @@ export default function HomePage() {
         </>
       )}
 
-      <section className="panel export-panel">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow neutral">Remembered for next time</span>
-            <h2>Apple Calendar details</h2>
-          </div>
-          <CalendarDays />
-        </div>
-        <div className="settings-grid">
-          <label>
-            <span>Event title</span>
-            <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} />
-          </label>
-          <label>
-            <span>Calendar / account label</span>
-            <input value={prefs.calendar} onChange={(event) => savePrefs({ calendar: event.target.value })} />
-          </label>
-          <label>
-            <span>Reminder</span>
-            <select value={prefs.reminder} onChange={(event) => savePrefs({ reminder: event.target.value })}>
-              <option value="0">None</option>
-              <option value="10">10 minutes before</option>
-              <option value="15">15 minutes before</option>
-              <option value="30">30 minutes before</option>
-              <option value="60">1 hour before</option>
-              <option value="120">2 hours before</option>
-            </select>
-            <ChevronDown />
-          </label>
-          <label>
-            <span>Location</span>
-            <input value={prefs.location} onChange={(event) => savePrefs({ location: event.target.value })} />
-          </label>
-        </div>
-        <div className="account-note">
-          <Info />
-          <p>Apple does not let a website silently write into Calendar. Shiftdeck uses the closest iPhone-safe path: share or download an ICS file, then Apple asks which iCloud, Google, or Exchange calendar should receive it.</p>
-        </div>
-        <button className="button primary export-button" onClick={() => void exportCalendar()}>
-          <CalendarDays />
-          Share {selectedEvents.length} shift{selectedEvents.length === 1 ? "" : "s"} with Apple Calendar
-        </button>
-        <div className="subscription-card">
-          <div>
-            <b>Subscribed calendar</b>
-            <small>
-              {calendarFeed
-                ? `Last updated ${formatDate(calendarFeed.updatedAt.slice(0, 10))}`
-                : staticPagesHost
-                  ? "Creates a live feed through the hosted Shiftdeck app"
-                  : "Create once, then update after schedule edits"}
-            </small>
-          </div>
-          <div>
-            <button className="button soft" onClick={() => void syncCalendarFeed()} disabled={feedSaving}>
-              <CalendarDays />
-              {feedSaving ? "Saving..." : calendarFeed ? "Update feed" : "Create feed"}
-            </button>
-            {calendarFeed && (
-              <a className="button soft" href={calendarFeed.webcalUrl}>
-                Subscribe
-              </a>
-            )}
-          </div>
-        </div>
-        <p className="duplicate-promise"><ShieldCheck size={14} /> Duplicate fingerprints are checked before every export on this device.</p>
-      </section>
     </div>
   );
 
@@ -1378,7 +1370,7 @@ export default function HomePage() {
           <button onClick={() => setSettingsOpen(true)}><Settings /><span>Settings</span></button>
           <div className="profile-mini">
             <span>{initials(prefs.person)}</span>
-            <div><b>{prefs.person}</b><small>{prefs.calendar} calendar</small></div>
+            <div><b>{prefs.person}</b><small>Schedule owner</small></div>
           </div>
         </div>
       </aside>
@@ -1420,25 +1412,10 @@ export default function HomePage() {
               </select>
               <ChevronDown />
             </label>
-            <label>
-              <span>Default event title</span>
-              <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} />
-            </label>
-            <label>
-              <span>Preferred calendar label</span>
-              <input value={prefs.calendar} onChange={(event) => savePrefs({ calendar: event.target.value })} />
-            </label>
-            <label>
-              <span>Default reminder</span>
-              <select value={prefs.reminder} onChange={(event) => savePrefs({ reminder: event.target.value })}>
-                <option value="0">None</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option>
-              </select>
-              <ChevronDown />
-            </label>
             <div className="danger-zone">
               <div>
                 <b>Clear app data</b>
-                <p>Resets saved preferences, import history, and duplicate warnings on this device.</p>
+                <p>Resets saved preferences, imports, and calendar revision history on this device.</p>
               </div>
               <button className="button danger subtle" onClick={() => setClearConfirmOpen(true)}><Trash2 /> Clear all data</button>
             </div>
@@ -1452,24 +1429,10 @@ export default function HomePage() {
           <section className="confirm-card" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <span className="confirm-icon danger"><Trash2 /></span>
             <h2>Clear all app data?</h2>
-            <p>This resets saved settings, upload history, and duplicate export warnings on this device. It will not remove anything already added to Apple Calendar.</p>
+            <p>This resets saved settings, upload history, and calendar revision history on this device. It will not remove anything already added to Apple Calendar.</p>
             <div>
               <button className="button soft" onClick={() => setClearConfirmOpen(false)}>Cancel</button>
               <button className="button danger" onClick={clearAllData}>Clear everything</button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {duplicateExportCount > 0 && (
-        <div className="modal-layer" role="presentation" onMouseDown={() => setDuplicateExportCount(0)}>
-          <section className="confirm-card" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <span className="confirm-icon"><AlertTriangle /></span>
-            <h2>Possible duplicate{duplicateExportCount > 1 ? "s" : ""}</h2>
-            <p>{duplicateExportCount} selected shift{duplicateExportCount > 1 ? "s were" : " was"} already exported from this device. Apple Calendar may add another copy.</p>
-            <div>
-              <button className="button soft" onClick={() => setDuplicateExportCount(0)}>Go back</button>
-              <button className="button danger" onClick={() => void exportCalendar(true)}>Export anyway</button>
             </div>
           </section>
         </div>

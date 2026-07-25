@@ -8,11 +8,8 @@ crew coverage, flights, and Apple Calendar exports.
 - Schedule photo upload and review
 - Worker timeline and roster views
 - Flight board views
-- Device-local settings and duplicate export warnings
-- One-time Apple Calendar `.ics` export
-
-GitHub Pages is static hosting, so it cannot run the subscribed calendar feed
-API. Use the Sites/Cloudflare deployment for the backend-backed feed.
+- Device-local settings and revision history
+- Apple Calendar export that updates matching dates with stable event IDs
 
 ## Development
 
