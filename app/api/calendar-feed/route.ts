@@ -1,5 +1,32 @@
 import { env } from "cloudflare:workers";
 
+const ALLOWED_ORIGINS = new Set([
+  "https://frenchbear1.github.io",
+  "https://shiftdeck-schedule.frenchbear.chatgpt.site",
+]);
+
+function corsHeaders(request: Request) {
+  const origin = request.headers.get("Origin") ?? "";
+  const headers = new Headers({
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Credentials": "true",
+    "Vary": "Origin",
+  });
+
+  if (ALLOWED_ORIGINS.has(origin) || /^http:\/\/localhost:\d+$/.test(origin)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+  }
+
+  return headers;
+}
+
+function jsonResponse(request: Request, body: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  corsHeaders(request).forEach((value, key) => headers.set(key, value));
+  return Response.json(body, { ...init, headers });
+}
+
 function getDatabase() {
   if (!env.DB) {
     throw new Error("Calendar feed storage is not available yet.");
@@ -30,6 +57,13 @@ function calendarUrls(request: Request, token: string) {
   };
 }
 
+export function OPTIONS(request: Request) {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(request),
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as {
@@ -40,7 +74,7 @@ export async function POST(request: Request) {
     const ics = payload.ics?.trim() ?? "";
 
     if (!ics.startsWith("BEGIN:VCALENDAR") || !ics.includes("END:VCALENDAR")) {
-      return Response.json({ error: "Valid calendar data is required." }, { status: 400 });
+      return jsonResponse(request, { error: "Valid calendar data is required." }, { status: 400 });
     }
 
     const token = normalizeToken(payload.token);
@@ -60,7 +94,7 @@ export async function POST(request: Request) {
       .bind(token, calendarName, ics, updatedAt, updatedAt)
       .run();
 
-    return Response.json({
+    return jsonResponse(request, {
       token,
       calendarName,
       updatedAt,
@@ -68,6 +102,6 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not save feed.";
-    return Response.json({ error: message }, { status: 500 });
+    return jsonResponse(request, { error: message }, { status: 500 });
   }
 }

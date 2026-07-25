@@ -501,10 +501,11 @@ main {
 }
 
 .page-title {
-  margin: 2px 2px 5px;
+  margin: 0 2px -4px;
 }
 
 .page-title h1 {
+  margin: 0;
   font-size: 42px;
   letter-spacing: -1.8px;
 }
@@ -1826,7 +1827,7 @@ main {
   .content-wrap {
     width: auto;
     max-width: 100%;
-    padding: 18px 13px 96px;
+    padding: 10px 13px 96px;
   }
 
   .page-stack {
@@ -1897,8 +1898,8 @@ main {
 
   .page-title {
     display: grid;
-    gap: 16px;
-    padding: 7px 4px 3px;
+    gap: 10px;
+    padding: 0 4px 1px;
   }
 
   .page-title h1 {

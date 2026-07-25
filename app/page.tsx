@@ -6,9 +6,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
-  ChevronRight,
   Clock3,
-  Download,
   FileImage,
   Home,
   Info,
@@ -69,6 +67,8 @@ const DEFAULT_PREFS: Preferences = {
   location: "St. Pete–Clearwater International Airport",
   notes: "Imported from Shiftdeck",
 };
+
+const HOSTED_FEED_ORIGIN = "https://shiftdeck-schedule.frenchbear.chatgpt.site";
 
 const toMinutes = (time: string) => {
   if (!time) return 0;
@@ -635,10 +635,6 @@ export default function HomePage() {
   };
 
   const syncCalendarFeed = async () => {
-    if (staticPagesHost) {
-      setToast("Subscribed calendar feeds need the backend version");
-      return;
-    }
     if (!selectedEvents.length) {
       setToast("Choose at least one shift first");
       return;
@@ -646,8 +642,12 @@ export default function HomePage() {
 
     setFeedSaving(true);
     try {
-      const response = await fetch("/api/calendar-feed", {
+      const feedEndpoint = staticPagesHost
+        ? `${HOSTED_FEED_ORIGIN}/api/calendar-feed`
+        : "/api/calendar-feed";
+      const response = await fetch(feedEndpoint, {
         method: "POST",
+        credentials: staticPagesHost ? "include" : "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token: calendarFeed?.token,
@@ -861,16 +861,6 @@ export default function HomePage() {
           {formatDate(selectedDate, "long")}
           {myShift?.note ? ` · ${myShift.note}` : ""}
         </p>
-        <div className="hero-actions">
-          <button className="button white" onClick={() => void exportCalendar()}>
-            <Download size={17} />
-            Add to Calendar
-          </button>
-          <button className="button ghost-light" onClick={() => setTab("workers")}>
-            <UsersRound size={17} />
-            See the crew
-          </button>
-        </div>
         <div className="hero-facts">
           <div>
             <span className="avatar-stack">
@@ -889,34 +879,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="quick-row">
-        <button className="quick-card" onClick={() => setTab("import")}>
-          <span className="quick-icon blue"><Upload size={20} /></span>
-          <span>
-            <b>Import a schedule</b>
-            <small>Upload and review shifts</small>
-          </span>
-          <ChevronRight size={18} />
-        </button>
-        <button className="quick-card" onClick={() => setTab("flights")}>
-          <span className="quick-icon lilac"><Plane size={20} /></span>
-          <span>
-            <b>Flight board</b>
-            <small>{dayFlights.length} afternoon & evening</small>
-          </span>
-          <ChevronRight size={18} />
-        </button>
-      </section>
-
       <section className="panel week-panel">
         <div className="section-heading">
           <div>
-            <span className="eyebrow neutral">Two-week view</span>
             <h2>Your schedule</h2>
           </div>
-          <button className="text-button" onClick={() => setTab("import")}>
-            Manage
-          </button>
+          <span className="count-badge">
+            {scheduleDates.length} day{scheduleDates.length === 1 ? "" : "s"}
+          </span>
         </div>
         {hasSchedule ? (
           renderDateRail(false, true)
@@ -1363,19 +1333,19 @@ export default function HomePage() {
           <div>
             <b>Subscribed calendar</b>
             <small>
-              {staticPagesHost
-                ? "GitHub Pages cannot update subscription feeds"
-                : calendarFeed
+              {calendarFeed
                 ? `Last updated ${formatDate(calendarFeed.updatedAt.slice(0, 10))}`
-                : "Create once, then update after schedule edits"}
+                : staticPagesHost
+                  ? "Creates a live feed through the hosted Shiftdeck app"
+                  : "Create once, then update after schedule edits"}
             </small>
           </div>
           <div>
-            <button className="button soft" onClick={() => void syncCalendarFeed()} disabled={feedSaving || staticPagesHost}>
+            <button className="button soft" onClick={() => void syncCalendarFeed()} disabled={feedSaving}>
               <CalendarDays />
-              {staticPagesHost ? "Needs backend" : feedSaving ? "Saving..." : calendarFeed ? "Update feed" : "Create feed"}
+              {feedSaving ? "Saving..." : calendarFeed ? "Update feed" : "Create feed"}
             </button>
-            {calendarFeed && !staticPagesHost && (
+            {calendarFeed && (
               <a className="button soft" href={calendarFeed.webcalUrl}>
                 Subscribe
               </a>
