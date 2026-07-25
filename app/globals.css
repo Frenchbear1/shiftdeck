@@ -1313,43 +1313,43 @@ main {
   width: 14px;
 }
 
-.review-list {
+.compact-shift-list {
   display: grid;
-  gap: 9px;
-  margin-top: 18px;
+  gap: 8px;
 }
 
-.review-row {
+.compact-shift-row {
   display: grid;
-  grid-template-columns: 34px 145px 105px 105px 1fr 32px;
-  align-items: end;
-  gap: 9px;
-  padding: 12px;
-  background: var(--surface-2);
+  grid-template-columns: minmax(118px, 1.35fr) minmax(76px, .8fr) minmax(76px, .8fr);
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
-  transition: opacity 150ms ease;
 }
 
-.review-row.disabled {
-  opacity: .48;
-}
-
-.review-row label,
+.compact-shift-row label,
+.export-fields label,
 .settings-sheet > label {
   position: relative;
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
-.review-row label > span,
+.compact-shift-row label > span,
+.export-fields label > span,
 .settings-sheet > label > span {
   color: var(--muted);
   font-size: 10px;
   font-weight: 750;
 }
 
-.review-row input,
+.compact-shift-row input,
+.export-fields input,
+.export-fields select,
 .settings-sheet input,
 .settings-sheet select {
   width: 100%;
@@ -1363,61 +1363,38 @@ main {
   outline: 0;
 }
 
-.review-row input:focus,
+.compact-shift-row input:focus,
+.export-fields input:focus,
+.export-fields select:focus,
 .settings-sheet input:focus,
 .settings-sheet select:focus {
   border-color: var(--blue);
 }
 
-.check-control {
-  align-self: center;
+.compact-shift-row input {
+  display: block;
+  max-width: 100%;
+  padding: 0 8px;
+  font-size: 16px;
 }
 
-.check-control input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.check-control > span {
-  width: 24px;
-  height: 24px;
+.export-fields {
   display: grid;
-  place-items: center;
-  color: white !important;
-  background: var(--blue);
-  border-radius: 8px;
-  cursor: pointer;
+  gap: 12px;
 }
 
-.check-control svg {
-  width: 14px;
-}
-
-.review-row.disabled .check-control > span {
-  color: transparent !important;
-  background: var(--surface-3);
-}
-
-.remove-row {
-  width: 30px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  color: var(--muted);
-  background: transparent;
-  cursor: pointer;
-}
-
-.remove-row svg {
-  width: 16px;
-}
-
+.export-fields select,
 .settings-sheet select {
   appearance: none;
 }
 
+.reminder-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.export-fields label > svg,
 .settings-sheet > label > svg {
   width: 15px;
   position: absolute;
@@ -1479,6 +1456,7 @@ main {
 }
 
 .settings-sheet,
+.export-sheet,
 .confirm-card {
   width: min(470px, 100%);
   padding: 25px;
@@ -1498,19 +1476,22 @@ main {
   display: none;
 }
 
-.settings-sheet header {
+.settings-sheet header,
+.export-sheet header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
 }
 
-.settings-sheet header h2 {
+.settings-sheet header h2,
+.export-sheet header h2 {
   margin: 5px 0 0;
   font-size: 28px;
 }
 
-.settings-sheet header > button {
+.settings-sheet header > button,
+.export-sheet header > button {
   width: 36px;
   height: 36px;
   display: grid;
@@ -1522,12 +1503,15 @@ main {
   cursor: pointer;
 }
 
-.settings-sheet {
+.settings-sheet,
+.export-sheet {
   display: grid;
   gap: 14px;
 }
 
-.settings-sheet .button {
+.settings-sheet .button,
+.export-sheet > .button {
+  width: 100%;
   min-height: 49px;
   margin-top: 6px;
 }
@@ -1657,19 +1641,6 @@ main {
   .hero-facts {
     position: static;
     margin-top: 28px;
-  }
-
-  .review-row {
-    grid-template-columns: 32px 1.2fr .8fr .8fr 32px;
-  }
-
-  .title-field {
-    grid-column: 2 / 5;
-  }
-
-  .remove-row {
-    grid-column: 5;
-    grid-row: 1;
   }
 
   .flight-card {
@@ -2169,39 +2140,6 @@ main {
     min-height: 280px;
   }
 
-  .review-panel {
-    overflow: hidden;
-  }
-
-  .review-row {
-    width: 100%;
-    min-width: 0;
-    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 28px;
-    gap: 8px;
-    padding: 11px 9px;
-  }
-
-  .review-row > label:nth-of-type(2) {
-    grid-column: 2 / 4;
-  }
-
-  .review-row > label:nth-of-type(3) {
-    grid-column: 2;
-  }
-
-  .review-row > label:nth-of-type(4) {
-    grid-column: 3;
-  }
-
-  .title-field {
-    grid-column: 2 / 4;
-  }
-
-  .remove-row {
-    grid-column: 4;
-    grid-row: 1;
-  }
-
   .notice .calendar-export-button {
     width: 100%;
     justify-self: stretch;
@@ -2212,12 +2150,17 @@ main {
     padding: 0;
   }
 
-  .settings-sheet {
+  .settings-sheet,
+  .export-sheet {
     width: 100%;
     max-height: 88vh;
     overflow-y: auto;
     padding: 16px 20px calc(22px + env(safe-area-inset-bottom));
     border-radius: 25px 25px 0 0;
+  }
+
+  .reminder-grid {
+    grid-template-columns: 1fr;
   }
 
   .sheet-handle {
@@ -2267,6 +2210,14 @@ main {
 
   .page-stack > .mobile-date-picker {
     position: static;
+  }
+
+  .compact-shift-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .compact-shift-row label:first-child {
+    grid-column: 1 / -1;
   }
 }
 

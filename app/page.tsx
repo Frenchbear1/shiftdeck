@@ -13,7 +13,6 @@ import {
   Info,
   Moon,
   Plane,
-  Plus,
   Settings,
   Sparkles,
   Sun,
@@ -41,13 +40,13 @@ type CalendarEvent = {
   start: string;
   end: string;
   title: string;
-  selected: boolean;
 };
 
 type Preferences = {
   person: string;
   title: string;
-  reminder: string;
+  reminder1: string;
+  reminder2: string;
   location: string;
   notes: string;
 };
@@ -84,10 +83,23 @@ type CalendarChange =
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
   title: "PIE • Work",
-  reminder: "30",
+  reminder1: "",
+  reminder2: "",
   location: "St. Pete–Clearwater International Airport",
   notes: "Imported from Shiftdeck",
 };
+
+const REMINDER_OPTIONS = [
+  { value: "", label: "No reminder" },
+  { value: "PT0M", label: "At event time" },
+  { value: "PT15M", label: "15 minutes before" },
+  { value: "PT30M", label: "30 minutes before" },
+  { value: "PT1H", label: "1 hour before" },
+  { value: "PT2H", label: "2 hours before" },
+  { value: "P1D", label: "1 day before" },
+  { value: "P2D", label: "2 days before" },
+  { value: "P1W", label: "1 week before" },
+] as const;
 
 const toMinutes = (time: string) => {
   if (!time) return 0;
@@ -157,7 +169,8 @@ const eventSignature = (event: CalendarEvent, prefs: Preferences) =>
     event.end,
     event.title,
     prefs.location,
-    prefs.reminder,
+    prefs.reminder1,
+    prefs.reminder2,
   ]);
 
 const revisedTitle = (title: string, revision: number) => {
@@ -180,7 +193,6 @@ const eventsFor = (shifts: Shift[], person: string, title: string) =>
       start: shift.start,
       end: shift.end,
       title,
-      selected: true,
     }));
 
 function initials(name: string) {
@@ -219,6 +231,7 @@ export default function HomePage() {
   const [importedDates, setImportedDates] = useState<string[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [showAllFlights, setShowAllFlights] = useState(false);
   const [importState, setImportState] = useState<
     "idle" | "reading" | "review" | "done"
@@ -246,7 +259,15 @@ export default function HomePage() {
       let parsedDates: string[] = [];
       if (savedPrefs) {
         try {
-          parsedPrefs = { ...DEFAULT_PREFS, ...JSON.parse(savedPrefs) };
+          const saved = JSON.parse(savedPrefs) as Partial<Preferences>;
+          parsedPrefs = {
+            person: saved.person ?? DEFAULT_PREFS.person,
+            title: saved.title ?? DEFAULT_PREFS.title,
+            reminder1: saved.reminder1 ?? "",
+            reminder2: saved.reminder2 ?? "",
+            location: saved.location ?? DEFAULT_PREFS.location,
+            notes: saved.notes ?? DEFAULT_PREFS.notes,
+          };
           setPrefs(parsedPrefs);
         } catch {
           // A malformed local preference should never block the schedule.
@@ -381,11 +402,10 @@ export default function HomePage() {
         .map((event) => event.calendarKey),
     );
     const changes: CalendarChange[] = events
-      .filter(
-        (event) => event.selected && pendingDateSet.has(event.date),
-      )
+      .filter((event) => pendingDateSet.has(event.date))
       .flatMap((event) => {
-        const signature = eventSignature(event, prefs);
+        const exportEvent = { ...event, title: prefs.title.trim() };
+        const signature = eventSignature(exportEvent, prefs);
         const previous = calendarHistory[event.calendarKey];
         if (
           previous?.status === "confirmed" &&
@@ -397,7 +417,7 @@ export default function HomePage() {
           {
             kind: "upsert" as const,
             calendarKey: event.calendarKey,
-            event,
+            event: exportEvent,
             revision: previous ? previous.revision + 1 : 0,
             signature,
           },
@@ -447,13 +467,9 @@ export default function HomePage() {
   const savePrefs = (next: Partial<Preferences>) => {
     const updated = { ...prefs, ...next };
     setPrefs(updated);
-    if (next.person || next.title) {
-      const person = next.person ?? prefs.person;
-      const title = next.title ?? prefs.title;
-      setEvents(
-        eventsFor(importedShifts, person, title),
-      );
-      if (next.person) setShowAllFlights(false);
+    if (next.person) {
+      setEvents(eventsFor(importedShifts, next.person, updated.title));
+      setShowAllFlights(false);
     }
   };
 
@@ -483,7 +499,6 @@ export default function HomePage() {
         start: shift.start,
         end: shift.end,
         title: prefs.title,
-        selected: true,
       }));
     if (matching.length) {
       setEvents((current) => {
@@ -585,7 +600,7 @@ export default function HomePage() {
       setImportState("review");
       setImportProgress(100);
       setImportMessage(
-        "I couldn’t confidently read that image. You can still add or edit the event rows below.",
+        "I couldn’t confidently read that image. Try a clearer photo with the full schedule visible.",
       );
     }
   };
@@ -606,25 +621,6 @@ export default function HomePage() {
           : [...current, next.date as string],
       );
     }
-  };
-
-  const addEvent = () => {
-    const id = `manual-${Date.now()}`;
-    setPendingDates((current) =>
-      current.includes(selectedDate) ? current : [...current, selectedDate],
-    );
-    setEvents((current) => [
-      ...current,
-      {
-        id,
-        calendarKey: id,
-        date: selectedDate,
-        start: "09:00",
-        end: "17:00",
-        title: prefs.title,
-        selected: true,
-      },
-    ]);
   };
 
   const clearAllData = () => {
@@ -651,6 +647,7 @@ export default function HomePage() {
     setPendingDates([]);
     setClearConfirmOpen(false);
     setSettingsOpen(false);
+    setExportOpen(false);
     setToast("All Shiftdeck data cleared from this device");
   };
 
@@ -659,7 +656,9 @@ export default function HomePage() {
       .toISOString()
       .replace(/[-:]/g, "")
       .replace(/\.\d{3}/, "");
-    const reminder = Number(prefs.reminder);
+    const reminders = Array.from(
+      new Set([prefs.reminder1, prefs.reminder2].filter(Boolean)),
+    );
     const lines = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -694,18 +693,16 @@ export default function HomePage() {
           );
         }
 
-        if (
-          change.kind === "upsert" &&
-          Number.isFinite(reminder) &&
-          reminder > 0
-        ) {
-          eventLines.push(
-            "BEGIN:VALARM",
-            `TRIGGER:-PT${reminder}M`,
-            "ACTION:DISPLAY",
-            `DESCRIPTION:${safeText(title)}`,
-            "END:VALARM",
-          );
+        if (change.kind === "upsert") {
+          reminders.forEach((reminder) => {
+            eventLines.push(
+              "BEGIN:VALARM",
+              `TRIGGER:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
+              "ACTION:DISPLAY",
+              `DESCRIPTION:${safeText(title)}`,
+              "END:VALARM",
+            );
+          });
         }
         eventLines.push("END:VEVENT");
         return eventLines;
@@ -716,6 +713,10 @@ export default function HomePage() {
   };
 
   const exportCalendar = () => {
+    if (!prefs.title.trim()) {
+      setToast("Add an event title first");
+      return;
+    }
     if (!calendarChanges.length) {
       setToast("Apple Calendar already has your latest exported schedule");
       return;
@@ -763,6 +764,7 @@ export default function HomePage() {
       JSON.stringify(nextHistory),
     );
     setImportState("done");
+    setExportOpen(false);
     setToast(
       calendarChanges.some((change) => change.revision > 0)
         ? "Revised shifts are ready for Apple Calendar"
@@ -1285,7 +1287,7 @@ export default function HomePage() {
               {calendarChanges.length > 0 ? (
                 <button
                   className="button primary calendar-export-button"
-                  onClick={exportCalendar}
+                  onClick={() => setExportOpen(true)}
                 >
                   <CalendarDays />
                   Export to Apple Calendar
@@ -1299,50 +1301,24 @@ export default function HomePage() {
             </div>
           </section>
 
-          <section className="panel review-panel">
-            <div className="section-heading">
-              <div>
-                <span className="eyebrow neutral">Check before export</span>
-                <h2>Your shifts</h2>
-              </div>
-              <button className="button soft" onClick={addEvent}><Plus size={16} /> Add shift</button>
-            </div>
-            <div className="review-list">
-              {events.map((event) => (
-                <article className={`review-row ${event.selected ? "" : "disabled"}`} key={event.id}>
-                  <label className="check-control">
-                    <input
-                      type="checkbox"
-                      checked={event.selected}
-                      onChange={(input) => updateEvent(event.id, { selected: input.target.checked })}
-                    />
-                    <span><Check /></span>
-                  </label>
-                  <label>
-                    <span>Date</span>
-                    <input type="date" value={event.date} onChange={(input) => updateEvent(event.id, { date: input.target.value })} />
-                  </label>
-                  <label>
-                    <span>Starts</span>
-                    <input type="time" value={event.start} onChange={(input) => updateEvent(event.id, { start: input.target.value })} />
-                  </label>
-                  <label>
-                    <span>Ends</span>
-                    <input type="time" value={event.end} onChange={(input) => updateEvent(event.id, { end: input.target.value })} />
-                  </label>
-                  <label className="title-field">
-                    <span>Title</span>
-                    <input value={event.title} onChange={(input) => updateEvent(event.id, { title: input.target.value })} />
-                  </label>
-                  <button
-                    className="remove-row"
-                    onClick={() => setEvents((current) => current.filter((item) => item.id !== event.id))}
-                    aria-label="Remove event"
-                  ><X /></button>
-                </article>
-              ))}
-            </div>
-          </section>
+          <div className="compact-shift-list" aria-label="Imported shifts">
+            {events.map((event) => (
+              <article className="compact-shift-row" key={event.id}>
+                <label>
+                  <span>Date</span>
+                  <input type="date" value={event.date} onChange={(input) => updateEvent(event.id, { date: input.target.value })} />
+                </label>
+                <label>
+                  <span>Start</span>
+                  <input type="time" value={event.start} onChange={(input) => updateEvent(event.id, { start: input.target.value })} />
+                </label>
+                <label>
+                  <span>Stop</span>
+                  <input type="time" value={event.end} onChange={(input) => updateEvent(event.id, { end: input.target.value })} />
+                </label>
+              </article>
+            ))}
+          </div>
         </>
       )}
 
@@ -1399,6 +1375,45 @@ export default function HomePage() {
         <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
         <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
       </nav>
+
+      {exportOpen && (
+        <div className="modal-layer" role="presentation" onMouseDown={() => setExportOpen(false)}>
+          <section className="export-sheet" role="dialog" aria-modal="true" aria-label="Export to Apple Calendar" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="sheet-handle" />
+            <header>
+              <div><span className="eyebrow neutral">Apple Calendar</span><h2>Export shifts</h2></div>
+              <button onClick={() => setExportOpen(false)} aria-label="Close calendar export"><X /></button>
+            </header>
+            <div className="export-fields">
+              <label>
+                <span>Title</span>
+                <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} placeholder="Work" />
+              </label>
+              <label>
+                <span>Place</span>
+                <input value={prefs.location} onChange={(event) => savePrefs({ location: event.target.value })} placeholder="Optional" />
+              </label>
+              <div className="reminder-grid">
+                <label>
+                  <span>Reminder 1</span>
+                  <select value={prefs.reminder1} onChange={(event) => savePrefs({ reminder1: event.target.value })}>
+                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <ChevronDown />
+                </label>
+                <label>
+                  <span>Reminder 2</span>
+                  <select value={prefs.reminder2} onChange={(event) => savePrefs({ reminder2: event.target.value })}>
+                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <ChevronDown />
+                </label>
+              </div>
+            </div>
+            <button className="button primary" onClick={exportCalendar}><CalendarDays /> Export to Apple Calendar</button>
+          </section>
+        </div>
+      )}
 
       {settingsOpen && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setSettingsOpen(false)}>

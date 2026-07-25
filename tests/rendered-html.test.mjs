@@ -55,6 +55,15 @@ test("uses the Cycle Tracker download flow with revision-aware events", async ()
   assert.match(page, /Revised \$\{revision\}/);
   assert.match(page, /shiftdeck\.calendarHistory/);
   assert.match(page, /Export to Apple Calendar/);
+  assert.match(page, /aria-label="Export to Apple Calendar"/);
+  assert.match(page, />Title</);
+  assert.match(page, />Place</);
+  assert.match(page, />Reminder 1</);
+  assert.match(page, />Reminder 2</);
+  assert.match(page, /value: "P1W", label: "1 week before"/);
+  assert.match(page, /new Set\(\[prefs\.reminder1, prefs\.reminder2\]/);
+  assert.match(page, /className="compact-shift-list"/);
+  assert.doesNotMatch(page, /Check before export|Your shifts|Add shift/);
   assert.doesNotMatch(page, /Subscribed calendar|Preferred calendar label/);
 
   assert.equal(JSON.parse(hosting).d1, null);
