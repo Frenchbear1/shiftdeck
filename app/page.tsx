@@ -197,6 +197,7 @@ export default function HomePage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [calendarFeed, setCalendarFeed] = useState<CalendarFeed | null>(null);
   const [feedSaving, setFeedSaving] = useState(false);
+  const [staticPagesHost, setStaticPagesHost] = useState(false);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -237,6 +238,7 @@ export default function HomePage() {
         }
       }
       if (savedTheme === "dark") setTheme("dark");
+      setStaticPagesHost(window.location.hostname.endsWith("github.io"));
       setHydrated(true);
     });
   }, []);
@@ -607,6 +609,10 @@ export default function HomePage() {
   };
 
   const syncCalendarFeed = async () => {
+    if (staticPagesHost) {
+      setToast("Subscribed calendar feeds need the backend version");
+      return;
+    }
     if (!selectedEvents.length) {
       setToast("Choose at least one shift first");
       return;
@@ -1323,17 +1329,19 @@ export default function HomePage() {
           <div>
             <b>Subscribed calendar</b>
             <small>
-              {calendarFeed
+              {staticPagesHost
+                ? "GitHub Pages cannot update subscription feeds"
+                : calendarFeed
                 ? `Last updated ${formatDate(calendarFeed.updatedAt.slice(0, 10))}`
                 : "Create once, then update after schedule edits"}
             </small>
           </div>
           <div>
-            <button className="button soft" onClick={() => void syncCalendarFeed()} disabled={feedSaving}>
+            <button className="button soft" onClick={() => void syncCalendarFeed()} disabled={feedSaving || staticPagesHost}>
               <CalendarDays />
-              {feedSaving ? "Saving..." : calendarFeed ? "Update feed" : "Create feed"}
+              {staticPagesHost ? "Needs backend" : feedSaving ? "Saving..." : calendarFeed ? "Update feed" : "Create feed"}
             </button>
-            {calendarFeed && (
+            {calendarFeed && !staticPagesHost && (
               <a className="button soft" href={calendarFeed.webcalUrl}>
                 Subscribe
               </a>
