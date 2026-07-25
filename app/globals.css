@@ -1001,6 +1001,7 @@ main {
 
 .flight-heading-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
@@ -2256,7 +2257,7 @@ main {
   }
 
   .flight-panel-heading {
-    align-items: start;
+    align-items: center;
     gap: 10px;
   }
 
@@ -2297,6 +2298,8 @@ main {
   }
 
   .flight-heading-actions {
+    align-content: center;
+    align-items: center;
     justify-content: flex-end;
     gap: 6px;
   }
