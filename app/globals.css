@@ -2076,10 +2076,14 @@ main {
   .mobile-crew-list {
     display: grid;
     gap: 9px;
+    justify-items: stretch;
   }
 
   .mobile-shift-card {
     position: relative;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
     overflow: hidden;
     padding: 13px;
     background: var(--surface-2);
@@ -2092,6 +2096,7 @@ main {
     width: 4px;
     position: absolute;
     inset: 0 auto 0 0;
+    border-radius: 15px 0 0 15px;
     background: var(--violet);
   }
 
