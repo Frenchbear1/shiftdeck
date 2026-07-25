@@ -1012,6 +1012,11 @@ main {
   white-space: nowrap;
 }
 
+.compact-toggle.icon-only {
+  width: 38px;
+  padding: 0;
+}
+
 .source-chip {
   color: var(--green);
   background: var(--green-soft);

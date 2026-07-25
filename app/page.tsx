@@ -1447,8 +1447,8 @@ export default function HomePage() {
             <h2>{formatDate(selectedDate, "long")}</h2>
           </div>
           <div className="flight-heading-actions">
-            <button className="button soft compact-toggle" onClick={refreshFlightMatches}>
-              <RefreshCw size={14} /> Refresh
+            <button className="button soft compact-toggle icon-only" onClick={refreshFlightMatches} aria-label="Refresh flight matches">
+              <RefreshCw size={14} />
             </button>
             {hiddenFlightCount > 0 && (
               <button className="button soft compact-toggle" onClick={() => setShowAllFlights((current) => !current)}>
