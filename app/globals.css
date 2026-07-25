@@ -873,35 +873,35 @@ main {
   font-size: 9px;
 }
 
-.shift-bar.mine {
+.shift-bar.relation-mine {
   color: white;
   background: var(--blue);
 }
 
-.shift-bar.same {
+.shift-bar.relation-same {
   color: #0d6e5a;
   background: #ccefe5;
 }
 
-.shift-bar.start,
-.shift-bar.end {
+.shift-bar.relation-start,
+.shift-bar.relation-end {
   color: #644aa5;
   background: #e9dffc;
 }
 
-.shift-bar.overlap {
+.shift-bar.relation-overlap {
   color: #70569e;
   background: #eee9f8;
 }
 
-:root[data-theme="dark"] .shift-bar.same {
+:root[data-theme="dark"] .shift-bar.relation-same {
   color: #a6e5d3;
   background: #275246;
 }
 
-:root[data-theme="dark"] .shift-bar.start,
-:root[data-theme="dark"] .shift-bar.end,
-:root[data-theme="dark"] .shift-bar.overlap {
+:root[data-theme="dark"] .shift-bar.relation-start,
+:root[data-theme="dark"] .shift-bar.relation-end,
+:root[data-theme="dark"] .shift-bar.relation-overlap {
   color: #d2c2ed;
   background: #403653;
 }
@@ -2500,21 +2500,21 @@ main {
     background: var(--violet);
   }
 
-  .mobile-shift-card.mine {
+  .mobile-shift-card.relation-mine {
     background: var(--blue-soft);
     border-color: color-mix(in srgb, var(--blue) 28%, transparent);
   }
 
-  .mobile-shift-card.mine::before {
+  .mobile-shift-card.relation-mine::before {
     background: var(--blue);
   }
 
-  .mobile-shift-card.same::before {
+  .mobile-shift-card.relation-same::before {
     background: var(--green);
   }
 
-  .mobile-shift-card.start::before,
-  .mobile-shift-card.end::before {
+  .mobile-shift-card.relation-start::before,
+  .mobile-shift-card.relation-end::before {
     background: var(--amber);
   }
 
@@ -2590,16 +2590,16 @@ main {
     border-radius: inherit;
   }
 
-  .mobile-shift-card.mine .mobile-shift-track i {
+  .mobile-shift-card.relation-mine .mobile-shift-track i {
     background: var(--blue);
   }
 
-  .mobile-shift-card.same .mobile-shift-track i {
+  .mobile-shift-card.relation-same .mobile-shift-track i {
     background: var(--green);
   }
 
-  .mobile-shift-card.start .mobile-shift-track i,
-  .mobile-shift-card.end .mobile-shift-track i {
+  .mobile-shift-card.relation-start .mobile-shift-track i,
+  .mobile-shift-card.relation-end .mobile-shift-track i {
     background: var(--amber);
   }
 

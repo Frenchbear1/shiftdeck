@@ -1474,7 +1474,7 @@ export default function HomePage() {
                     ))}
                   </div>
                   <div
-                    className={`shift-bar ${group.relation}`}
+                    className={`shift-bar relation-${group.relation}`}
                     style={{ left: `${group.left}%`, width: `${Math.max(group.width, 3)}%` }}
                   >
                     <span>
@@ -1488,7 +1488,7 @@ export default function HomePage() {
           </div>
           <div className="mobile-crew-list">
             {timeline.groups.map((group) => (
-              <article className={`mobile-shift-card ${group.relation}`} key={group.key}>
+              <article className={`mobile-shift-card relation-${group.relation}`} key={group.key}>
                 <div className="mobile-shift-top">
                   <span className="mobile-group-avatar">
                     {group.shifts.length > 1 ? group.shifts.length : initials(group.shifts[0].worker)}
