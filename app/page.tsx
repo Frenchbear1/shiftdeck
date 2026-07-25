@@ -1209,9 +1209,6 @@ export default function HomePage() {
           <div>
             <h2>{myShift ? "Who overlaps your shift" : "No shift selected"}</h2>
           </div>
-          <button className="text-button" onClick={() => setTab("workers")}>
-            Full timeline
-          </button>
         </div>
         {overlapping.length ? (
           <div className="people-list">
