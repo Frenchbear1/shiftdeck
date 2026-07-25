@@ -10,7 +10,6 @@ import {
   Clock3,
   FileImage,
   Home,
-  Info,
   Moon,
   Pencil,
   Plane,
@@ -315,7 +314,6 @@ export default function HomePage() {
   const [calendarHistory, setCalendarHistory] = useState<CalendarHistory>({});
   const [pendingDates, setPendingDates] = useState<string[]>([]);
   const [toast, setToast] = useState("");
-  const [flightRefreshAt, setFlightRefreshAt] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -652,7 +650,6 @@ export default function HomePage() {
   };
 
   const refreshFlightMatches = () => {
-    setFlightRefreshAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
     setToast(`Refreshed ${prefs.airline || "airline"} matches for ${cleanAirportCode(prefs.homeAirport)}`);
   };
 
@@ -1475,10 +1472,9 @@ export default function HomePage() {
                     <article className={`flight-card ${during ? "during" : "outside-shift"}`} key={flight.id}>
                       <div className="flight-time">
                         <strong>{display.time}</strong>
-                        <span>{display.subtime}</span>
                       </div>
                       <div className={`route ${display.center ? "turnaround-route" : ""}`}>
-                        <span><b>{display.left}</b><small>{display.leftLabel}</small></span>
+                        <span><b>{display.left}</b></span>
                         <div className="route-line">
                           <i />
                           {display.center ? <b>{display.center}</b> : <Plane size={16} />}
@@ -1486,7 +1482,6 @@ export default function HomePage() {
                         </div>
                         <span>
                           <b>{display.right}</b>
-                          <small>{display.rightLabel}</small>
                         </span>
                       </div>
                       <div className="route legacy-route">
@@ -1515,11 +1510,6 @@ export default function HomePage() {
             copy={hiddenFlightCount ? "Use Show all to see the rest of the board." : "Nothing was listed in the darker blue rows."}
           />
         )}
-        <div className="flight-note">
-          <Info size={16} />
-          <p className="flight-match-copy"><b>{prefs.airline || "Airline"} at {cleanAirportCode(prefs.homeAirport)}.</b> Time + airport rows are outbound. Airport + time rows are inbound. Airport time/time airport rows are turnarounds. {flightRefreshAt ? `Last refreshed ${flightRefreshAt}. ` : ""}Exact live delay status still needs a flight-status provider or flight numbers.</p>
-          <p><b>Scheduled times only.</b> The photos don’t include airline flight numbers, so live delay matching would be unreliable. A future live-status connection can be added when flight numbers are available.</p>
-        </div>
       </section>
     </div>
     );

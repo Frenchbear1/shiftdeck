@@ -1158,34 +1158,6 @@ main {
   background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
 
-.flight-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 22px;
-  padding: 14px;
-  color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.flight-note svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
-  color: var(--blue);
-}
-
-.flight-note p {
-  margin: 0;
-}
-
-.flight-note p:not(.flight-match-copy) {
-  display: none;
-}
-
 .privacy-badge {
   display: inline-flex;
   align-items: center;
