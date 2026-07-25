@@ -825,6 +825,13 @@ export default function HomePage() {
     }
   };
 
+  const changeTheme = (nextTheme: "light" | "dark") => {
+    if (nextTheme === theme) return;
+    localStorage.setItem("shiftdeck.theme", nextTheme);
+    setTheme(nextTheme);
+    window.setTimeout(() => window.location.reload(), 80);
+  };
+
   const refreshFlightMatches = () => {
     setToast(`Refreshed ${prefs.airline || "airline"} matches for ${cleanAirportCode(prefs.homeAirport)}`);
   };
@@ -2095,8 +2102,8 @@ export default function HomePage() {
             <div className="theme-setting">
               <span>Appearance</span>
               <div>
-                <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}><Sun /> Light</button>
-                <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}><Moon /> Dark</button>
+                <button className={theme === "light" ? "active" : ""} onClick={() => changeTheme("light")}><Sun /> Light</button>
+                <button className={theme === "dark" ? "active" : ""} onClick={() => changeTheme("dark")}><Moon /> Dark</button>
               </div>
             </div>
             <div className="danger-zone">
