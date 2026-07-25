@@ -474,6 +474,7 @@ main {
 }
 
 .panel {
+  min-width: 0;
   padding: 26px;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -524,6 +525,9 @@ main {
 }
 
 .date-rail {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(69px, 1fr);
@@ -1426,6 +1430,46 @@ main {
   margin-top: 18px;
 }
 
+.subscription-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.subscription-card > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.subscription-card small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.subscription-card > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.subscription-card a {
+  text-decoration: none;
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: .58;
+  transform: none;
+}
+
 .duplicate-promise {
   display: flex;
   align-items: center;
@@ -1897,16 +1941,24 @@ main {
     margin-top: 16px;
   }
 
-  .week-panel .date-rail.mobile-tape {
+  .date-rail.mobile-tape {
     display: grid;
     grid-auto-columns: calc((100% - 16px) / 3);
     gap: 8px;
-    margin-top: 12px;
-    padding: 0 18px 2px 0;
+    padding: 0 1px 2px;
     scroll-padding-left: 0;
   }
 
-  .week-panel .date-rail.mobile-tape .date-pill {
+  .week-panel .date-rail.mobile-tape {
+    margin-top: 12px;
+    padding-right: 18px;
+  }
+
+  .page-stack > .date-rail.mobile-tape {
+    margin-top: -2px;
+  }
+
+  .date-rail.mobile-tape .date-pill {
     min-height: 88px;
     scroll-snap-align: start;
   }
@@ -2199,6 +2251,18 @@ main {
 
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .subscription-card {
+    grid-template-columns: 1fr;
+  }
+
+  .subscription-card > div:last-child {
+    justify-content: stretch;
+  }
+
+  .subscription-card .button {
+    flex: 1 1 130px;
   }
 
   .modal-layer {

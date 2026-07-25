@@ -54,6 +54,13 @@ type Preferences = {
   notes: string;
 };
 
+type CalendarFeed = {
+  token: string;
+  feedUrl: string;
+  webcalUrl: string;
+  updatedAt: string;
+};
+
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
   title: "PIE • Work",
@@ -188,6 +195,8 @@ export default function HomePage() {
   const [duplicateNotice, setDuplicateNotice] = useState("");
   const [duplicateExportCount, setDuplicateExportCount] = useState(0);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [calendarFeed, setCalendarFeed] = useState<CalendarFeed | null>(null);
+  const [feedSaving, setFeedSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -196,6 +205,7 @@ export default function HomePage() {
     queueMicrotask(() => {
       const savedPrefs = localStorage.getItem("shiftdeck.preferences");
       const savedTheme = localStorage.getItem("shiftdeck.theme");
+      const savedFeed = localStorage.getItem("shiftdeck.calendarFeed");
       if (savedPrefs) {
         try {
           const parsed = { ...DEFAULT_PREFS, ...JSON.parse(savedPrefs) };
@@ -217,6 +227,13 @@ export default function HomePage() {
           );
         } catch {
           // A malformed local preference should never block the schedule.
+        }
+      }
+      if (savedFeed) {
+        try {
+          setCalendarFeed(JSON.parse(savedFeed));
+        } catch {
+          localStorage.removeItem("shiftdeck.calendarFeed");
         }
       }
       if (savedTheme === "dark") setTheme("dark");
@@ -482,6 +499,7 @@ export default function HomePage() {
       "shiftdeck.theme",
       "shiftdeck.importHashes",
       "shiftdeck.exportedEvents",
+      "shiftdeck.calendarFeed",
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
     setTheme("light");
@@ -493,6 +511,8 @@ export default function HomePage() {
     setLoadedFiles([]);
     setDuplicateNotice("");
     setDuplicateExportCount(0);
+    setCalendarFeed(null);
+    setFeedSaving(false);
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setToast("All Shiftdeck data cleared from this device");
@@ -583,6 +603,41 @@ export default function HomePage() {
       setToast("Calendar file ready — open it with Apple Calendar");
     } catch {
       setToast("Export canceled — your selections are still here");
+    }
+  };
+
+  const syncCalendarFeed = async () => {
+    if (!selectedEvents.length) {
+      setToast("Choose at least one shift first");
+      return;
+    }
+
+    setFeedSaving(true);
+    try {
+      const response = await fetch("/api/calendar-feed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: calendarFeed?.token,
+          calendarName: prefs.calendar || "Shiftdeck",
+          ics: buildCalendar(),
+        }),
+      });
+      const payload = (await response.json()) as
+        | CalendarFeed
+        | { error?: string };
+
+      if (!response.ok || !("token" in payload)) {
+        throw new Error("error" in payload ? payload.error : "Could not update feed");
+      }
+
+      setCalendarFeed(payload);
+      localStorage.setItem("shiftdeck.calendarFeed", JSON.stringify(payload));
+      setToast(calendarFeed ? "Subscription feed updated" : "Subscription feed created");
+    } catch {
+      setToast("Calendar subscription could not be saved yet");
+    } finally {
+      setFeedSaving(false);
     }
   };
 
@@ -807,7 +862,7 @@ export default function HomePage() {
           <span className="quick-icon blue"><Upload size={20} /></span>
           <span>
             <b>Import a schedule</b>
-            <small>Photo to calendar in a minute</small>
+            <small>Upload and review shifts</small>
           </span>
           <ChevronRight size={18} />
         </button>
@@ -831,7 +886,6 @@ export default function HomePage() {
             Manage
           </button>
         </div>
-        {renderMobileDatePicker(true)}
         {renderDateRail(false, true)}
       </section>
 
@@ -879,9 +933,7 @@ export default function HomePage() {
     <div className="page-stack">
       <header className="page-title">
         <div>
-          <span className="eyebrow neutral">Crew coverage</span>
           <h1>Workers</h1>
-          <p>Two hours before your shift through two hours after.</p>
         </div>
         <div className="date-stepper desktop-date-stepper">
           <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
@@ -889,8 +941,7 @@ export default function HomePage() {
           <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
         </div>
       </header>
-      {renderMobileDatePicker()}
-      {renderDateRail(true)}
+      {renderDateRail(false, true)}
       {myShift && timeline ? (
         <section className="panel timeline-panel">
           <div className="desktop-timeline">
@@ -1032,20 +1083,17 @@ export default function HomePage() {
 
     return (
     <div className="page-stack">
-      <header className="page-title">
-        <div>
-          <span className="eyebrow neutral">Quick reference</span>
-          <h1>Flights</h1>
-          <p>Afternoon and evening rows from the blue flight board.</p>
-        </div>
+        <header className="page-title">
+          <div>
+            <h1>Flights</h1>
+          </div>
         <div className="date-stepper desktop-date-stepper">
           <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
           <span>{formatDate(selectedDate)}</span>
           <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
         </div>
       </header>
-      {renderMobileDatePicker()}
-      {renderDateRail(true)}
+        {renderDateRail(false, true)}
       <section className="flight-summary">
         <div>
           <span>Showing</span>
@@ -1131,11 +1179,8 @@ export default function HomePage() {
     <div className="page-stack">
       <header className="page-title">
         <div>
-          <span className="eyebrow neutral">Photo to calendar</span>
           <h1>Import</h1>
-          <p>Your photos are read on this device and aren’t saved by Shiftdeck.</p>
         </div>
-        <span className="privacy-badge"><ShieldCheck size={16} /> Private by default</span>
       </header>
 
       <section className={`upload-card ${importState === "reading" ? "is-reading" : ""}`}>
@@ -1274,6 +1319,27 @@ export default function HomePage() {
           <CalendarDays />
           Share {selectedEvents.length} shift{selectedEvents.length === 1 ? "" : "s"} with Apple Calendar
         </button>
+        <div className="subscription-card">
+          <div>
+            <b>Subscribed calendar</b>
+            <small>
+              {calendarFeed
+                ? `Last updated ${formatDate(calendarFeed.updatedAt.slice(0, 10))}`
+                : "Create once, then update after schedule edits"}
+            </small>
+          </div>
+          <div>
+            <button className="button soft" onClick={() => void syncCalendarFeed()} disabled={feedSaving}>
+              <CalendarDays />
+              {feedSaving ? "Saving..." : calendarFeed ? "Update feed" : "Create feed"}
+            </button>
+            {calendarFeed && (
+              <a className="button soft" href={calendarFeed.webcalUrl}>
+                Subscribe
+              </a>
+            )}
+          </div>
+        </div>
         <p className="duplicate-promise"><ShieldCheck size={14} /> Duplicate fingerprints are checked before every export on this device.</p>
       </section>
     </div>
