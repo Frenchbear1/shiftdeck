@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -21,6 +22,7 @@ import {
   Trash2,
   Upload,
   UsersRound,
+  WandSparkles,
   X,
 } from "lucide-react";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +35,7 @@ import {
   weekForFile,
 } from "./sample-data";
 
-type Tab = "home" | "workers" | "flights" | "import";
+type Tab = "home" | "workers" | "flights" | "timeoff" | "import";
 
 type CalendarEvent = {
   id: string;
@@ -73,6 +75,22 @@ type ShiftDraft = {
   date: string;
   start: string;
   end: string;
+};
+
+type TimeOffDraft = {
+  date: string;
+  start: string;
+  end: string;
+};
+
+type SwapCandidate = {
+  worker: string;
+  averageStart: number;
+  averageEnd: number;
+  score: number;
+  sampleCount: number;
+  sameShiftBand: boolean;
+  availability: "Off that day" | "Not scheduled";
 };
 
 type CalendarChange =
@@ -166,6 +184,22 @@ const shiftsOverlap = (first: Shift, second: Shift) => {
     bEnd += 1440;
   }
   return aStart < bEnd && bStart < aEnd;
+};
+
+const shiftBand = (minutes: number) => {
+  const normalized = ((minutes % 1440) + 1440) % 1440;
+  if (normalized < 660) return "morning";
+  if (normalized < 1080) return "afternoon";
+  return "evening";
+};
+
+const formatMinutes = (minutes: number) => {
+  const normalized = Math.round(minutes / 15) * 15 % 1440;
+  const hours = Math.floor(normalized / 60);
+  const mins = normalized % 60;
+  return formatTime(
+    `${`${hours}`.padStart(2, "0")}:${`${mins}`.padStart(2, "0")}`,
+  );
 };
 
 const cleanAirportCode = (value: string) =>
@@ -298,6 +332,11 @@ export default function HomePage() {
     eventId?: string;
   } | null>(null);
   const [shiftDraft, setShiftDraft] = useState<ShiftDraft>({
+    date: "2026-07-26",
+    start: "09:00",
+    end: "17:00",
+  });
+  const [timeOffDraft, setTimeOffDraft] = useState<TimeOffDraft>({
     date: "2026-07-26",
     start: "09:00",
     end: "17:00",
@@ -507,6 +546,126 @@ export default function HomePage() {
       .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
   }, [dayShifts, myShift, prefs.person]);
 
+  const timeOffAnalysis = useMemo(() => {
+    const isLoaded = importedDateSet.has(timeOffDraft.date);
+    const shift = getWorkingShift(
+      importedShifts,
+      timeOffDraft.date,
+      prefs.person,
+    );
+    const requestedWindow: Shift = {
+      id: "requested-time-off",
+      date: timeOffDraft.date,
+      worker: prefs.person,
+      start: timeOffDraft.start,
+      end: timeOffDraft.end,
+      status: "working",
+    };
+    const needsCoverage = Boolean(
+      isLoaded &&
+        shift &&
+        timeOffDraft.start &&
+        timeOffDraft.end &&
+        shiftsOverlap(shift, requestedWindow),
+    );
+
+    if (!shift || !needsCoverage) {
+      return {
+        isLoaded,
+        shift,
+        needsCoverage,
+        recommended: [] as SwapCandidate[],
+        others: [] as SwapCandidate[],
+      };
+    }
+
+    const [targetStart, targetEnd] = normalizedInterval(
+      shift.start,
+      shift.end,
+    );
+    const targetDuration = targetEnd - targetStart;
+    const candidates = availableWorkers
+      .filter((worker) => worker !== prefs.person)
+      .flatMap<SwapCandidate>((worker) => {
+        const targetDay = importedShifts.filter(
+          (candidateShift) =>
+            candidateShift.worker === worker &&
+            candidateShift.date === timeOffDraft.date,
+        );
+        if (
+          targetDay.some(
+            (candidateShift) =>
+              candidateShift.status === "working" ||
+              candidateShift.status === "pto",
+          )
+        ) {
+          return [];
+        }
+
+        const history = importedShifts.filter(
+          (candidateShift) =>
+            candidateShift.worker === worker &&
+            candidateShift.date !== timeOffDraft.date &&
+            candidateShift.status === "working",
+        );
+        if (!history.length) return [];
+
+        const intervals = history.map((candidateShift) =>
+          normalizedInterval(candidateShift.start, candidateShift.end),
+        );
+        const averageStart =
+          intervals.reduce((total, interval) => total + interval[0], 0) /
+          intervals.length;
+        const averageEnd =
+          intervals.reduce((total, interval) => total + interval[1], 0) /
+          intervals.length;
+        const averageDuration = averageEnd - averageStart;
+        const distance =
+          Math.abs(averageStart - targetStart) +
+          Math.abs(averageEnd - targetEnd) +
+          Math.abs(averageDuration - targetDuration) * 0.5;
+        const score = Math.max(0, Math.round(100 - distance / 18));
+        return [
+          {
+            worker,
+            averageStart,
+            averageEnd,
+            score,
+            sampleCount: history.length,
+            sameShiftBand:
+              shiftBand(averageStart) === shiftBand(targetStart),
+            availability: targetDay.length
+              ? "Off that day"
+              : "Not scheduled",
+          },
+        ];
+      })
+      .sort((first, second) => second.score - first.score);
+
+    const recommended = candidates
+      .filter((candidate) => candidate.sameShiftBand && candidate.score >= 60)
+      .slice(0, 3);
+    const recommendedNames = new Set(
+      recommended.map((candidate) => candidate.worker),
+    );
+
+    return {
+      isLoaded,
+      shift,
+      needsCoverage,
+      recommended,
+      others: candidates.filter(
+        (candidate) => !recommendedNames.has(candidate.worker),
+      ),
+    };
+  }, [
+    availableWorkers,
+    importedDateSet,
+    importedShifts,
+    prefs.person,
+    timeOffDraft,
+  ]);
+
   const dayFlights = useMemo(
     () =>
       importedFlights
@@ -628,6 +787,23 @@ export default function HomePage() {
   const selectDate = (date: string) => {
     setSelectedDate(date);
     setShowAllFlights(false);
+  };
+
+  const updateTimeOffDate = (date: string) => {
+    const shift = getWorkingShift(importedShifts, date, prefs.person);
+    setTimeOffDraft({
+      date,
+      start: shift?.start ?? "09:00",
+      end: shift?.end ?? "17:00",
+    });
+  };
+
+  const openTimeOffTab = () => {
+    const date = importedDateSet.has(selectedDate)
+      ? selectedDate
+      : scheduleDates[0] ?? selectedDate;
+    updateTimeOffDate(date);
+    setTab("timeoff");
   };
 
   const jumpDate = (amount: number) => {
@@ -1503,6 +1679,208 @@ export default function HomePage() {
     );
   };
 
+  const renderSwapCandidate = (
+    candidate: SwapCandidate,
+    index: number,
+    featured = false,
+  ) => (
+    <article
+      className={`swap-candidate ${featured ? "featured" : ""}`}
+      key={candidate.worker}
+    >
+      <span className={`person-avatar tone-${index % 4}`}>
+        {initials(candidate.worker)}
+      </span>
+      <div className="swap-candidate-copy">
+        <div>
+          <b>{candidate.worker}</b>
+          <span>{candidate.availability}</span>
+        </div>
+        <small>
+          Usually {formatMinutes(candidate.averageStart)} –{" "}
+          {formatMinutes(candidate.averageEnd)}
+        </small>
+        <small>
+          Average of {candidate.sampleCount} shift
+          {candidate.sampleCount === 1 ? "" : "s"}
+        </small>
+      </div>
+      <div className="swap-score">
+        <strong>{candidate.score}%</strong>
+        <small>shift match</small>
+      </div>
+    </article>
+  );
+
+  const renderTimeOff = () => {
+    const requestedHours = `${formatTime(timeOffDraft.start)} – ${formatTime(timeOffDraft.end)}`;
+    const candidateCount =
+      timeOffAnalysis.recommended.length + timeOffAnalysis.others.length;
+
+    return (
+      <div className="page-stack">
+        <header className="page-title">
+          <div>
+            <h1>Time off</h1>
+          </div>
+        </header>
+
+        <section className="panel time-off-picker">
+          <div className="time-off-heading">
+            <span className="time-off-icon">
+              <WandSparkles />
+            </span>
+            <div>
+              <h2>When do you want off?</h2>
+              <p>Choose the hours you need covered.</p>
+            </div>
+          </div>
+          <div className="time-off-fields">
+            <label className="time-off-date">
+              <span>Date</span>
+              <input
+                type="date"
+                value={timeOffDraft.date}
+                min={scheduleDates[0]}
+                max={scheduleDates[scheduleDates.length - 1]}
+                onChange={(event) => updateTimeOffDate(event.target.value)}
+              />
+            </label>
+            <div className="time-off-range">
+              <label>
+                <span>Start</span>
+                <input
+                  type="time"
+                  value={timeOffDraft.start}
+                  onChange={(event) =>
+                    setTimeOffDraft((current) => ({
+                      ...current,
+                      start: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <i aria-hidden="true">–</i>
+              <label>
+                <span>Stop</span>
+                <input
+                  type="time"
+                  value={timeOffDraft.end}
+                  onChange={(event) =>
+                    setTimeOffDraft((current) => ({
+                      ...current,
+                      end: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        {!hasSchedule ? (
+          <section className="panel">
+            <EmptyState
+              icon={<Upload />}
+              title="Import a schedule first"
+              copy="Once your schedule is loaded, Shiftdeck can check your hours and rank possible swaps."
+            />
+          </section>
+        ) : !timeOffAnalysis.isLoaded ? (
+          <section className="time-off-status unavailable">
+            <CalendarDays />
+            <div>
+              <b>No schedule is loaded for this date</b>
+              <p>Choose one of the dates from your imported schedule.</p>
+            </div>
+          </section>
+        ) : !timeOffAnalysis.needsCoverage ? (
+          <section className="time-off-status clear">
+            <CheckCircle2 />
+            <div>
+              <b>Sweet — you’re already free.</b>
+              <p>
+                You aren’t scheduled during {requestedHours} on{" "}
+                {formatDate(timeOffDraft.date, "long")}.
+              </p>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="time-off-status working">
+              <Clock3 />
+              <div>
+                <b>You’re scheduled that day</b>
+                <p>
+                  Your shift is {formatTime(timeOffAnalysis.shift!.start)} –{" "}
+                  {formatTime(timeOffAnalysis.shift!.end)}.
+                </p>
+              </div>
+            </section>
+
+            <section className="panel swap-panel">
+              <div className="section-heading">
+                <div>
+                  <h2>Recommended</h2>
+                  <p>Closest usual hours among coworkers who are free.</p>
+                </div>
+                <span className="count-badge">
+                  {candidateCount} free
+                </span>
+              </div>
+
+              {timeOffAnalysis.recommended.length ? (
+                <div className="swap-list">
+                  {timeOffAnalysis.recommended.map((candidate, index) =>
+                    renderSwapCandidate(candidate, index, true),
+                  )}
+                </div>
+              ) : (
+                <div className="no-close-match">
+                  No close shift matches are free that day.
+                </div>
+              )}
+
+              {timeOffAnalysis.others.length > 0 && (
+                <details className="other-swaps">
+                  <summary>
+                    <span>
+                      Other available coworkers
+                      <small>
+                        Different usual hours
+                      </small>
+                    </span>
+                    <ChevronDown />
+                  </summary>
+                  <div className="swap-list">
+                    {timeOffAnalysis.others.map((candidate, index) =>
+                      renderSwapCandidate(
+                        candidate,
+                        index + timeOffAnalysis.recommended.length,
+                      ),
+                    )}
+                  </div>
+                </details>
+              )}
+
+              {!candidateCount && (
+                <EmptyState
+                  icon={<UsersRound />}
+                  title="No one is free"
+                  copy="Everyone is either working or marked PTO on this date."
+                />
+              )}
+              <p className="swap-method">
+                Matches use each person’s average start and stop time across
+                the uploaded schedule. PTO is never suggested.
+              </p>
+            </section>
+          </>
+        )}
+      </div>
+    );
+  };
+
   const renderImport = () => (
     <div className="page-stack">
       <header className="page-title">
@@ -1585,6 +1963,7 @@ export default function HomePage() {
           <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={() => setTab("home")} />
           <NavButton icon={<UsersRound />} label="Workers" active={tab === "workers"} onClick={() => setTab("workers")} />
           <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
+          <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
           <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
         </nav>
         <div className="sidebar-bottom">
@@ -1609,6 +1988,7 @@ export default function HomePage() {
           {tab === "home" && renderHome()}
           {tab === "workers" && renderWorkers()}
           {tab === "flights" && renderFlights()}
+          {tab === "timeoff" && renderTimeOff()}
           {tab === "import" && renderImport()}
         </div>
       </main>
@@ -1617,6 +1997,7 @@ export default function HomePage() {
         <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={() => setTab("home")} />
         <NavButton icon={<UsersRound />} label="Workers" active={tab === "workers"} onClick={() => setTab("workers")} />
         <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
+        <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
         <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
       </nav>
 

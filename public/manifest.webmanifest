@@ -4,8 +4,8 @@
   "description": "Schedule, crew, and flight reference for work.",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#f4f5f7",
-  "theme_color": "#3767dc",
+  "background_color": "#17191d",
+  "theme_color": "#17191d",
   "icons": [
     {
       "src": "icon.svg",

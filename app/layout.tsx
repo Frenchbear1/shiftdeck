@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -28,11 +28,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
     title: "Shiftdeck",
-  },
-  other: {
-    "theme-color": "#f4f5f7",
   },
   openGraph: {
     title: "Shiftdeck",
@@ -48,13 +44,51 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
+const themeBootScript = `
+  try {
+    var savedTheme = localStorage.getItem("shiftdeck.theme");
+    var activeTheme = savedTheme === "dark" ? "dark" : "light";
+    var themeColor = activeTheme === "dark" ? "#17191d" : "#f4f5f7";
+    document.documentElement.dataset.theme = activeTheme;
+    document.documentElement.style.colorScheme = activeTheme;
+    var themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (!themeMeta) {
+      themeMeta = document.createElement("meta");
+      themeMeta.setAttribute("name", "theme-color");
+      document.head.appendChild(themeMeta);
+    }
+    themeMeta.setAttribute("content", themeColor);
+    var statusMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (!statusMeta) {
+      statusMeta = document.createElement("meta");
+      statusMeta.setAttribute("name", "apple-mobile-web-app-status-bar-style");
+      document.head.appendChild(statusMeta);
+    }
+    statusMeta.setAttribute("content", activeTheme === "dark" ? "black-translucent" : "default");
+  } catch (error) {}
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <meta name="theme-color" content="#f4f5f7" />
+        <meta
+          name="apple-mobile-web-app-status-bar-style"
+          content="black-translucent"
+        />
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
