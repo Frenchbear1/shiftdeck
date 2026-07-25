@@ -1636,7 +1636,7 @@ export default function HomePage() {
         <div className="modal-layer" role="presentation" onMouseDown={() => setShiftEditor(null)}>
           <section className="shift-sheet" role="dialog" aria-modal="true" aria-label={shiftEditor.mode === "edit" ? "Edit shift" : "Add shift"} onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><span className="eyebrow neutral">{shiftEditor.mode === "edit" ? "Your schedule" : "Manual entry"}</span><h2>{shiftEditor.mode === "edit" ? "Edit shift" : "Add a shift"}</h2></div>
+              <div><h2>{shiftEditor.mode === "edit" ? "Edit shift" : "Add a shift"}</h2></div>
               <button onClick={() => setShiftEditor(null)} aria-label="Close shift editor"><X /></button>
             </header>
             <div className="shift-fields">
