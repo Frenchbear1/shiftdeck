@@ -81,6 +81,9 @@ const formatTime = (time: string) => {
   }).format(new Date(2026, 0, 1, hours, minutes));
 };
 
+const compactTime = (time: string) =>
+  formatTime(time).replace(" AM", "a").replace(" PM", "p");
+
 const formatDate = (date: string, style: "short" | "long" = "short") =>
   new Intl.DateTimeFormat("en-US", {
     weekday: style === "long" ? "long" : "short",
@@ -237,6 +240,10 @@ export default function HomePage() {
     const timeout = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [tab]);
 
   const myShift = useMemo(
     () => getWorkingShift(selectedDate, prefs.person),
@@ -681,6 +688,58 @@ export default function HomePage() {
     </div>
   );
 
+  const selectedWeek = sampleDates.indexOf(selectedDate) >= 7 ? 1 : 0;
+  const weekDates = sampleDates.slice(selectedWeek * 7, selectedWeek * 7 + 7);
+
+  const renderMobileDatePicker = () => (
+    <div className="mobile-date-picker">
+      <label>
+        <span>Week</span>
+        <div className="mobile-select">
+          <CalendarDays size={16} />
+          <select
+            value={selectedWeek}
+            onChange={(event) => {
+              const nextWeek = Number(event.target.value);
+              const nextDates = sampleDates.slice(nextWeek * 7, nextWeek * 7 + 7);
+              const firstWorkDay =
+                nextDates.find((date) => getWorkingShift(date, prefs.person)) ??
+                nextDates[0];
+              setSelectedDate(firstWorkDay);
+            }}
+            aria-label="Choose schedule week"
+          >
+            <option value={0}>7/26 – 8/1</option>
+            <option value={1}>8/2 – 8/8</option>
+          </select>
+          <ChevronDown size={15} />
+        </div>
+      </label>
+      <label>
+        <span>Day</span>
+        <div className="mobile-select">
+          <Clock3 size={16} />
+          <select
+            value={selectedDate}
+            onChange={(event) => setSelectedDate(event.target.value)}
+            aria-label="Choose schedule day"
+          >
+            {weekDates.map((date) => {
+              const day = compactDay(date);
+              const shift = getWorkingShift(date, prefs.person);
+              return (
+                <option value={date} key={date}>
+                  {day.weekday} {date.slice(5).replace("-", "/")} · {shift ? `${compactTime(shift.start)}–${compactTime(shift.end)}` : "Off"}
+                </option>
+              );
+            })}
+          </select>
+          <ChevronDown size={15} />
+        </div>
+      </label>
+    </div>
+  );
+
   const renderHome = () => (
     <div className="page-stack">
       <section className="hero-card">
@@ -751,6 +810,7 @@ export default function HomePage() {
             Manage
           </button>
         </div>
+        {renderMobileDatePicker()}
         {renderDateRail()}
       </section>
 
@@ -802,52 +862,97 @@ export default function HomePage() {
           <h1>Workers</h1>
           <p>Two hours before your shift through two hours after.</p>
         </div>
-        <div className="date-stepper">
+        <div className="date-stepper desktop-date-stepper">
           <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
           <span>{formatDate(selectedDate)}</span>
           <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
         </div>
       </header>
+      {renderMobileDatePicker()}
       {renderDateRail(true)}
       {myShift && timeline ? (
         <section className="panel timeline-panel">
-          <div className="timeline-key">
-            <span><i className="key-mine" /> You</span>
-            <span><i className="key-same" /> Same hours</span>
-            <span><i className="key-overlap" /> Overlap</span>
-          </div>
-          <div className="timeline-axis">
-            {timeline.labels.map((label) => (
-              <span style={{ left: `${label.left}%` }} key={`${label.left}-${label.label}`}>
-                {label.label}
-              </span>
-            ))}
-          </div>
-          <div className="timeline-grid">
-            {timeline.labels.map((label) => (
-              <i style={{ left: `${label.left}%` }} key={label.left} />
-            ))}
-          </div>
-          <div className="timeline-rows">
-            {timeline.groups.map((group) => (
-              <div className="timeline-row" key={group.key}>
-                <div className="timeline-names">
-                  {group.shifts.map((shift) => (
-                    <span key={shift.id}>
-                      {shift.worker === prefs.person ? "You" : shift.worker}
+          <div className="desktop-timeline">
+            <div className="timeline-key">
+              <span><i className="key-mine" /> You</span>
+              <span><i className="key-same" /> Same hours</span>
+              <span><i className="key-overlap" /> Overlap</span>
+            </div>
+            <div className="timeline-axis">
+              {timeline.labels.map((label) => (
+                <span style={{ left: `${label.left}%` }} key={`${label.left}-${label.label}`}>
+                  {label.label}
+                </span>
+              ))}
+            </div>
+            <div className="timeline-grid">
+              {timeline.labels.map((label) => (
+                <i style={{ left: `${label.left}%` }} key={label.left} />
+              ))}
+            </div>
+            <div className="timeline-rows">
+              {timeline.groups.map((group) => (
+                <div className="timeline-row" key={group.key}>
+                  <div className="timeline-names">
+                    {group.shifts.map((shift) => (
+                      <span key={shift.id}>
+                        {shift.worker === prefs.person ? "You" : shift.worker}
+                      </span>
+                    ))}
+                  </div>
+                  <div
+                    className={`shift-bar ${group.relation}`}
+                    style={{ left: `${group.left}%`, width: `${Math.max(group.width, 3)}%` }}
+                  >
+                    <span>
+                      {formatTime(group.shifts[0].start)}–{formatTime(group.shifts[0].end)}
                     </span>
-                  ))}
+                    {group.shifts.length > 1 && <b>{group.shifts.length} together</b>}
+                  </div>
                 </div>
-                <div
-                  className={`shift-bar ${group.relation}`}
-                  style={{ left: `${group.left}%`, width: `${Math.max(group.width, 3)}%` }}
-                >
-                  <span>
-                    {formatTime(group.shifts[0].start)}–{formatTime(group.shifts[0].end)}
+              ))}
+            </div>
+          </div>
+          <div className="mobile-crew-list">
+            {timeline.groups.map((group) => (
+              <article className={`mobile-shift-card ${group.relation}`} key={group.key}>
+                <div className="mobile-shift-top">
+                  <span className="mobile-group-avatar">
+                    {group.shifts.length > 1 ? group.shifts.length : initials(group.shifts[0].worker)}
                   </span>
-                  {group.shifts.length > 1 && <b>{group.shifts.length} together</b>}
+                  <div>
+                    <b>
+                      {group.shifts
+                        .map((shift) => shift.worker === prefs.person ? "You" : shift.worker.split(" ")[0])
+                        .join(", ")}
+                    </b>
+                    <small>
+                      {group.relation === "mine"
+                        ? "Your shift"
+                        : group.relation === "same"
+                          ? "Same hours as you"
+                          : group.relation === "start"
+                            ? "Starts with you"
+                            : group.relation === "end"
+                              ? "Leaves with you"
+                              : "Overlaps your shift"}
+                    </small>
+                  </div>
+                  <strong>
+                    {formatTime(group.shifts[0].start)}
+                    <i />
+                    {formatTime(group.shifts[0].end)}
+                  </strong>
                 </div>
-              </div>
+                <div className="mobile-shift-track">
+                  <i
+                    style={{
+                      marginLeft: `${group.left}%`,
+                      width: `${Math.max(group.width, 4)}%`,
+                    }}
+                  />
+                </div>
+              </article>
             ))}
           </div>
         </section>
@@ -906,12 +1011,13 @@ export default function HomePage() {
           <h1>Flights</h1>
           <p>Afternoon and evening rows from the blue flight board.</p>
         </div>
-        <div className="date-stepper">
+        <div className="date-stepper desktop-date-stepper">
           <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
           <span>{formatDate(selectedDate)}</span>
           <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
         </div>
       </header>
+      {renderMobileDatePicker()}
       {renderDateRail(true)}
       <section className="flight-summary">
         <div>

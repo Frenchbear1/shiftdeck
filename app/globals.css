@@ -222,7 +222,9 @@ main {
 }
 
 .mobile-header,
-.bottom-nav {
+.bottom-nav,
+.mobile-date-picker,
+.mobile-crew-list {
   display: none;
 }
 
@@ -532,6 +534,10 @@ main {
 .date-rail.compact {
   grid-auto-columns: minmax(58px, 1fr);
   padding: 0;
+}
+
+.mobile-select {
+  position: relative;
 }
 
 .date-pill {
@@ -1661,7 +1667,11 @@ main {
 }
 
 @media (max-width: 720px) {
+  html,
   body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
     font-size: 14px;
   }
 
@@ -1752,6 +1762,7 @@ main {
 
   .content-wrap {
     width: auto;
+    max-width: 100%;
     padding: 18px 13px 96px;
   }
 
@@ -1760,15 +1771,15 @@ main {
   }
 
   .hero-card {
-    min-height: 380px;
+    min-height: 0;
     padding: 28px 23px;
     border-radius: 23px;
   }
 
   .hero-card h1 {
     margin-top: 24px;
-    font-size: 48px;
-    letter-spacing: -2.6px;
+    font-size: clamp(39px, 12.5vw, 49px);
+    letter-spacing: -2.3px;
   }
 
   .hero-card > p {
@@ -1836,13 +1847,81 @@ main {
     grid-template-columns: 38px 1fr 38px;
   }
 
+  .desktop-date-stepper,
   .date-rail {
-    grid-auto-columns: 64px;
+    display: none;
   }
 
-  .date-rail.compact {
-    margin: 0 -13px;
-    padding: 0 13px;
+  .mobile-date-picker {
+    display: grid;
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.25fr);
+    gap: 8px;
+    padding: 10px;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 10px 28px rgba(31, 37, 49, .08);
+    backdrop-filter: blur(14px);
+  }
+
+  .page-stack > .mobile-date-picker {
+    position: sticky;
+    top: 75px;
+    z-index: 25;
+  }
+
+  .week-panel .mobile-date-picker {
+    margin-top: 16px;
+  }
+
+  .mobile-date-picker label {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+  }
+
+  .mobile-date-picker label > span {
+    padding-left: 3px;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .mobile-select {
+    min-width: 0;
+    height: 45px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    color: var(--blue);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+  }
+
+  .mobile-select select {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    overflow: hidden;
+    color: var(--text);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    appearance: none;
+    font-size: 12px;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-select > svg:last-child {
+    color: var(--muted);
   }
 
   .person-row {
@@ -1855,29 +1934,137 @@ main {
   }
 
   .timeline-panel {
-    padding: 16px 10px;
-    overflow-x: auto;
+    padding: 14px;
+    overflow: hidden;
   }
 
-  .timeline-key {
-    justify-content: flex-start;
-    margin-left: 100px;
+  .desktop-timeline {
+    display: none;
   }
 
-  .timeline-axis,
-  .timeline-rows {
-    min-width: 580px;
-    margin-left: 100px;
+  .mobile-crew-list {
+    display: grid;
+    gap: 9px;
   }
 
-  .timeline-grid {
-    inset: 88px 10px 20px 110px;
-    min-width: 580px;
+  .mobile-shift-card {
+    position: relative;
+    overflow: hidden;
+    padding: 13px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 15px;
   }
 
-  .timeline-names {
-    width: 90px;
+  .mobile-shift-card::before {
+    content: "";
+    width: 4px;
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--violet);
+  }
+
+  .mobile-shift-card.mine {
+    background: var(--blue-soft);
+    border-color: color-mix(in srgb, var(--blue) 28%, transparent);
+  }
+
+  .mobile-shift-card.mine::before {
+    background: var(--blue);
+  }
+
+  .mobile-shift-card.same::before {
+    background: var(--green);
+  }
+
+  .mobile-shift-card.start::before,
+  .mobile-shift-card.end::before {
+    background: var(--amber);
+  }
+
+  .mobile-shift-top {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .mobile-group-avatar {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    color: var(--blue);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
     font-size: 10px;
+    font-weight: 850;
+  }
+
+  .mobile-shift-top > div {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  .mobile-shift-top b,
+  .mobile-shift-top small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-shift-top b {
+    font-size: 13px;
+  }
+
+  .mobile-shift-top small {
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .mobile-shift-top strong {
+    display: grid;
+    grid-template-columns: auto 12px auto;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .mobile-shift-top strong i {
+    height: 1px;
+    background: var(--muted);
+  }
+
+  .mobile-shift-track {
+    height: 4px;
+    overflow: hidden;
+    margin-top: 11px;
+    background: var(--surface-3);
+    border-radius: 999px;
+  }
+
+  .mobile-shift-track i {
+    height: 100%;
+    display: block;
+    background: var(--violet);
+    border-radius: inherit;
+  }
+
+  .mobile-shift-card.mine .mobile-shift-track i {
+    background: var(--blue);
+  }
+
+  .mobile-shift-card.same .mobile-shift-track i {
+    background: var(--green);
+  }
+
+  .mobile-shift-card.start .mobile-shift-track i,
+  .mobile-shift-card.end .mobile-shift-track i {
+    background: var(--amber);
   }
 
   .roster-grid {
@@ -1902,7 +2089,7 @@ main {
   }
 
   .flight-card {
-    grid-template-columns: 80px 1fr;
+    grid-template-columns: 76px minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
   }
@@ -1912,7 +2099,9 @@ main {
   }
 
   .route {
-    grid-template-columns: 42px 1fr 54px;
+    min-width: 0;
+    grid-template-columns: 38px minmax(34px, 1fr) 48px;
+    gap: 6px;
   }
 
   .route b {
@@ -1936,7 +2125,11 @@ main {
   }
 
   .review-row {
-    grid-template-columns: 32px 1fr 1fr 32px;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) 28px;
+    gap: 8px;
+    padding: 11px 9px;
   }
 
   .review-row > label:nth-of-type(2) {
@@ -1996,6 +2189,26 @@ main {
     width: calc(100% - 30px);
     justify-content: center;
     text-align: center;
+  }
+}
+
+@media (max-width: 350px) {
+  .hero-card {
+    padding: 25px 20px;
+  }
+
+  .hero-card h1 {
+    font-size: 33px;
+    letter-spacing: -1.7px;
+    white-space: nowrap;
+  }
+
+  .mobile-date-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .page-stack > .mobile-date-picker {
+    position: static;
   }
 }
 
