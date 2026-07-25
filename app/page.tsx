@@ -70,8 +70,6 @@ const DEFAULT_PREFS: Preferences = {
   notes: "Imported from Shiftdeck",
 };
 
-const workers = Array.from(new Set(sampleShifts.map((shift) => shift.worker)));
-
 const toMinutes = (time: string) => {
   if (!time) return 0;
   const [hours, minutes] = time.split(":").map(Number);
@@ -106,8 +104,8 @@ const compactDay = (date: string) => {
   };
 };
 
-const getWorkingShift = (date: string, person: string) =>
-  sampleShifts.find(
+const getWorkingShift = (shifts: Shift[], date: string, person: string) =>
+  shifts.find(
     (shift) =>
       shift.date === date && shift.worker === person && shift.status === "working",
   );
@@ -135,18 +133,18 @@ const fingerprint = (event: CalendarEvent) =>
     .toLowerCase()
     .replace(/\s+/g, "-");
 
-const initialEvents = () =>
-  sampleShifts
+const eventsFor = (shifts: Shift[], person: string, title: string) =>
+  shifts
     .filter(
       (shift) =>
-        shift.worker === DEFAULT_PREFS.person && shift.status === "working",
+        shift.worker === person && shift.status === "working",
     )
     .map((shift) => ({
       id: shift.id,
       date: shift.date,
       start: shift.start,
       end: shift.end,
-      title: DEFAULT_PREFS.title,
+      title,
       selected: true,
     }));
 
@@ -183,7 +181,8 @@ export default function HomePage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [selectedDate, setSelectedDate] = useState("2026-07-26");
-  const [events, setEvents] = useState<CalendarEvent[]>(initialEvents);
+  const [importedDates, setImportedDates] = useState<string[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showAllFlights, setShowAllFlights] = useState(false);
   const [importState, setImportState] = useState<
@@ -207,29 +206,35 @@ export default function HomePage() {
       const savedPrefs = localStorage.getItem("shiftdeck.preferences");
       const savedTheme = localStorage.getItem("shiftdeck.theme");
       const savedFeed = localStorage.getItem("shiftdeck.calendarFeed");
+      const savedDates = localStorage.getItem("shiftdeck.activeDates");
+      let parsedPrefs = DEFAULT_PREFS;
+      let parsedDates: string[] = [];
       if (savedPrefs) {
         try {
-          const parsed = { ...DEFAULT_PREFS, ...JSON.parse(savedPrefs) };
-          setPrefs(parsed);
-          setEvents(
-            sampleShifts
-              .filter(
-                (shift) =>
-                  shift.worker === parsed.person && shift.status === "working",
-              )
-              .map((shift) => ({
-                id: shift.id,
-                date: shift.date,
-                start: shift.start,
-                end: shift.end,
-                title: parsed.title,
-                selected: true,
-              })),
-          );
+          parsedPrefs = { ...DEFAULT_PREFS, ...JSON.parse(savedPrefs) };
+          setPrefs(parsedPrefs);
         } catch {
           // A malformed local preference should never block the schedule.
         }
       }
+      if (savedDates) {
+        try {
+          parsedDates = JSON.parse(savedDates).filter((date: unknown) =>
+            typeof date === "string" && sampleDates.includes(date),
+          );
+          setImportedDates(parsedDates);
+          setSelectedDate(parsedDates[0] ?? "2026-07-26");
+        } catch {
+          localStorage.removeItem("shiftdeck.activeDates");
+        }
+      }
+      setEvents(
+        eventsFor(
+          sampleShifts.filter((shift) => parsedDates.includes(shift.date)),
+          parsedPrefs.person,
+          parsedPrefs.title,
+        ),
+      );
       if (savedFeed) {
         try {
           setCalendarFeed(JSON.parse(savedFeed));
@@ -268,17 +273,41 @@ export default function HomePage() {
     setShowAllFlights(false);
   }, [selectedDate, prefs.person]);
 
+  const importedDateSet = useMemo(() => new Set(importedDates), [importedDates]);
+
+  const scheduleDates = useMemo(
+    () => sampleDates.filter((date) => importedDateSet.has(date)),
+    [importedDateSet],
+  );
+
+  const importedShifts = useMemo(
+    () => sampleShifts.filter((shift) => importedDateSet.has(shift.date)),
+    [importedDateSet],
+  );
+
+  const importedFlights = useMemo(
+    () => sampleFlights.filter((flight) => importedDateSet.has(flight.date)),
+    [importedDateSet],
+  );
+
+  const availableWorkers = useMemo(() => {
+    const names = Array.from(new Set(importedShifts.map((shift) => shift.worker)));
+    return names.length ? names : [prefs.person];
+  }, [importedShifts, prefs.person]);
+
+  const hasSchedule = scheduleDates.length > 0;
+
   const myShift = useMemo(
-    () => getWorkingShift(selectedDate, prefs.person),
-    [selectedDate, prefs.person],
+    () => getWorkingShift(importedShifts, selectedDate, prefs.person),
+    [importedShifts, selectedDate, prefs.person],
   );
 
   const dayShifts = useMemo(
     () =>
-      sampleShifts.filter(
+      importedShifts.filter(
         (shift) => shift.date === selectedDate && shift.status === "working",
       ),
-    [selectedDate],
+    [importedShifts, selectedDate],
   );
 
   const overlapping = useMemo(() => {
@@ -293,10 +322,10 @@ export default function HomePage() {
 
   const dayFlights = useMemo(
     () =>
-      sampleFlights
+      importedFlights
         .filter((flight) => flight.date === selectedDate)
         .sort((a, b) => toMinutes(a.start) - toMinutes(b.start)),
-    [selectedDate],
+    [importedFlights, selectedDate],
   );
 
   const flightsDuringShift = useMemo(() => {
@@ -315,12 +344,13 @@ export default function HomePage() {
   const selectedEvents = events.filter((event) => event.selected);
 
   const jumpDate = (amount: number) => {
-    const current = sampleDates.indexOf(selectedDate);
+    if (!scheduleDates.length) return;
+    const current = Math.max(0, scheduleDates.indexOf(selectedDate));
     const next = Math.min(
-      sampleDates.length - 1,
+      scheduleDates.length - 1,
       Math.max(0, current + amount),
     );
-    setSelectedDate(sampleDates[next]);
+    setSelectedDate(scheduleDates[next]);
   };
 
   const savePrefs = (next: Partial<Preferences>) => {
@@ -330,18 +360,7 @@ export default function HomePage() {
       const person = next.person ?? prefs.person;
       const title = next.title ?? prefs.title;
       setEvents(
-        sampleShifts
-          .filter(
-            (shift) => shift.worker === person && shift.status === "working",
-          )
-          .map((shift) => ({
-            id: shift.id,
-            date: shift.date,
-            start: shift.start,
-            end: shift.end,
-            title,
-            selected: true,
-          })),
+        eventsFor(importedShifts, person, title),
       );
     }
   };
@@ -355,6 +374,9 @@ export default function HomePage() {
   };
 
   const loadDetectedWeeks = (detectedDates: string[]) => {
+    const nextDates = sampleDates.filter((date) =>
+      new Set([...importedDates, ...detectedDates]).has(date),
+    );
     const matching = sampleShifts
       .filter(
         (shift) =>
@@ -381,6 +403,8 @@ export default function HomePage() {
       });
       setSelectedDate(detectedDates[0]);
     }
+    setImportedDates(nextDates);
+    localStorage.setItem("shiftdeck.activeDates", JSON.stringify(nextDates));
     return matching.length;
   };
 
@@ -502,11 +526,13 @@ export default function HomePage() {
       "shiftdeck.importHashes",
       "shiftdeck.exportedEvents",
       "shiftdeck.calendarFeed",
+      "shiftdeck.activeDates",
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
     setTheme("light");
     setSelectedDate("2026-07-26");
-    setEvents(initialEvents());
+    setImportedDates([]);
+    setEvents([]);
     setImportState("idle");
     setImportProgress(0);
     setImportMessage("");
@@ -750,9 +776,9 @@ export default function HomePage() {
 
   const renderDateRail = (compact = false, mobileTape = false) => (
     <div className={`date-rail ${compact ? "compact" : ""} ${mobileTape ? "mobile-tape" : ""}`}>
-      {sampleDates.map((date) => {
+      {scheduleDates.map((date) => {
         const day = compactDay(date);
-        const userShift = getWorkingShift(date, prefs.person);
+        const userShift = getWorkingShift(importedShifts, date, prefs.person);
         return (
           <button
             className={`date-pill ${selectedDate === date ? "active" : ""}`}
@@ -785,7 +811,7 @@ export default function HomePage() {
               const nextWeek = Number(event.target.value);
               const nextDates = sampleDates.slice(nextWeek * 7, nextWeek * 7 + 7);
               const firstWorkDay =
-                nextDates.find((date) => getWorkingShift(date, prefs.person)) ??
+                nextDates.find((date) => getWorkingShift(importedShifts, date, prefs.person)) ??
                 nextDates[0];
               setSelectedDate(firstWorkDay);
             }}
@@ -808,7 +834,7 @@ export default function HomePage() {
           >
             {weekDates.map((date) => {
               const day = compactDay(date);
-              const shift = getWorkingShift(date, prefs.person);
+              const shift = getWorkingShift(importedShifts, date, prefs.person);
               return (
                 <option value={date} key={date}>
                   {day.weekday} {date.slice(5).replace("-", "/")} · {shift ? `${compactTime(shift.start)}–${compactTime(shift.end)}` : "Off"}
@@ -892,7 +918,15 @@ export default function HomePage() {
             Manage
           </button>
         </div>
-        {renderDateRail(false, true)}
+        {hasSchedule ? (
+          renderDateRail(false, true)
+        ) : (
+          <EmptyState
+            icon={<Upload />}
+            title="Nothing imported"
+            copy="Upload a schedule photo to populate the day cards."
+          />
+        )}
       </section>
 
       <section className="panel">
@@ -1052,7 +1086,7 @@ export default function HomePage() {
           <span className="count-badge">{dayShifts.length} working</span>
         </div>
         <div className="roster-grid">
-          {sampleShifts
+          {importedShifts
             .filter((shift) => shift.date === selectedDate)
             .sort((a, b) => {
               if (a.worker === prefs.person) return -1;
@@ -1412,7 +1446,7 @@ export default function HomePage() {
             <label>
               <span>Your name on the schedule</span>
               <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
-                {workers.map((worker) => <option key={worker}>{worker}</option>)}
+                {availableWorkers.map((worker) => <option key={worker}>{worker}</option>)}
               </select>
               <ChevronDown />
             </label>
