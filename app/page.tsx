@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Trash2,
   Upload,
   UsersRound,
   X,
@@ -188,6 +189,7 @@ export default function HomePage() {
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [duplicateNotice, setDuplicateNotice] = useState("");
   const [duplicateExportCount, setDuplicateExportCount] = useState(0);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -475,6 +477,28 @@ export default function HomePage() {
         selected: true,
       },
     ]);
+  };
+
+  const clearAllData = () => {
+    [
+      "shiftdeck.preferences",
+      "shiftdeck.theme",
+      "shiftdeck.importHashes",
+      "shiftdeck.exportedEvents",
+    ].forEach((key) => localStorage.removeItem(key));
+    setPrefs(DEFAULT_PREFS);
+    setTheme("light");
+    setSelectedDate("2026-07-26");
+    setEvents(initialEvents());
+    setImportState("idle");
+    setImportProgress(0);
+    setImportMessage("");
+    setLoadedFiles([]);
+    setDuplicateNotice("");
+    setDuplicateExportCount(0);
+    setClearConfirmOpen(false);
+    setSettingsOpen(false);
+    setToast("All Shiftdeck data cleared from this device");
   };
 
   const buildCalendar = () => {
@@ -1243,11 +1267,11 @@ export default function HomePage() {
         </div>
         <div className="account-note">
           <Info />
-          <p>Apple chooses the actual iCloud, Google, or Exchange calendar when you open the file. Shiftdeck remembers your preferred label, and Apple Calendar will ask where to add it.</p>
+          <p>Apple does not let a website silently write into Calendar. Shiftdeck uses the closest iPhone-safe path: share or download an ICS file, then Apple asks which iCloud, Google, or Exchange calendar should receive it.</p>
         </div>
         <button className="button primary export-button" onClick={() => void exportCalendar()}>
           <CalendarDays />
-          Export {selectedEvents.length} shift{selectedEvents.length === 1 ? "" : "s"} to Apple Calendar
+          Share {selectedEvents.length} shift{selectedEvents.length === 1 ? "" : "s"} with Apple Calendar
         </button>
         <p className="duplicate-promise"><ShieldCheck size={14} /> Duplicate fingerprints are checked before every export on this device.</p>
       </section>
@@ -1332,7 +1356,28 @@ export default function HomePage() {
               </select>
               <ChevronDown />
             </label>
+            <div className="danger-zone">
+              <div>
+                <b>Clear app data</b>
+                <p>Resets saved preferences, import history, and duplicate warnings on this device.</p>
+              </div>
+              <button className="button danger subtle" onClick={() => setClearConfirmOpen(true)}><Trash2 /> Clear all data</button>
+            </div>
             <button className="button primary" onClick={() => { setSettingsOpen(false); setToast("Preferences saved on this device"); }}><Check /> Save preferences</button>
+          </section>
+        </div>
+      )}
+
+      {clearConfirmOpen && (
+        <div className="modal-layer" role="presentation" onMouseDown={() => setClearConfirmOpen(false)}>
+          <section className="confirm-card" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="confirm-icon danger"><Trash2 /></span>
+            <h2>Clear all app data?</h2>
+            <p>This resets saved settings, upload history, and duplicate export warnings on this device. It will not remove anything already added to Apple Calendar.</p>
+            <div>
+              <button className="button soft" onClick={() => setClearConfirmOpen(false)}>Cancel</button>
+              <button className="button danger" onClick={clearAllData}>Clear everything</button>
+            </div>
           </section>
         </div>
       )}
