@@ -294,6 +294,37 @@ main {
   color: var(--blue);
 }
 
+.hero-topline {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.hero-edit {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: white;
+  background: rgba(255,255,255,.13);
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.hero-edit:hover {
+  background: rgba(255,255,255,.2);
+  transform: translateY(-1px);
+}
+
+.hero-edit svg {
+  width: 13px;
+}
+
 .hero-card h1 {
   margin: 28px 0 8px;
   font-size: clamp(46px, 6vw, 76px);
@@ -1302,35 +1333,7 @@ main {
   width: 17px;
 }
 
-.calendar-current {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 7px;
-}
-
-.calendar-current svg {
-  width: 14px;
-}
-
-.compact-shift-list {
-  display: grid;
-  gap: 8px;
-}
-
-.compact-shift-row {
-  display: grid;
-  grid-template-columns: minmax(118px, 1.35fr) minmax(76px, .8fr) minmax(76px, .8fr);
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  padding: 10px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-}
-
-.compact-shift-row label,
+.shift-fields label,
 .export-fields label,
 .settings-sheet > label {
   position: relative;
@@ -1339,7 +1342,7 @@ main {
   min-width: 0;
 }
 
-.compact-shift-row label > span,
+.shift-fields label > span,
 .export-fields label > span,
 .settings-sheet > label > span {
   color: var(--muted);
@@ -1347,7 +1350,7 @@ main {
   font-weight: 750;
 }
 
-.compact-shift-row input,
+.shift-fields input,
 .export-fields input,
 .export-fields select,
 .settings-sheet input,
@@ -1363,7 +1366,7 @@ main {
   outline: 0;
 }
 
-.compact-shift-row input:focus,
+.shift-fields input:focus,
 .export-fields input:focus,
 .export-fields select:focus,
 .settings-sheet input:focus,
@@ -1371,16 +1374,26 @@ main {
   border-color: var(--blue);
 }
 
-.compact-shift-row input {
-  display: block;
-  max-width: 100%;
-  padding: 0 8px;
-  font-size: 16px;
-}
-
+.shift-fields,
 .export-fields {
   display: grid;
   gap: 12px;
+}
+
+.shift-fields > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.shift-actions {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+}
+
+.shift-actions .button:only-child {
+  grid-column: 1 / -1;
 }
 
 .export-fields select,
@@ -1457,6 +1470,7 @@ main {
 
 .settings-sheet,
 .export-sheet,
+.shift-sheet,
 .confirm-card {
   width: min(470px, 100%);
   padding: 25px;
@@ -1477,7 +1491,8 @@ main {
 }
 
 .settings-sheet header,
-.export-sheet header {
+.export-sheet header,
+.shift-sheet header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1485,13 +1500,15 @@ main {
 }
 
 .settings-sheet header h2,
-.export-sheet header h2 {
+.export-sheet header h2,
+.shift-sheet header h2 {
   margin: 5px 0 0;
   font-size: 28px;
 }
 
 .settings-sheet header > button,
-.export-sheet header > button {
+.export-sheet header > button,
+.shift-sheet header > button {
   width: 36px;
   height: 36px;
   display: grid;
@@ -1504,7 +1521,8 @@ main {
 }
 
 .settings-sheet,
-.export-sheet {
+.export-sheet,
+.shift-sheet {
   display: grid;
   gap: 14px;
 }
@@ -1514,6 +1532,51 @@ main {
   width: 100%;
   min-height: 49px;
   margin-top: 6px;
+}
+
+.theme-setting {
+  display: grid;
+  gap: 7px;
+}
+
+.theme-setting > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.theme-setting > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.theme-setting button {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.theme-setting button.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 3px 9px rgba(20, 25, 36, .08);
+}
+
+.theme-setting svg {
+  width: 16px;
 }
 
 .danger-zone {
@@ -1867,7 +1930,7 @@ main {
 
   .date-rail.mobile-tape {
     display: grid;
-    grid-auto-columns: calc((100% - 16px) / 3);
+    grid-auto-columns: calc((100% - 32px) / 5);
     gap: 8px;
     padding: 0 1px 2px;
     scroll-padding-left: 0;
@@ -1883,8 +1946,24 @@ main {
   }
 
   .date-rail.mobile-tape .date-pill {
-    min-height: 88px;
+    min-height: 76px;
+    gap: 2px;
+    padding: 7px 3px;
+    border-radius: 13px;
     scroll-snap-align: start;
+  }
+
+  .date-rail.mobile-tape .date-pill span {
+    font-size: 9px;
+  }
+
+  .date-rail.mobile-tape .date-pill strong {
+    font-size: 20px;
+  }
+
+  .date-rail.mobile-tape .date-pill small {
+    font-size: 8px;
+    white-space: nowrap;
   }
 
   .mobile-date-picker label {
@@ -2145,13 +2224,21 @@ main {
     justify-self: stretch;
   }
 
+  .shift-fields input,
+  .export-fields input,
+  .export-fields select,
+  .settings-sheet select {
+    font-size: 16px;
+  }
+
   .modal-layer {
     align-items: end;
     padding: 0;
   }
 
   .settings-sheet,
-  .export-sheet {
+  .export-sheet,
+  .shift-sheet {
     width: 100%;
     max-height: 88vh;
     overflow-y: auto;
@@ -2212,12 +2299,8 @@ main {
     position: static;
   }
 
-  .compact-shift-row {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .compact-shift-row label:first-child {
-    grid-column: 1 / -1;
+  .shift-actions {
+    grid-template-columns: 1fr 1.35fr;
   }
 }
 

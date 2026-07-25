@@ -12,7 +12,9 @@ import {
   Home,
   Info,
   Moon,
+  Pencil,
   Plane,
+  Plus,
   Settings,
   Sparkles,
   Sun,
@@ -64,6 +66,12 @@ type CalendarRecord = {
 };
 
 type CalendarHistory = Record<string, CalendarRecord>;
+
+type ShiftDraft = {
+  date: string;
+  start: string;
+  end: string;
+};
 
 type CalendarChange =
   | {
@@ -232,6 +240,15 @@ export default function HomePage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [shiftEditor, setShiftEditor] = useState<{
+    mode: "add" | "edit";
+    eventId?: string;
+  } | null>(null);
+  const [shiftDraft, setShiftDraft] = useState<ShiftDraft>({
+    date: "2026-07-26",
+    start: "09:00",
+    end: "17:00",
+  });
   const [showAllFlights, setShowAllFlights] = useState(false);
   const [importState, setImportState] = useState<
     "idle" | "reading" | "review" | "done"
@@ -255,6 +272,7 @@ export default function HomePage() {
         "shiftdeck.calendarHistory",
       );
       const savedDates = localStorage.getItem("shiftdeck.activeDates");
+      const savedEvents = localStorage.getItem("shiftdeck.events");
       let parsedPrefs = DEFAULT_PREFS;
       let parsedDates: string[] = [];
       if (savedPrefs) {
@@ -275,8 +293,9 @@ export default function HomePage() {
       }
       if (savedDates) {
         try {
-          parsedDates = JSON.parse(savedDates).filter((date: unknown) =>
-            typeof date === "string" && sampleDates.includes(date),
+          parsedDates = JSON.parse(savedDates).filter(
+            (date: unknown) =>
+              typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date),
           );
           setImportedDates(parsedDates);
           setSelectedDate(parsedDates[0] ?? "2026-07-26");
@@ -284,13 +303,29 @@ export default function HomePage() {
           localStorage.removeItem("shiftdeck.activeDates");
         }
       }
-      setEvents(
-        eventsFor(
-          sampleShifts.filter((shift) => parsedDates.includes(shift.date)),
-          parsedPrefs.person,
-          parsedPrefs.title,
-        ),
+      const fallbackEvents = eventsFor(
+        sampleShifts.filter((shift) => parsedDates.includes(shift.date)),
+        parsedPrefs.person,
+        parsedPrefs.title,
       );
+      if (savedEvents) {
+        try {
+          const parsedEvents = (JSON.parse(savedEvents) as CalendarEvent[]).filter(
+            (event) =>
+              event &&
+              typeof event.id === "string" &&
+              typeof event.date === "string" &&
+              typeof event.start === "string" &&
+              typeof event.end === "string",
+          );
+          setEvents(parsedEvents);
+        } catch {
+          localStorage.removeItem("shiftdeck.events");
+          setEvents(fallbackEvents);
+        }
+      } else {
+        setEvents(fallbackEvents);
+      }
       if (savedCalendarHistory) {
         try {
           setCalendarHistory(JSON.parse(savedCalendarHistory));
@@ -315,6 +350,16 @@ export default function HomePage() {
   }, [prefs, hydrated]);
 
   useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("shiftdeck.events", JSON.stringify(events));
+  }, [events, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("shiftdeck.activeDates", JSON.stringify(importedDates));
+  }, [hydrated, importedDates]);
+
+  useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timeout);
@@ -327,13 +372,28 @@ export default function HomePage() {
   const importedDateSet = useMemo(() => new Set(importedDates), [importedDates]);
 
   const scheduleDates = useMemo(
-    () => sampleDates.filter((date) => importedDateSet.has(date)),
+    () => Array.from(importedDateSet).sort(),
+    [importedDateSet],
+  );
+
+  const baseImportedShifts = useMemo(
+    () => sampleShifts.filter((shift) => importedDateSet.has(shift.date)),
     [importedDateSet],
   );
 
   const importedShifts = useMemo(
-    () => sampleShifts.filter((shift) => importedDateSet.has(shift.date)),
-    [importedDateSet],
+    () => [
+      ...baseImportedShifts.filter((shift) => shift.worker !== prefs.person),
+      ...events.map<Shift>((event) => ({
+        id: event.id,
+        date: event.date,
+        worker: prefs.person,
+        start: event.start,
+        end: event.end,
+        status: "working",
+      })),
+    ],
+    [baseImportedShifts, events, prefs.person],
   );
 
   const importedFlights = useMemo(
@@ -347,6 +407,11 @@ export default function HomePage() {
   }, [importedShifts, prefs.person]);
 
   const hasSchedule = scheduleDates.length > 0;
+
+  const myEvent = useMemo(
+    () => events.find((event) => event.date === selectedDate),
+    [events, selectedDate],
+  );
 
   const myShift = useMemo(
     () => getWorkingShift(importedShifts, selectedDate, prefs.person),
@@ -449,6 +514,46 @@ export default function HomePage() {
     });
   }, [calendarHistory, events, pendingDates, prefs]);
 
+  const calendarReplayChanges = useMemo<CalendarChange[]>(() => {
+    const currentKeys = new Set(events.map((event) => event.calendarKey));
+    const current = events.map((event) => {
+      const exportEvent = { ...event, title: prefs.title.trim() };
+      const previous = calendarHistory[event.calendarKey];
+      return {
+        kind: "upsert" as const,
+        calendarKey: event.calendarKey,
+        event: exportEvent,
+        revision: previous?.revision ?? 0,
+        signature: eventSignature(exportEvent, prefs),
+      };
+    });
+    const cancelled = Object.values(calendarHistory)
+      .filter(
+        (record) =>
+          record.person === prefs.person &&
+          record.status === "cancelled" &&
+          !currentKeys.has(record.calendarKey),
+      )
+      .map((record) => ({
+        kind: "cancel" as const,
+        calendarKey: record.calendarKey,
+        record,
+        revision: record.revision,
+      }));
+    return [...current, ...cancelled].sort((first, second) => {
+      const firstDate =
+        first.kind === "upsert" ? first.event.date : first.record.date;
+      const secondDate =
+        second.kind === "upsert" ? second.event.date : second.record.date;
+      return firstDate.localeCompare(secondDate);
+    });
+  }, [calendarHistory, events, prefs]);
+
+  const calendarExportChanges = calendarChanges.length
+    ? calendarChanges
+    : calendarReplayChanges;
+  const canExportCalendar = calendarExportChanges.length > 0;
+
   const selectDate = (date: string) => {
     setSelectedDate(date);
     setShowAllFlights(false);
@@ -473,6 +578,25 @@ export default function HomePage() {
     }
   };
 
+  const openAddShift = () => {
+    setShiftDraft({
+      date: selectedDate,
+      start: "09:00",
+      end: "17:00",
+    });
+    setShiftEditor({ mode: "add" });
+  };
+
+  const openEditShift = () => {
+    if (!myEvent) return;
+    setShiftDraft({
+      date: myEvent.date,
+      start: myEvent.start,
+      end: myEvent.end,
+    });
+    setShiftEditor({ mode: "edit", eventId: myEvent.id });
+  };
+
   const hashFile = async (file: File) => {
     const bytes = await file.arrayBuffer();
     const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -482,9 +606,9 @@ export default function HomePage() {
   };
 
   const loadDetectedWeeks = (detectedDates: string[]) => {
-    const nextDates = sampleDates.filter((date) =>
-      new Set([...importedDates, ...detectedDates]).has(date),
-    );
+    const nextDates = Array.from(
+      new Set([...importedDates, ...detectedDates]),
+    ).sort();
     const matching = sampleShifts
       .filter(
         (shift) =>
@@ -571,11 +695,11 @@ export default function HomePage() {
       if (!detected.size) {
         setPendingDates([selectedDate]);
         setImportMessage(
-          "The photo was readable, but the grid needs a quick manual review.",
+          "The photo was readable, but no shift could be confirmed. Use the + button to add one.",
         );
         setImportProgress(100);
         setImportState("review");
-        setToast("Photo read — check the event rows before exporting");
+        setToast("Photo read — add a shift if one is missing");
         return;
       }
 
@@ -594,7 +718,7 @@ export default function HomePage() {
         `${count} of your shifts found, plus ${sampleShifts.filter((shift) => detected.has(shift.date) && shift.status === "working").length - count} coworker shifts and ${sampleFlights.filter((flight) => detected.has(flight.date)).length} flights.`,
       );
       setImportState("review");
-      setToast("Schedule ready to review");
+      setToast("Schedule imported");
     } catch {
       setPendingDates([selectedDate]);
       setImportState("review");
@@ -610,17 +734,79 @@ export default function HomePage() {
     event.target.value = "";
   };
 
-  const updateEvent = (id: string, next: Partial<CalendarEvent>) => {
-    setEvents((current) =>
-      current.map((event) => (event.id === id ? { ...event, ...next } : event)),
-    );
-    if (next.date) {
-      setPendingDates((current) =>
-        current.includes(next.date as string)
-          ? current
-          : [...current, next.date as string],
-      );
+  const saveShift = () => {
+    if (!shiftDraft.date || !shiftDraft.start || !shiftDraft.end) {
+      setToast("Add a date, start time, and stop time");
+      return;
     }
+
+    const editing = shiftEditor?.eventId
+      ? events.find((event) => event.id === shiftEditor.eventId)
+      : undefined;
+    const existingOnDate = events.find(
+      (event) =>
+        event.date === shiftDraft.date && event.id !== shiftEditor?.eventId,
+    );
+    const nextEvent: CalendarEvent = {
+      id: editing?.id ?? existingOnDate?.id ?? `manual-${Date.now()}`,
+      calendarKey: calendarKeyFor(prefs.person, shiftDraft.date),
+      date: shiftDraft.date,
+      start: shiftDraft.start,
+      end: shiftDraft.end,
+      title: prefs.title,
+    };
+
+    setEvents((current) =>
+      [
+        ...current.filter(
+          (event) =>
+            event.id !== editing?.id && event.id !== existingOnDate?.id,
+        ),
+        nextEvent,
+      ].sort((first, second) =>
+        `${first.date}${first.start}`.localeCompare(
+          `${second.date}${second.start}`,
+        ),
+      ),
+    );
+    setImportedDates((current) =>
+      Array.from(new Set([...current, shiftDraft.date])).sort(),
+    );
+    setPendingDates((current) =>
+      Array.from(
+        new Set([
+          ...current,
+          shiftDraft.date,
+          ...(editing ? [editing.date] : []),
+        ]),
+      ),
+    );
+    setSelectedDate(shiftDraft.date);
+    setImportState("review");
+    setImportMessage(
+      editing || existingOnDate
+        ? "Your shift was updated."
+        : "Your manual shift was added.",
+    );
+    setShiftEditor(null);
+    setToast(editing || existingOnDate ? "Shift updated" : "Shift added");
+  };
+
+  const deleteShift = () => {
+    const editing = shiftEditor?.eventId
+      ? events.find((event) => event.id === shiftEditor.eventId)
+      : undefined;
+    if (!editing) return;
+    setEvents((current) =>
+      current.filter((event) => event.id !== editing.id),
+    );
+    setPendingDates((current) =>
+      current.includes(editing.date) ? current : [...current, editing.date],
+    );
+    setImportState("review");
+    setImportMessage("Your shift was removed.");
+    setShiftEditor(null);
+    setToast("Shift deleted");
   };
 
   const clearAllData = () => {
@@ -632,6 +818,7 @@ export default function HomePage() {
       "shiftdeck.calendarFeed",
       "shiftdeck.calendarHistory",
       "shiftdeck.activeDates",
+      "shiftdeck.events",
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
     setTheme("light");
@@ -648,6 +835,7 @@ export default function HomePage() {
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setExportOpen(false);
+    setShiftEditor(null);
     setToast("All Shiftdeck data cleared from this device");
   };
 
@@ -717,12 +905,12 @@ export default function HomePage() {
       setToast("Add an event title first");
       return;
     }
-    if (!calendarChanges.length) {
-      setToast("Apple Calendar already has your latest exported schedule");
+    if (!calendarExportChanges.length) {
+      setToast("Add a shift before exporting");
       return;
     }
 
-    const content = buildCalendar(calendarChanges);
+    const content = buildCalendar(calendarExportChanges);
     const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -736,7 +924,7 @@ export default function HomePage() {
     }, 0);
 
     const nextHistory = { ...calendarHistory };
-    calendarChanges.forEach((change) => {
+    calendarExportChanges.forEach((change) => {
       if (change.kind === "upsert") {
         nextHistory[change.calendarKey] = {
           calendarKey: change.calendarKey,
@@ -766,7 +954,7 @@ export default function HomePage() {
     setImportState("done");
     setExportOpen(false);
     setToast(
-      calendarChanges.some((change) => change.revision > 0)
+      calendarExportChanges.some((change) => change.revision > 0)
         ? "Revised shifts are ready for Apple Calendar"
         : "Schedule is ready for Apple Calendar",
     );
@@ -899,9 +1087,16 @@ export default function HomePage() {
     <div className="page-stack">
       <section className="hero-card">
         <div className="hero-glow" />
-        <div className="eyebrow">
-          <Sparkles size={14} />
-          Next shift
+        <div className="hero-topline">
+          <div className="eyebrow">
+            <Sparkles size={14} />
+            Next shift
+          </div>
+          {myEvent && (
+            <button className="hero-edit" onClick={openEditShift} aria-label="Edit this shift">
+              <Pencil />
+            </button>
+          )}
         </div>
         <h1>{myShift ? `${formatTime(myShift.start)} – ${formatTime(myShift.end)}` : "You’re off"}</h1>
         <p>
@@ -1284,7 +1479,7 @@ export default function HomePage() {
               <b>{importState === "done" ? "Calendar ready" : "Schedule found"}</b>
               <p>{importMessage}</p>
               {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
-              {calendarChanges.length > 0 ? (
+              {canExportCalendar ? (
                 <button
                   className="button primary calendar-export-button"
                   onClick={() => setExportOpen(true)}
@@ -1293,32 +1488,10 @@ export default function HomePage() {
                   Export to Apple Calendar
                 </button>
               ) : (
-                <small className="calendar-current">
-                  <Check />
-                  No new calendar changes to export
-                </small>
+                <small>Add a shift to enable calendar export.</small>
               )}
             </div>
           </section>
-
-          <div className="compact-shift-list" aria-label="Imported shifts">
-            {events.map((event) => (
-              <article className="compact-shift-row" key={event.id}>
-                <label>
-                  <span>Date</span>
-                  <input type="date" value={event.date} onChange={(input) => updateEvent(event.id, { date: input.target.value })} />
-                </label>
-                <label>
-                  <span>Start</span>
-                  <input type="time" value={event.start} onChange={(input) => updateEvent(event.id, { start: input.target.value })} />
-                </label>
-                <label>
-                  <span>Stop</span>
-                  <input type="time" value={event.end} onChange={(input) => updateEvent(event.id, { end: input.target.value })} />
-                </label>
-              </article>
-            ))}
-          </div>
         </>
       )}
 
@@ -1339,10 +1512,7 @@ export default function HomePage() {
           <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
         </nav>
         <div className="sidebar-bottom">
-          <button onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
-            {theme === "light" ? <Moon /> : <Sun />}
-            <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
-          </button>
+          <button onClick={openAddShift}><Plus /><span>Add shift</span></button>
           <button onClick={() => setSettingsOpen(true)}><Settings /><span>Settings</span></button>
           <div className="profile-mini">
             <span>{initials(prefs.person)}</span>
@@ -1355,9 +1525,7 @@ export default function HomePage() {
         <header className="mobile-header">
           <button className="brand" onClick={() => setTab("home")}><span><Clock3 /></span><b>Shiftdeck</b></button>
           <div>
-            <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label="Toggle theme">
-              {theme === "light" ? <Moon /> : <Sun />}
-            </button>
+            <button onClick={openAddShift} aria-label="Add a shift"><Plus /></button>
             <button onClick={() => setSettingsOpen(true)} aria-label="Open settings"><Settings /></button>
           </div>
         </header>
@@ -1375,6 +1543,38 @@ export default function HomePage() {
         <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
         <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
       </nav>
+
+      {shiftEditor && (
+        <div className="modal-layer" role="presentation" onMouseDown={() => setShiftEditor(null)}>
+          <section className="shift-sheet" role="dialog" aria-modal="true" aria-label={shiftEditor.mode === "edit" ? "Edit shift" : "Add shift"} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="sheet-handle" />
+            <header>
+              <div><span className="eyebrow neutral">{shiftEditor.mode === "edit" ? "Your schedule" : "Manual entry"}</span><h2>{shiftEditor.mode === "edit" ? "Edit shift" : "Add a shift"}</h2></div>
+              <button onClick={() => setShiftEditor(null)} aria-label="Close shift editor"><X /></button>
+            </header>
+            <div className="shift-fields">
+              <label>
+                <span>Date</span>
+                <input type="date" value={shiftDraft.date} onChange={(event) => setShiftDraft((current) => ({ ...current, date: event.target.value }))} />
+              </label>
+              <div>
+                <label>
+                  <span>Start</span>
+                  <input type="time" value={shiftDraft.start} onChange={(event) => setShiftDraft((current) => ({ ...current, start: event.target.value }))} />
+                </label>
+                <label>
+                  <span>Stop</span>
+                  <input type="time" value={shiftDraft.end} onChange={(event) => setShiftDraft((current) => ({ ...current, end: event.target.value }))} />
+                </label>
+              </div>
+            </div>
+            <div className="shift-actions">
+              {shiftEditor.mode === "edit" && <button className="button danger subtle" onClick={deleteShift}><Trash2 /> Delete</button>}
+              <button className="button primary" onClick={saveShift}><Check /> {shiftEditor.mode === "edit" ? "Save changes" : "Add shift"}</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {exportOpen && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setExportOpen(false)}>
@@ -1427,6 +1627,13 @@ export default function HomePage() {
               </select>
               <ChevronDown />
             </label>
+            <div className="theme-setting">
+              <span>Appearance</span>
+              <div>
+                <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}><Sun /> Light</button>
+                <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}><Moon /> Dark</button>
+              </div>
+            </div>
             <div className="danger-zone">
               <div>
                 <b>Clear app data</b>

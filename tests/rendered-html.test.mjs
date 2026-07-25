@@ -39,8 +39,9 @@ test("server-renders the blank Shiftdeck app shell", async () => {
 });
 
 test("uses the Cycle Tracker download flow with revision-aware events", async () => {
-  const [page, hosting] = await Promise.all([
+  const [page, css, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
   ]);
 
@@ -62,8 +63,13 @@ test("uses the Cycle Tracker download flow with revision-aware events", async ()
   assert.match(page, />Reminder 2</);
   assert.match(page, /value: "P1W", label: "1 week before"/);
   assert.match(page, /new Set\(\[prefs\.reminder1, prefs\.reminder2\]/);
-  assert.match(page, /className="compact-shift-list"/);
-  assert.doesNotMatch(page, /Check before export|Your shifts|Add shift/);
+  assert.match(page, /calendarReplayChanges/);
+  assert.match(page, /aria-label="Add a shift"/);
+  assert.match(page, /aria-label="Edit this shift"/);
+  assert.match(page, /shiftdeck\.events/);
+  assert.match(page, />Appearance</);
+  assert.doesNotMatch(page, /compact-shift-list|Check before export|Your shifts|Toggle theme/);
+  assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);
   assert.doesNotMatch(page, /Subscribed calendar|Preferred calendar label/);
 
   assert.equal(JSON.parse(hosting).d1, null);
