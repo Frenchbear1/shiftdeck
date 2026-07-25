@@ -405,11 +405,11 @@ main {
 }
 
 .hero-facts > div {
-  min-width: 165px;
-  display: grid;
-  grid-template-columns: auto auto 1fr;
+  min-width: 148px;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 7px;
   padding: 13px 15px;
   background: rgba(27, 43, 103, .22);
   border: 1px solid rgba(255,255,255,.13);
@@ -424,26 +424,8 @@ main {
 .hero-facts > div > span:last-child {
   color: rgba(255,255,255,.76);
   font-size: 11px;
-}
-
-.avatar-stack {
-  display: flex;
-  min-width: 34px;
-}
-
-.avatar-stack i {
-  width: 25px;
-  height: 25px;
-  display: grid;
-  place-items: center;
-  margin-right: -9px;
-  font-style: normal;
-  font-size: 8px;
-  font-weight: 800;
-  color: #3554a3;
-  background: #fff;
-  border: 2px solid #5f78cd;
-  border-radius: 50%;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .quick-row {
@@ -1886,12 +1868,7 @@ main {
 
   .hero-facts > div {
     min-width: 0;
-    grid-template-columns: auto auto;
-    padding: 11px;
-  }
-
-  .hero-facts > div > span:last-child {
-    grid-column: 1 / -1;
+    padding: 11px 8px;
   }
 
   .quick-row {

@@ -180,7 +180,7 @@ const flightDisplay = (flight: Flight, homeAirport: string) => {
   const home = cleanAirportCode(homeAirport);
   if (flight.kind === "turnaround") {
     return {
-      time: `${formatTime(flight.arrival ?? flight.start)} / ${formatTime(flight.departure ?? flight.end ?? flight.start)}`,
+      time: `${formatTime(flight.arrival ?? flight.start)} - ${formatTime(flight.departure ?? flight.end ?? flight.start)}`,
       subtime: "arr / dep",
       left: flight.inboundAirport ?? flight.origin,
       leftLabel: "arrives from",
@@ -1181,16 +1181,10 @@ export default function HomePage() {
         </p>
         <div className="hero-facts">
           <div>
-            <span className="avatar-stack">
-              {overlapping.slice(0, 3).map((shift) => (
-                <i key={shift.id}>{initials(shift.worker)}</i>
-              ))}
-            </span>
             <b>{overlapping.length}</b>
             <span>working with you</span>
           </div>
           <div>
-            <Plane size={16} />
             <b>{flightsDuringShift.length}</b>
             <span>flights in your shift</span>
           </div>
@@ -1411,12 +1405,6 @@ export default function HomePage() {
           <div>
             <h1>Flights</h1>
           </div>
-        <span className="shift-hours-label">
-          {myShift ? `${formatTime(myShift.start)} - ${formatTime(myShift.end)}` : "Off"}
-        </span>
-        <span className="shift-hours-label stale">
-          {myShift ? `${formatTime(myShift.start)}â€“${formatTime(myShift.end)}` : "Off"}
-        </span>
         <div className="date-stepper desktop-date-stepper">
           <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
           <span>{formatDate(selectedDate)}</span>
