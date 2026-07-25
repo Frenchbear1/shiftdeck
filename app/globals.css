@@ -547,6 +547,22 @@ main {
   font-size: 15px;
 }
 
+.shift-hours-label {
+  justify-self: end;
+  margin-left: auto;
+  padding: 8px 11px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.shift-hours-label.stale {
+  display: none;
+}
+
 .text-button {
   border: 0;
   padding: 7px 0;
@@ -944,14 +960,17 @@ main {
 
 .flight-summary {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
 
 .flight-summary > div {
-  display: grid;
-  gap: 8px;
-  padding: 18px 20px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -960,23 +979,31 @@ main {
 
 .flight-summary span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 750;
   text-transform: uppercase;
   letter-spacing: .05em;
+  white-space: nowrap;
 }
 
 .flight-summary strong {
-  font-size: 24px;
+  font-size: 21px;
   letter-spacing: -.5px;
 }
 
-.flight-summary > div:last-child strong {
-  font-size: 17px;
+.flight-summary > div:last-child {
+  display: none;
 }
 
 .flight-panel-heading {
   margin-bottom: 18px;
+}
+
+.flight-heading-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .compact-toggle {
@@ -1033,7 +1060,7 @@ main {
 }
 
 .flight-card:not(.during) {
-  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-columns: 112px minmax(0, 1fr) auto;
 }
 
 .flight-card:hover {
@@ -1105,6 +1132,15 @@ main {
   transform: rotate(4deg);
 }
 
+.route-line b {
+  color: var(--blue);
+  font-size: 11px;
+}
+
+.legacy-route {
+  display: none;
+}
+
 .flight-status {
   display: flex;
   align-items: center;
@@ -1139,6 +1175,10 @@ main {
 
 .flight-note p {
   margin: 0;
+}
+
+.flight-note p:not(.flight-match-copy) {
+  display: none;
 }
 
 .privacy-badge {
@@ -1487,10 +1527,6 @@ main {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.sheet-handle {
-  display: none;
-}
-
 .settings-sheet header,
 .export-sheet header,
 .shift-sheet header {
@@ -1540,6 +1576,23 @@ main {
   gap: 7px;
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: .7fr 1.3fr;
+  gap: 10px;
+}
+
+.settings-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-grid label > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
 .theme-setting > span {
   color: var(--muted);
   font-size: 10px;
@@ -1582,34 +1635,13 @@ main {
 
 .danger-zone {
   display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 14px;
+  grid-template-columns: 1fr;
   margin-top: 4px;
-  padding: 13px;
-  background: color-mix(in srgb, var(--danger) 7%, var(--surface-2));
-  border: 1px solid color-mix(in srgb, var(--danger) 18%, var(--line));
-  border-radius: 14px;
-}
-
-.danger-zone div {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.danger-zone b {
-  font-size: 13px;
-}
-
-.danger-zone p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
+  padding: 0;
 }
 
 .danger-zone .button {
+  width: 100%;
   min-height: 41px;
   margin-top: 0;
   white-space: nowrap;
@@ -1885,12 +1917,20 @@ main {
 
   .page-title {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
     gap: 10px;
     padding: 0 4px 1px;
   }
 
   .page-title h1 {
     font-size: 35px;
+  }
+
+  .shift-hours-label {
+    margin-left: 0;
+    padding: 7px 10px;
+    font-size: 11px;
   }
 
   .date-stepper {
@@ -1933,8 +1973,8 @@ main {
     display: grid;
     grid-auto-columns: calc((100% - 32px) / 5);
     gap: 8px;
-    padding: 0 18px 12px 1px;
-    margin-bottom: -10px;
+    padding: 4px 18px 12px 1px;
+    margin: -4px 0 -10px;
     scroll-padding-left: 0;
     mask-image: linear-gradient(90deg, #000 calc(100% - 30px), transparent);
   }
@@ -1945,7 +1985,7 @@ main {
   }
 
   .page-stack > .date-rail.mobile-tape {
-    margin-top: -2px;
+    margin-top: -6px;
   }
 
   .date-rail.mobile-tape .date-pill {
@@ -2024,16 +2064,31 @@ main {
   }
 
   .person-row {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
-  .overlap-chip {
-    grid-column: 2;
-    justify-self: start;
+  .person-row > div {
+    min-width: 0;
+  }
+
+  .person-row b,
+  .person-row small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .person-row .overlap-chip {
+    justify-self: end;
+    white-space: nowrap;
   }
 
   .timeline-panel {
-    padding: 14px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     overflow: hidden;
   }
 
@@ -2172,6 +2227,22 @@ main {
 
   .flight-summary {
     grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .flight-summary > div {
+    min-height: 52px;
+    padding: 11px 13px;
+    border-radius: 14px;
+  }
+
+  .flight-summary span {
+    font-size: 9px;
+    letter-spacing: .03em;
+  }
+
+  .flight-summary strong {
+    font-size: 19px;
   }
 
   .flight-summary > div:last-child {
@@ -2190,23 +2261,23 @@ main {
   }
 
   .flight-card {
-    grid-template-columns: 70px minmax(0, 1fr);
+    grid-template-columns: 82px minmax(0, 1fr);
     gap: 10px;
     min-height: 60px;
     padding: 10px;
   }
 
   .flight-card:not(.during) {
-    grid-template-columns: 70px minmax(0, 1fr);
+    grid-template-columns: 82px minmax(0, 1fr);
   }
 
   .flight-time strong {
-    font-size: 15px;
+    font-size: 14px;
   }
 
   .route {
     min-width: 0;
-    grid-template-columns: 38px minmax(34px, 1fr) 48px;
+    grid-template-columns: 42px minmax(34px, 1fr) 42px;
     gap: 6px;
   }
 
@@ -2216,6 +2287,16 @@ main {
 
   .flight-status {
     grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .flight-heading-actions {
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr 1.45fr;
   }
 
   .privacy-badge {
@@ -2238,6 +2319,34 @@ main {
     font-size: 16px;
   }
 
+  .shift-sheet .shift-fields {
+    justify-items: start;
+  }
+
+  .shift-sheet .shift-fields label {
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .shift-sheet .shift-fields input {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .shift-sheet .shift-fields input[type="date"] {
+    min-width: 13.2em;
+  }
+
+  .shift-sheet .shift-fields input[type="time"] {
+    min-width: 9.8em;
+  }
+
+  .shift-sheet .shift-fields > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
   .modal-layer {
     align-items: end;
     padding: 0;
@@ -2255,16 +2364,6 @@ main {
 
   .reminder-grid {
     grid-template-columns: 1fr;
-  }
-
-  .sheet-handle {
-    width: 38px;
-    height: 4px;
-    display: block;
-    justify-self: center;
-    margin-bottom: 5px;
-    background: var(--line);
-    border-radius: 999px;
   }
 
   .danger-zone {

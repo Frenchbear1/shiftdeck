@@ -15,6 +15,7 @@ import {
   Pencil,
   Plane,
   Plus,
+  RefreshCw,
   Settings,
   Sparkles,
   Sun,
@@ -51,6 +52,8 @@ type Preferences = {
   reminder2: string;
   location: string;
   notes: string;
+  homeAirport: string;
+  airline: string;
 };
 
 type CalendarRecord = {
@@ -95,6 +98,8 @@ const DEFAULT_PREFS: Preferences = {
   reminder2: "",
   location: "St. Pete–Clearwater International Airport",
   notes: "Imported from Shiftdeck",
+  homeAirport: "ABE",
+  airline: "Allegiant",
 };
 
 const REMINDER_OPTIONS = [
@@ -162,6 +167,55 @@ const shiftsOverlap = (first: Shift, second: Shift) => {
     bEnd += 1440;
   }
   return aStart < bEnd && bStart < aEnd;
+};
+
+const cleanAirportCode = (value: string) =>
+  (value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) || "ABE");
+
+const flightTimes = (flight: Flight) =>
+  [flight.arrival, flight.departure, flight.start, flight.end].filter(
+    (time): time is string => Boolean(time),
+  );
+
+const flightDisplay = (flight: Flight, homeAirport: string) => {
+  const home = cleanAirportCode(homeAirport);
+  if (flight.kind === "turnaround") {
+    return {
+      time: `${formatTime(flight.arrival ?? flight.start)} / ${formatTime(flight.departure ?? flight.end ?? flight.start)}`,
+      subtime: "arr / dep",
+      left: flight.inboundAirport ?? flight.origin,
+      leftLabel: "arrives from",
+      center: home,
+      centerLabel: "turn",
+      right: flight.outboundAirport ?? flight.destination ?? "TBD",
+      rightLabel: "departs to",
+      chip: "Turnaround",
+    };
+  }
+  if (flight.kind === "departure") {
+    return {
+      time: formatTime(flight.departure ?? flight.start),
+      subtime: "departure",
+      left: home,
+      leftLabel: "home",
+      center: "",
+      centerLabel: "",
+      right: flight.outboundAirport ?? flight.destination ?? "TBD",
+      rightLabel: "to",
+      chip: "Outbound",
+    };
+  }
+  return {
+    time: formatTime(flight.arrival ?? flight.start),
+    subtime: "arrival",
+    left: flight.inboundAirport ?? flight.origin,
+    leftLabel: "from",
+    center: "",
+    centerLabel: "",
+    right: home,
+    rightLabel: "home",
+    chip: "Inbound",
+  };
 };
 
 const calendarKeyFor = (person: string, date: string) =>
@@ -261,6 +315,7 @@ export default function HomePage() {
   const [calendarHistory, setCalendarHistory] = useState<CalendarHistory>({});
   const [pendingDates, setPendingDates] = useState<string[]>([]);
   const [toast, setToast] = useState("");
+  const [flightRefreshAt, setFlightRefreshAt] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -285,6 +340,8 @@ export default function HomePage() {
             reminder2: saved.reminder2 ?? "",
             location: saved.location ?? DEFAULT_PREFS.location,
             notes: saved.notes ?? DEFAULT_PREFS.notes,
+            homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
+            airline: saved.airline ?? DEFAULT_PREFS.airline,
           };
           setPrefs(parsedPrefs);
         } catch {
@@ -576,6 +633,11 @@ export default function HomePage() {
       setEvents(eventsFor(importedShifts, next.person, updated.title));
       setShowAllFlights(false);
     }
+  };
+
+  const refreshFlightMatches = () => {
+    setFlightRefreshAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    setToast(`Refreshed ${prefs.airline || "airline"} matches for ${cleanAirportCode(prefs.homeAirport)}`);
   };
 
   const openAddShift = () => {
@@ -963,9 +1025,11 @@ export default function HomePage() {
   const isFlightDuringShift = (flight: Flight) => {
     if (!myShift) return false;
     const [start, end] = normalizedInterval(myShift.start, myShift.end);
-    let time = toMinutes(flight.start);
-    if (start > 720 && time < 360) time += 1440;
-    return time >= start && time <= end;
+    return flightTimes(flight).some((flightTime) => {
+      let time = toMinutes(flightTime);
+      if (start > 720 && time < 360) time += 1440;
+      return time >= start && time <= end;
+    });
   };
 
   const timeline = useMemo(() => {
@@ -1143,7 +1207,6 @@ export default function HomePage() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <span className="eyebrow neutral">At a glance</span>
             <h2>{myShift ? "Who overlaps your shift" : "No shift selected"}</h2>
           </div>
           <button className="text-button" onClick={() => setTab("workers")}>
@@ -1338,6 +1401,12 @@ export default function HomePage() {
           <div>
             <h1>Flights</h1>
           </div>
+        <span className="shift-hours-label">
+          {myShift ? `${formatTime(myShift.start)} - ${formatTime(myShift.end)}` : "Off"}
+        </span>
+        <span className="shift-hours-label stale">
+          {myShift ? `${formatTime(myShift.start)}â€“${formatTime(myShift.end)}` : "Off"}
+        </span>
         <div className="date-stepper desktop-date-stepper">
           <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
           <span>{formatDate(selectedDate)}</span>
@@ -1362,16 +1431,20 @@ export default function HomePage() {
       <section className="panel flight-panel">
         <div className="section-heading flight-panel-heading">
           <div>
-            <span className="eyebrow neutral">{showAllFlights || !myShift ? "Full board" : "Your shift"}</span>
             <h2>{formatDate(selectedDate, "long")}</h2>
           </div>
-          {hiddenFlightCount > 0 && (
-            <button className="button soft compact-toggle" onClick={() => setShowAllFlights((current) => !current)}>
-              {showAllFlights ? "Show shift only" : `Show all ${dayFlights.length}`}
+          <div className="flight-heading-actions">
+            <button className="button soft compact-toggle" onClick={refreshFlightMatches}>
+              <RefreshCw size={14} /> Refresh
             </button>
-          )}
+            {hiddenFlightCount > 0 && (
+              <button className="button soft compact-toggle" onClick={() => setShowAllFlights((current) => !current)}>
+                {showAllFlights ? "Show shift only" : `Show all ${dayFlights.length}`}
+              </button>
+            )}
+          </div>
         </div>
-        {(["Afternoon", "Evening"] as const).map((period) => {
+        {(["Morning", "Afternoon", "Evening"] as const).map((period) => {
           const flights = visibleFlights.filter((flight) => flight.period === period);
           if (!flights.length) return null;
           return (
@@ -1384,13 +1457,26 @@ export default function HomePage() {
               <div className="flight-list">
                 {flights.map((flight) => {
                   const during = isFlightDuringShift(flight);
+                  const display = flightDisplay(flight, prefs.homeAirport);
                   return (
                     <article className={`flight-card ${during ? "during" : "outside-shift"}`} key={flight.id}>
                       <div className="flight-time">
-                        <strong>{formatTime(flight.start)}</strong>
-                        <span>{flight.end ? `to ${formatTime(flight.end)}` : "scheduled"}</span>
+                        <strong>{display.time}</strong>
+                        <span>{display.subtime}</span>
                       </div>
-                      <div className="route">
+                      <div className={`route ${display.center ? "turnaround-route" : ""}`}>
+                        <span><b>{display.left}</b><small>{display.leftLabel}</small></span>
+                        <div className="route-line">
+                          <i />
+                          {display.center ? <b>{display.center}</b> : <Plane size={16} />}
+                          <i />
+                        </div>
+                        <span>
+                          <b>{display.right}</b>
+                          <small>{display.rightLabel}</small>
+                        </span>
+                      </div>
+                      <div className="route legacy-route">
                         <span><b>{flight.origin}</b><small>{flight.destination ? "Origin" : "Station"}</small></span>
                         <div className="route-line"><i /><Plane size={16} /><i /></div>
                         <span className={!flight.destination ? "muted-destination" : ""}>
@@ -1398,11 +1484,10 @@ export default function HomePage() {
                           <small>{flight.destination ? "Destination" : "Single time"}</small>
                         </span>
                       </div>
-                      {during && (
-                        <div className="flight-status">
-                          <span className="during-chip"><Clock3 size={13} /> In shift</span>
-                        </div>
-                      )}
+                      <div className="flight-status">
+                        <span className="during-chip">{display.chip}</span>
+                        {during && <span className="during-chip"><Clock3 size={13} /> In shift</span>}
+                      </div>
                     </article>
                   );
                 })}
@@ -1419,6 +1504,7 @@ export default function HomePage() {
         )}
         <div className="flight-note">
           <Info size={16} />
+          <p className="flight-match-copy"><b>{prefs.airline || "Airline"} at {cleanAirportCode(prefs.homeAirport)}.</b> Time + airport rows are outbound. Airport + time rows are inbound. Airport time/time airport rows are turnarounds. {flightRefreshAt ? `Last refreshed ${flightRefreshAt}. ` : ""}Exact live delay status still needs a flight-status provider or flight numbers.</p>
           <p><b>Scheduled times only.</b> The photos don’t include airline flight numbers, so live delay matching would be unreliable. A future live-status connection can be added when flight numbers are available.</p>
         </div>
       </section>
@@ -1546,7 +1632,6 @@ export default function HomePage() {
       {shiftEditor && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setShiftEditor(null)}>
           <section className="shift-sheet" role="dialog" aria-modal="true" aria-label={shiftEditor.mode === "edit" ? "Edit shift" : "Add shift"} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="sheet-handle" />
             <header>
               <div><span className="eyebrow neutral">{shiftEditor.mode === "edit" ? "Your schedule" : "Manual entry"}</span><h2>{shiftEditor.mode === "edit" ? "Edit shift" : "Add a shift"}</h2></div>
               <button onClick={() => setShiftEditor(null)} aria-label="Close shift editor"><X /></button>
@@ -1578,7 +1663,6 @@ export default function HomePage() {
       {exportOpen && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setExportOpen(false)}>
           <section className="export-sheet" role="dialog" aria-modal="true" aria-label="Export to Apple Calendar" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="sheet-handle" />
             <header>
               <div><span className="eyebrow neutral">Apple Calendar</span><h2>Export shifts</h2></div>
               <button onClick={() => setExportOpen(false)} aria-label="Close calendar export"><X /></button>
@@ -1617,8 +1701,7 @@ export default function HomePage() {
       {settingsOpen && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
           <section className="settings-sheet" role="dialog" aria-modal="true" aria-label="Settings" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="sheet-handle" />
-            <header><div><span className="eyebrow neutral">Personalize</span><h2>Settings</h2></div><button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button></header>
+            <header><div><h2>Settings</h2></div><button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button></header>
             <label>
               <span>Your name on the schedule</span>
               <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
@@ -1626,6 +1709,16 @@ export default function HomePage() {
               </select>
               <ChevronDown />
             </label>
+            <div className="settings-grid">
+              <label>
+                <span>Home airport</span>
+                <input value={prefs.homeAirport} maxLength={4} onChange={(event) => savePrefs({ homeAirport: cleanAirportCode(event.target.value) })} placeholder="ABE" />
+              </label>
+              <label>
+                <span>Airline</span>
+                <input value={prefs.airline} onChange={(event) => savePrefs({ airline: event.target.value })} placeholder="Allegiant" />
+              </label>
+            </div>
             <div className="theme-setting">
               <span>Appearance</span>
               <div>
@@ -1634,10 +1727,6 @@ export default function HomePage() {
               </div>
             </div>
             <div className="danger-zone">
-              <div>
-                <b>Clear app data</b>
-                <p>Resets saved preferences, imports, and calendar revision history on this device.</p>
-              </div>
               <button className="button danger subtle" onClick={() => setClearConfirmOpen(true)}><Trash2 /> Clear all data</button>
             </div>
             <button className="button primary" onClick={() => { setSettingsOpen(false); setToast("Preferences saved on this device"); }}><Check /> Save preferences</button>

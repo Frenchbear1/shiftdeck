@@ -13,10 +13,15 @@ export type Shift = {
 export type Flight = {
   id: string;
   date: string;
-  period: "Afternoon" | "Evening";
+  period: "Morning" | "Afternoon" | "Evening";
+  kind: "departure" | "arrival" | "turnaround";
   raw: string;
   origin: string;
   destination?: string;
+  inboundAirport?: string;
+  outboundAirport?: string;
+  arrival?: string;
+  departure?: string;
   start: string;
   end?: string;
 };
@@ -117,8 +122,9 @@ export const sampleShifts: Shift[] = [
   ...makeShifts(weekTwo, dates.slice(7)),
 ];
 
-const flightRows: Record<string, { afternoon: string[]; evening: string[] }> = {
+const flightRows: Record<string, { morning: string[]; afternoon: string[]; evening: string[] }> = {
   "2026-07-26": {
+    morning: ["0600 SFB", "0630 PIE", "0800 MCO", "SRQ 0858/0948 SRQ"],
     afternoon: [
       "PGD 1111/1201 PGD",
       "SFB 1139/1229 BNA",
@@ -129,15 +135,18 @@ const flightRows: Record<string, { afternoon: string[]; evening: string[] }> = {
     evening: ["SC ACY 1884/1924 GPT", "RSW 2123", "MYR 2306", "SFB 2339"],
   },
   "2026-07-27": {
+    morning: ["0600 MLB", "0730 DEN", "0900 SFB", "PGD 0941/1031 PGD"],
     afternoon: ["MLB 1146/1236 MYR", "SFB 1441/1531 PIE", "DEN 1548/1638 FLL"],
     evening: ["SFB 1959/2049 SFB", "PIE 2128", "MYR 2225", "FLL 2310"],
   },
-  "2026-07-28": { afternoon: [], evening: [] },
+  "2026-07-28": { morning: ["SFB 0928/1018 SFB"], afternoon: [], evening: [] },
   "2026-07-29": {
+    morning: ["0800 SFB", "0830 MYR"],
     afternoon: ["MYR 1240/1330 PIE", "SFB 1341"],
     evening: ["PIE 1927"],
   },
   "2026-07-30": {
+    morning: ["0600 SFB", "0630 PIE", "0800 MCO", "SRQ 0938/1028 SRQ"],
     afternoon: [
       "PGD 1111/1201 PGD",
       "SFB 1139/1229 BNA",
@@ -149,14 +158,17 @@ const flightRows: Record<string, { afternoon: string[]; evening: string[] }> = {
     evening: ["RSW 2123", "MYR 2306", "SFB 2339"],
   },
   "2026-07-31": {
+    morning: ["0600 MLB", "0735 FLL", "0900 SFB", "PGD 0941/1031 PGD"],
     afternoon: ["MLB 1146/1236 MYR", "FLL 1407/1457 DEN", "SFB 1441/1531 PIE"],
     evening: ["SFB 1959/2049 SFB", "PIE 2128", "MYR 2225", "DEN 2315"],
   },
   "2026-08-01": {
+    morning: ["0630 MYR", "0825 PIE", "PGD 0851/0941 PGD", "1000 MYR"],
     afternoon: ["PIE 1422/1512 SFB", "MYR 1524/1755 SFB"],
     evening: ["MYR 1949", "SFB 2053", "SFB 2336"],
   },
   "2026-08-02": {
+    morning: ["0600 SFB", "0630 PIE", "0800 MCO", "SRQ 0858/0948 SRQ"],
     afternoon: [
       "PGD 1111/1201 PGD",
       "SFB 1139/1229 BNA",
@@ -167,12 +179,14 @@ const flightRows: Record<string, { afternoon: string[]; evening: string[] }> = {
     evening: ["RSW 2123", "MYR 2306", "SFB 2339"],
   },
   "2026-08-03": {
+    morning: ["0600 MLB", "0735 FLL", "0900 SFB", "PGD 0941/1031 PGD"],
     afternoon: ["MLB 1146/1236 MYR", "FLL 1407/1457 DEN", "SFB 1441/1531 PIE"],
     evening: ["SFB 1959/2049 SFB", "PIE 2128", "MYR 2225", "DEN 2315"],
   },
-  "2026-08-04": { afternoon: ["MYR 1200", "MYR 1610"], evening: [] },
-  "2026-08-05": { afternoon: ["MYR 1242", "SFB 1344"], evening: [] },
+  "2026-08-04": { morning: ["SFB 0928/1018 SFB"], afternoon: ["MYR 1200", "MYR 1610"], evening: [] },
+  "2026-08-05": { morning: ["0800 SFB", "0830 MYR"], afternoon: ["MYR 1242", "SFB 1344"], evening: [] },
   "2026-08-06": {
+    morning: ["0600 SFB", "0630 PIE", "0800 MCO", "PGD 0851/0941 PGD"],
     afternoon: [
       "SFB 1139/1229 BNA",
       "PIE 1233/1323 MYR",
@@ -183,6 +197,7 @@ const flightRows: Record<string, { afternoon: string[]; evening: string[] }> = {
     evening: ["RSW 2124", "MYR 2316", "SFB 2339"],
   },
   "2026-08-07": {
+    morning: ["0600 MLB", "0730 FLL", "0800 PGD"],
     afternoon: [
       "MLB 1155/1245 MYR",
       "FLL 1404/1454 DEN",
@@ -192,12 +207,13 @@ const flightRows: Record<string, { afternoon: string[]; evening: string[] }> = {
     evening: ["SFB 2000/2050 SFB", "PIE 2137", "MYR 2238", "DEN 2314"],
   },
   "2026-08-08": {
+    morning: ["0700 SFB", "0810 MYR", "0820 PIE", "PGD 1021/1111 PGD"],
     afternoon: ["SFB 1244/1334 MYR", "PIE 1423/1513 SFB", "MYR 1716"],
     evening: ["SFB 2057", "MYR 2327"],
   },
 };
 
-function parseFlight(date: string, raw: string, period: "Afternoon" | "Evening", index: number): Flight {
+function parseFlight(date: string, raw: string, period: Flight["period"], index: number): Flight {
   const cleaned = raw.replace(/^SC\s+/, "");
   const route = cleaned.match(/([A-Z]{3})\s+(\d{4})\/(\d{4})\s+([A-Z]{3})/);
   if (route) {
@@ -205,25 +221,49 @@ function parseFlight(date: string, raw: string, period: "Afternoon" | "Evening",
       id: `${date}-${period}-${index}`,
       date,
       period,
+      kind: "turnaround",
       raw,
       origin: route[1],
       destination: route[4],
+      inboundAirport: route[1],
+      outboundAirport: route[4],
+      arrival: `${route[2].slice(0, 2)}:${route[2].slice(2)}`,
+      departure: `${route[3].slice(0, 2)}:${route[3].slice(2)}`,
       start: `${route[2].slice(0, 2)}:${route[2].slice(2)}`,
       end: `${route[3].slice(0, 2)}:${route[3].slice(2)}`,
     };
   }
-  const single = cleaned.match(/([A-Z]{3})\s+(\d{4})/);
+  const departure = cleaned.match(/^(\d{4})\s+([A-Z]{3})$/);
+  if (departure) {
+    return {
+      id: `${date}-${period}-${index}`,
+      date,
+      period,
+      kind: "departure",
+      raw,
+      origin: "HOME",
+      destination: departure[2],
+      outboundAirport: departure[2],
+      departure: `${departure[1].slice(0, 2)}:${departure[1].slice(2)}`,
+      start: `${departure[1].slice(0, 2)}:${departure[1].slice(2)}`,
+    };
+  }
+  const single = cleaned.match(/^([A-Z]{3})\s+(\d{4})$/);
   return {
     id: `${date}-${period}-${index}`,
     date,
     period,
+    kind: "arrival",
     raw,
     origin: single?.[1] ?? "TBD",
+    inboundAirport: single?.[1] ?? "TBD",
+    arrival: single ? `${single[2].slice(0, 2)}:${single[2].slice(2)}` : "00:00",
     start: single ? `${single[2].slice(0, 2)}:${single[2].slice(2)}` : "00:00",
   };
 }
 
 export const sampleFlights: Flight[] = Object.entries(flightRows).flatMap(([date, rows]) => [
+  ...rows.morning.map((raw, index) => parseFlight(date, raw, "Morning", index)),
   ...rows.afternoon.map((raw, index) => parseFlight(date, raw, "Afternoon", index)),
   ...rows.evening.map((raw, index) => parseFlight(date, raw, "Evening", index)),
 ]);
