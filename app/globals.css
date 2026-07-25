@@ -115,14 +115,16 @@ select:focus-visible {
   height: 33px;
   display: grid;
   place-items: center;
-  color: white;
   border-radius: 11px;
-  background: linear-gradient(145deg, #6d8ef0, #3159c9);
   box-shadow: 0 8px 18px rgba(55, 103, 220, 0.28);
+  overflow: hidden;
 }
 
-.brand svg {
-  width: 18px;
+.brand img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .brand b {

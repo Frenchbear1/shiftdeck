@@ -1963,7 +1963,7 @@ export default function HomePage() {
     <div className="app-shell">
       <aside className="sidebar">
         <button className="brand" onClick={() => setTab("home")} aria-label="Shiftdeck home">
-          <span><Clock3 /></span>
+          <span><img src="./apple-touch-icon.png" alt="" /></span>
           <b>Shiftdeck</b>
         </button>
         <nav aria-label="Main navigation">
@@ -1985,7 +1985,7 @@ export default function HomePage() {
 
       <main>
         <header className="mobile-header">
-          <button className="brand" onClick={() => setTab("home")}><span><Clock3 /></span><b>Shiftdeck</b></button>
+          <button className="brand" onClick={() => setTab("home")}><span><img src="./apple-touch-icon.png" alt="" /></span><b>Shiftdeck</b></button>
           <div>
             <button onClick={openAddShift} aria-label="Add a shift"><Plus /></button>
             <button onClick={() => setSettingsOpen(true)} aria-label="Open settings"><Settings /></button>
