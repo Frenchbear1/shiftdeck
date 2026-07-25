@@ -1076,7 +1076,6 @@ export default function HomePage() {
             <span>{day.weekday}</span>
             <strong>{day.day}</strong>
             {!compact && <small>{userShift ? formatTime(userShift.start) : "Off"}</small>}
-            {userShift && <i />}
           </button>
         );
       })}
