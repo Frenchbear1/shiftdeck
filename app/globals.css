@@ -1338,6 +1338,9 @@ main {
   background: var(--surface-2);
   border: 1px solid transparent;
   border-radius: 15px;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
   transition: transform 150ms ease, border-color 150ms ease;
 }
 
@@ -1347,6 +1350,11 @@ main {
 
 .flight-card:hover {
   transform: translateX(2px);
+}
+
+.flight-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--blue) 38%, transparent);
+  outline-offset: 2px;
 }
 
 .flight-card.during {

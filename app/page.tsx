@@ -318,12 +318,44 @@ function icsTime(date: string, time: string, nextDay = false) {
   return `${year}${month}${day}T${hour}${minute}00`;
 }
 
-function localDateKey() {
-  const date = new Date();
+function localDateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function workdayDateKey(now: Date, shifts: Shift[], person: string) {
+  const previousDate = new Date(now);
+  previousDate.setDate(previousDate.getDate() - 1);
+  const previousDateKey = localDateKey(previousDate);
+  const previousShift = getWorkingShift(shifts, previousDateKey, person);
+
+  if (
+    !previousShift ||
+    toMinutes(previousShift.end) > toMinutes(previousShift.start)
+  ) {
+    return localDateKey(now);
+  }
+
+  const [endHour, endMinute] = previousShift.end.split(":").map(Number);
+  const rolloverTime = new Date(now);
+  rolloverTime.setHours(endHour + 2, endMinute, 0, 0);
+  return now < rolloverTime ? previousDateKey : localDateKey(now);
+}
+
+function flightAwareRouteUrl(flight: Flight, homeAirport: string) {
+  const home = cleanAirportCode(homeAirport);
+  const origin =
+    flight.kind === "departure"
+      ? home
+      : cleanAirportCode(flight.inboundAirport ?? flight.origin);
+  const destination =
+    flight.kind === "departure"
+      ? cleanAirportCode(flight.outboundAirport ?? flight.destination ?? "")
+      : home;
+
+  return `https://www.flightaware.com/live/findflight?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
 }
 
 export default function HomePage() {
@@ -362,6 +394,7 @@ export default function HomePage() {
   const [pendingDates, setPendingDates] = useState<string[]>([]);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const [clockNow, setClockNow] = useState(() => new Date());
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -487,6 +520,13 @@ export default function HomePage() {
     window.scrollTo(0, 0);
   }, [tab]);
 
+  useEffect(() => {
+    const updateClock = () => setClockNow(new Date());
+    updateClock();
+    const interval = window.setInterval(updateClock, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const importedDateSet = useMemo(() => new Set(importedDates), [importedDates]);
 
   const scheduleDates = useMemo(
@@ -513,6 +553,22 @@ export default function HomePage() {
     ],
     [baseImportedShifts, events, prefs.person],
   );
+
+  const todayDate = useMemo(
+    () => workdayDateKey(clockNow, importedShifts, prefs.person),
+    [clockNow, importedShifts, prefs.person],
+  );
+
+  useEffect(() => {
+    if (!hydrated || tab !== "home") return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setSelectedDate(todayDate);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, tab, todayDate]);
 
   const importedFlights = useMemo(
     () => sampleFlights.filter((flight) => importedDateSet.has(flight.date)),
@@ -798,7 +854,7 @@ export default function HomePage() {
   };
 
   const openTodayTab = () => {
-    setSelectedDate(localDateKey());
+    setSelectedDate(todayDate);
     setShowAllFlights(false);
     setTab("home");
   };
@@ -1357,8 +1413,7 @@ export default function HomePage() {
   );
 
   const renderHome = () => {
-    const today = localDateKey();
-    const isToday = selectedDate === today;
+    const isToday = selectedDate === todayDate;
     const isLoadedDate = importedDateSet.has(selectedDate);
     const heroTitle = myShift
       ? `${formatTime(myShift.start)} – ${formatTime(myShift.end)}`
@@ -1669,7 +1724,14 @@ export default function HomePage() {
                   const during = isFlightDuringShift(flight);
                   const display = flightDisplay(flight, prefs.homeAirport);
                   return (
-                    <article className={`flight-card ${during ? "during" : "outside-shift"}`} key={flight.id}>
+                    <a
+                      className={`flight-card ${during ? "during" : "outside-shift"}`}
+                      href={flightAwareRouteUrl(flight, prefs.homeAirport)}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Find this flight route in FlightAware"
+                      key={flight.id}
+                    >
                       <div className="flight-time">
                         <strong>{display.time}</strong>
                       </div>
@@ -1696,7 +1758,7 @@ export default function HomePage() {
                         <span className="during-chip">{display.chip}</span>
                         {during && <span className="during-chip"><Clock3 size={13} /> In shift</span>}
                       </div>
-                    </article>
+                    </a>
                   );
                 })}
               </div>
