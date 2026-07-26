@@ -318,11 +318,19 @@ function icsTime(date: string, time: string, nextDay = false) {
   return `${year}${month}${day}T${hour}${minute}00`;
 }
 
+function localDateKey() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>("home");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
-  const [selectedDate, setSelectedDate] = useState("2026-07-26");
+  const [selectedDate, setSelectedDate] = useState(() => localDateKey());
   const [importedDates, setImportedDates] = useState<string[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -392,7 +400,7 @@ export default function HomePage() {
               typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date),
           );
           setImportedDates(parsedDates);
-          setSelectedDate(parsedDates[0] ?? "2026-07-26");
+          setSelectedDate(localDateKey());
         } catch {
           localStorage.removeItem("shiftdeck.activeDates");
         }
@@ -789,6 +797,12 @@ export default function HomePage() {
     setShowAllFlights(false);
   };
 
+  const openTodayTab = () => {
+    setSelectedDate(localDateKey());
+    setShowAllFlights(false);
+    setTab("home");
+  };
+
   const updateTimeOffDate = (date: string) => {
     const shift = getWorkingShift(importedShifts, date, prefs.person);
     setTimeOffDraft({
@@ -833,7 +847,7 @@ export default function HomePage() {
   };
 
   const refreshFlightMatches = () => {
-    setToast(`Refreshed ${prefs.airline || "airline"} matches for ${cleanAirportCode(prefs.homeAirport)}`);
+    setToast("Live flight data is not connected yet");
   };
 
   const openAddShift = () => {
@@ -1080,7 +1094,7 @@ export default function HomePage() {
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
     setTheme("light");
-    setSelectedDate("2026-07-26");
+    setSelectedDate(localDateKey());
     setImportedDates([]);
     setEvents([]);
     setImportState("idle");
@@ -1342,14 +1356,28 @@ export default function HomePage() {
     </div>
   );
 
-  const renderHome = () => (
+  const renderHome = () => {
+    const today = localDateKey();
+    const isToday = selectedDate === today;
+    const isLoadedDate = importedDateSet.has(selectedDate);
+    const heroTitle = myShift
+      ? `${formatTime(myShift.start)} – ${formatTime(myShift.end)}`
+      : isLoadedDate
+        ? isToday
+          ? "You’re off today"
+          : "You’re off"
+        : isToday
+          ? "No schedule for today"
+          : "No schedule loaded";
+
+    return (
     <div className="page-stack">
       <section className="hero-card">
         <div className="hero-glow" />
         <div className="hero-topline">
           <div className="eyebrow">
             <Sparkles size={14} />
-            Next shift
+            {isToday ? "Today" : "Selected day"}
           </div>
           {myEvent && (
             <button className="hero-edit" onClick={openEditShift} aria-label="Edit this shift">
@@ -1357,7 +1385,7 @@ export default function HomePage() {
             </button>
           )}
         </div>
-        <h1>{myShift ? `${formatTime(myShift.start)} – ${formatTime(myShift.end)}` : "You’re off"}</h1>
+        <h1>{heroTitle}</h1>
         <p>
           {formatDate(selectedDate, "long")}
           {myShift?.note ? ` · ${myShift.note}` : ""}
@@ -1428,7 +1456,8 @@ export default function HomePage() {
         )}
       </section>
     </div>
-  );
+    );
+  };
 
   const renderWorkers = () => (
     <div className="page-stack">
@@ -1962,12 +1991,12 @@ export default function HomePage() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <button className="brand" onClick={() => setTab("home")} aria-label="Shiftdeck home">
+        <button className="brand" onClick={openTodayTab} aria-label="Shiftdeck home">
           <span><img src="./apple-touch-icon.png" alt="" /></span>
           <b>Shiftdeck</b>
         </button>
         <nav aria-label="Main navigation">
-          <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={() => setTab("home")} />
+          <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={openTodayTab} />
           <NavButton icon={<UsersRound />} label="Workers" active={tab === "workers"} onClick={() => setTab("workers")} />
           <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
           <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
@@ -1985,7 +2014,7 @@ export default function HomePage() {
 
       <main>
         <header className="mobile-header">
-          <button className="brand" onClick={() => setTab("home")}><span><img src="./apple-touch-icon.png" alt="" /></span><b>Shiftdeck</b></button>
+          <button className="brand" onClick={openTodayTab}><span><img src="./apple-touch-icon.png" alt="" /></span><b>Shiftdeck</b></button>
           <div>
             <button onClick={openAddShift} aria-label="Add a shift"><Plus /></button>
             <button onClick={() => setSettingsOpen(true)} aria-label="Open settings"><Settings /></button>
@@ -2001,7 +2030,7 @@ export default function HomePage() {
       </main>
 
       <nav className="bottom-nav" aria-label="Mobile navigation">
-        <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={() => setTab("home")} />
+        <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={openTodayTab} />
         <NavButton icon={<UsersRound />} label="Workers" active={tab === "workers"} onClick={() => setTab("workers")} />
         <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
         <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
