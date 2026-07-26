@@ -1021,6 +1021,18 @@ main {
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 12px;
+  text-align: center;
+}
+
+.time-off-fields input::-webkit-date-and-time-value,
+.time-off-fields input::-webkit-datetime-edit {
+  width: 100%;
+  text-align: center;
+}
+
+.swap-panel .count-badge {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .time-off-range {
