@@ -1706,12 +1706,14 @@ main {
 }
 
 .shift-fields {
-  width: 100%;
+  width: auto;
+  min-width: 0;
   justify-items: stretch;
 }
 
 .shift-fields > label {
-  width: 100%;
+  width: auto;
+  min-width: 0;
 }
 
 .shift-fields > .time-range-fields {
@@ -1719,11 +1721,13 @@ main {
   grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
   align-items: end;
   gap: 8px;
-  width: 100%;
+  width: auto;
+  min-width: 0;
 }
 
 .shift-fields > .time-range-fields label {
-  width: 100%;
+  width: auto;
+  min-width: 0;
 }
 
 .time-range-separator {
@@ -2756,27 +2760,48 @@ main {
   }
 
   .shift-sheet .shift-fields {
-    width: 100%;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
     justify-items: stretch;
   }
 
   .shift-sheet .shift-fields label {
-    width: 100%;
+    width: auto;
     max-width: 100%;
-  }
-
-  .shift-sheet .shift-fields input {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .shift-sheet .shift-fields input[type="date"] {
     min-width: 0;
   }
 
-  .shift-sheet .shift-fields input[type="time"] {
+  .shift-sheet .time-off-input-shell {
+    width: auto;
+    max-width: 100%;
     min-width: 0;
-    width: 100%;
+    height: 40px;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  .shift-sheet .time-off-input-shell:focus-within {
+    border-color: var(--blue);
+  }
+
+  .shift-sheet .time-off-input-shell input {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-inline-size: 0 !important;
+    max-inline-size: 100% !important;
+    height: 100%;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: inherit;
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   .shift-sheet .shift-fields > .time-range-fields {
@@ -2784,11 +2809,14 @@ main {
     grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
     align-items: end;
     gap: 8px;
-    width: 100%;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .shift-sheet .shift-fields > .time-range-fields label {
-    width: 100%;
+    width: auto;
+    min-width: 0;
   }
 
   .modal-layer {
