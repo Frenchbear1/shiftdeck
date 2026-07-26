@@ -2139,17 +2139,32 @@ export default function HomePage() {
             <div className="shift-fields">
               <label>
                 <span>Date</span>
-                <input type="date" value={shiftDraft.date} onChange={(event) => setShiftDraft((current) => ({ ...current, date: event.target.value }))} />
+                <div className="time-off-input-shell">
+                  <input type="date" value={shiftDraft.date} onChange={(event) => setShiftDraft((current) => ({ ...current, date: event.target.value }))} />
+                  <span className="time-off-input-value" aria-hidden="true">
+                    {formatFieldDate(shiftDraft.date)}
+                  </span>
+                </div>
               </label>
               <div className="time-range-fields">
                 <label>
                   <span>Start</span>
-                  <input type="time" value={shiftDraft.start} onChange={(event) => setShiftDraft((current) => ({ ...current, start: event.target.value }))} />
+                  <div className="time-off-input-shell">
+                    <input type="time" value={shiftDraft.start} onChange={(event) => setShiftDraft((current) => ({ ...current, start: event.target.value }))} />
+                    <span className="time-off-input-value" aria-hidden="true">
+                      {formatFieldTime(shiftDraft.start)}
+                    </span>
+                  </div>
                 </label>
                 <span className="time-range-separator" aria-hidden="true">-</span>
                 <label>
                   <span>Stop</span>
-                  <input type="time" value={shiftDraft.end} onChange={(event) => setShiftDraft((current) => ({ ...current, end: event.target.value }))} />
+                  <div className="time-off-input-shell">
+                    <input type="time" value={shiftDraft.end} onChange={(event) => setShiftDraft((current) => ({ ...current, end: event.target.value }))} />
+                    <span className="time-off-input-value" aria-hidden="true">
+                      {formatFieldTime(shiftDraft.end)}
+                    </span>
+                  </div>
                 </label>
               </div>
             </div>
