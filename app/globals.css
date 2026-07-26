@@ -1706,30 +1706,31 @@ main {
 }
 
 .shift-fields {
-  justify-items: center;
+  width: 100%;
+  justify-items: stretch;
 }
 
 .shift-fields > label {
-  width: min(100%, 214px);
-}
-
-.shift-fields > div {
-  display: flex;
-  align-items: end;
-  justify-content: center;
-  flex-wrap: nowrap;
-  gap: 10px;
   width: 100%;
 }
 
-.shift-fields > div label {
-  width: min(44%, 164px);
+.shift-fields > .time-range-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+  width: 100%;
+}
+
+.shift-fields > .time-range-fields label {
+  width: 100%;
 }
 
 .time-range-separator {
   align-self: end;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   height: 40px;
   color: var(--muted);
   font-weight: 800;
@@ -2755,21 +2756,22 @@ main {
   }
 
   .shift-sheet .shift-fields {
-    justify-items: center;
+    width: 100%;
+    justify-items: stretch;
   }
 
   .shift-sheet .shift-fields label {
-    width: min(100%, 214px);
+    width: 100%;
     max-width: 100%;
   }
 
   .shift-sheet .shift-fields input {
-    width: auto;
+    width: 100%;
     max-width: 100%;
   }
 
   .shift-sheet .shift-fields input[type="date"] {
-    min-width: 13.2em;
+    min-width: 0;
   }
 
   .shift-sheet .shift-fields input[type="time"] {
@@ -2777,17 +2779,16 @@ main {
     width: 100%;
   }
 
-  .shift-sheet .shift-fields > div {
-    display: flex;
+  .shift-sheet .shift-fields > .time-range-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
     align-items: end;
-    justify-content: center;
-    flex-wrap: nowrap;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
   }
 
-  .shift-sheet .shift-fields > div label {
-    width: min(44%, 164px);
+  .shift-sheet .shift-fields > .time-range-fields label {
+    width: 100%;
   }
 
   .modal-layer {
