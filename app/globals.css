@@ -1030,6 +1030,16 @@ main {
   text-align: center;
 }
 
+.time-off-input-shell {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.time-off-input-value {
+  display: none;
+}
+
 .swap-panel .count-badge {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -2233,15 +2243,30 @@ main {
     min-inline-size: 0 !important;
     max-inline-size: 100% !important;
     height: 43px;
-    padding: 2px 13px 0;
+    padding: 0 13px;
     font-size: 16px;
     -webkit-appearance: none;
     appearance: none;
   }
 
+  .time-off-input-shell input,
   .time-off-fields input::-webkit-date-and-time-value,
   .time-off-fields input::-webkit-datetime-edit {
-    transform: translateY(1px);
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+  }
+
+  .time-off-input-value {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 450;
+    line-height: 1;
+    pointer-events: none;
   }
 
   .time-off-range {

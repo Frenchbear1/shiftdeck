@@ -153,6 +153,21 @@ const formatDate = (date: string, style: "short" | "long" = "short") =>
     day: "numeric",
   }).format(new Date(`${date}T12:00:00`));
 
+const formatFieldDate = (date: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${date}T12:00:00`));
+
+const formatFieldTime = (time: string) => {
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(2026, 0, 1, hours, minutes));
+};
+
 const compactDay = (date: string) => {
   const value = new Date(`${date}T12:00:00`);
   return {
@@ -1836,41 +1851,56 @@ export default function HomePage() {
           <div className="time-off-fields">
             <label className="time-off-date">
               <span>Date</span>
-              <input
-                type="date"
-                value={timeOffDraft.date}
-                min={scheduleDates[0]}
-                max={scheduleDates[scheduleDates.length - 1]}
-                onChange={(event) => updateTimeOffDate(event.target.value)}
-              />
+              <div className="time-off-input-shell">
+                <input
+                  type="date"
+                  value={timeOffDraft.date}
+                  min={scheduleDates[0]}
+                  max={scheduleDates[scheduleDates.length - 1]}
+                  onChange={(event) => updateTimeOffDate(event.target.value)}
+                />
+                <span className="time-off-input-value" aria-hidden="true">
+                  {formatFieldDate(timeOffDraft.date)}
+                </span>
+              </div>
             </label>
             <div className="time-off-range">
               <label>
                 <span>Start</span>
-                <input
-                  type="time"
-                  value={timeOffDraft.start}
-                  onChange={(event) =>
-                    setTimeOffDraft((current) => ({
-                      ...current,
-                      start: event.target.value,
-                    }))
-                  }
-                />
+                <div className="time-off-input-shell">
+                  <input
+                    type="time"
+                    value={timeOffDraft.start}
+                    onChange={(event) =>
+                      setTimeOffDraft((current) => ({
+                        ...current,
+                        start: event.target.value,
+                      }))
+                    }
+                  />
+                  <span className="time-off-input-value" aria-hidden="true">
+                    {formatFieldTime(timeOffDraft.start)}
+                  </span>
+                </div>
               </label>
               <i aria-hidden="true">–</i>
               <label>
                 <span>Stop</span>
-                <input
-                  type="time"
-                  value={timeOffDraft.end}
-                  onChange={(event) =>
-                    setTimeOffDraft((current) => ({
-                      ...current,
-                      end: event.target.value,
-                    }))
-                  }
-                />
+                <div className="time-off-input-shell">
+                  <input
+                    type="time"
+                    value={timeOffDraft.end}
+                    onChange={(event) =>
+                      setTimeOffDraft((current) => ({
+                        ...current,
+                        end: event.target.value,
+                      }))
+                    }
+                  />
+                  <span className="time-off-input-value" aria-hidden="true">
+                    {formatFieldTime(timeOffDraft.end)}
+                  </span>
+                </div>
               </label>
             </div>
           </div>
