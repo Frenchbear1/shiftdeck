@@ -348,16 +348,12 @@ function initials(name: string) {
 }
 
 const CALENDAR_SERVICE_ORIGIN =
-  "https://shiftdeck-schedule.frenchbear.chatgpt.site";
+  "https://shiftdeck-calendar.frenchbear1.workers.dev";
 
 function calendarServiceUrl(path: string) {
   if (typeof window === "undefined") return `${CALENDAR_SERVICE_ORIGIN}${path}`;
   const host = window.location.hostname;
-  if (
-    host === "shiftdeck-schedule.frenchbear.chatgpt.site" ||
-    host === "localhost" ||
-    host === "127.0.0.1"
-  ) {
+  if (host === "localhost" || host === "127.0.0.1") {
     return path;
   }
   return `${CALENDAR_SERVICE_ORIGIN}${path}`;

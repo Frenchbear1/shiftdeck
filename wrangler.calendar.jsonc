@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shiftdeck-calendar",
+  "main": "worker/calendar-only.ts",
+  "compatibility_date": "2026-07-28",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "shiftdeck-calendar",
+      "database_id": "6c4559e5-46d3-4943-9eee-fd1c4793fe5b",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}

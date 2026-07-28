@@ -79,7 +79,8 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);
   assert.match(page, /Automatic updates on/);
 
-  assert.equal(JSON.parse(hosting).d1, "DB");
+  assert.equal(JSON.parse(hosting).d1, null);
+  assert.match(page, /https:\/\/shiftdeck-calendar\.frenchbear1\.workers\.dev/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_feeds/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_events/);
 });

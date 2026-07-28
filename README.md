@@ -34,3 +34,16 @@ npm run build:pages
 
 The `.github/workflows/pages.yml` workflow deploys the static version whenever
 `main` is pushed.
+
+## Apple Calendar Service
+
+The public subscription feed runs as the `shiftdeck-calendar` Cloudflare Worker
+with its own D1 database. After signing in to Wrangler:
+
+```bash
+npm run calendar:migrate
+npm run calendar:deploy
+```
+
+The app is configured to use
+`https://shiftdeck-calendar.frenchbear1.workers.dev`.
