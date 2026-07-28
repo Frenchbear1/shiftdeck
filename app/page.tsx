@@ -28,12 +28,11 @@ import {
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Flight,
-  sampleDates,
   sampleFlights,
   sampleShifts,
   Shift,
-  weekForFile,
 } from "./sample-data";
+import { parseScheduleTsv, ParsedSchedule } from "./schedule-parser";
 
 type Tab = "home" | "workers" | "flights" | "timeoff" | "import";
 
@@ -269,6 +268,9 @@ const flightDisplay = (flight: Flight, homeAirport: string) => {
 const calendarKeyFor = (person: string, date: string) =>
   `shift:${person.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${date}`;
 
+const personKey = (person: string) =>
+  person.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
 const calendarUid = (key: string) =>
   `${key.toLowerCase().replace(/[^a-z0-9:-]+/g, "-")}@shiftdeck.app`;
 
@@ -379,6 +381,8 @@ export default function HomePage() {
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [selectedDate, setSelectedDate] = useState(() => localDateKey());
   const [importedDates, setImportedDates] = useState<string[]>([]);
+  const [parsedShifts, setParsedShifts] = useState<Shift[]>([]);
+  const [parsedFlights, setParsedFlights] = useState<Flight[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -398,7 +402,7 @@ export default function HomePage() {
   });
   const [showAllFlights, setShowAllFlights] = useState(false);
   const [importState, setImportState] = useState<
-    "idle" | "reading" | "review" | "done"
+    "idle" | "reading" | "review" | "done" | "error"
   >("idle");
   const [importProgress, setImportProgress] = useState(0);
   const [importMessage, setImportMessage] = useState("");
@@ -420,6 +424,8 @@ export default function HomePage() {
         "shiftdeck.calendarHistory",
       );
       const savedDates = localStorage.getItem("shiftdeck.activeDates");
+      const savedParsedShifts = localStorage.getItem("shiftdeck.parsedShifts");
+      const savedParsedFlights = localStorage.getItem("shiftdeck.parsedFlights");
       const savedEvents = localStorage.getItem("shiftdeck.events");
       let parsedPrefs = DEFAULT_PREFS;
       let parsedDates: string[] = [];
@@ -453,8 +459,45 @@ export default function HomePage() {
           localStorage.removeItem("shiftdeck.activeDates");
         }
       }
+      let restoredShifts: Shift[] = [];
+      let restoredFlights: Flight[] = [];
+      if (savedParsedShifts) {
+        try {
+          restoredShifts = (JSON.parse(savedParsedShifts) as Shift[]).filter(
+            (shift) =>
+              shift &&
+              typeof shift.id === "string" &&
+              typeof shift.date === "string" &&
+              typeof shift.worker === "string",
+          );
+        } catch {
+          localStorage.removeItem("shiftdeck.parsedShifts");
+        }
+      }
+      if (savedParsedFlights) {
+        try {
+          restoredFlights = (JSON.parse(savedParsedFlights) as Flight[]).filter(
+            (flight) =>
+              flight &&
+              typeof flight.id === "string" &&
+              typeof flight.date === "string",
+          );
+        } catch {
+          localStorage.removeItem("shiftdeck.parsedFlights");
+        }
+      }
+      if (!restoredShifts.length && parsedDates.length) {
+        restoredShifts = sampleShifts.filter((shift) =>
+          parsedDates.includes(shift.date),
+        );
+        restoredFlights = sampleFlights.filter((flight) =>
+          parsedDates.includes(flight.date),
+        );
+      }
+      setParsedShifts(restoredShifts);
+      setParsedFlights(restoredFlights);
       const fallbackEvents = eventsFor(
-        sampleShifts.filter((shift) => parsedDates.includes(shift.date)),
+        restoredShifts,
         parsedPrefs.person,
         parsedPrefs.title,
       );
@@ -526,6 +569,16 @@ export default function HomePage() {
   }, [hydrated, importedDates]);
 
   useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("shiftdeck.parsedShifts", JSON.stringify(parsedShifts));
+  }, [hydrated, parsedShifts]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("shiftdeck.parsedFlights", JSON.stringify(parsedFlights));
+  }, [hydrated, parsedFlights]);
+
+  useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timeout);
@@ -550,8 +603,8 @@ export default function HomePage() {
   );
 
   const baseImportedShifts = useMemo(
-    () => sampleShifts.filter((shift) => importedDateSet.has(shift.date)),
-    [importedDateSet],
+    () => parsedShifts.filter((shift) => importedDateSet.has(shift.date)),
+    [importedDateSet, parsedShifts],
   );
 
   const importedShifts = useMemo(
@@ -586,8 +639,8 @@ export default function HomePage() {
   }, [hydrated, tab, todayDate]);
 
   const importedFlights = useMemo(
-    () => sampleFlights.filter((flight) => importedDateSet.has(flight.date)),
-    [importedDateSet],
+    () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)),
+    [importedDateSet, parsedFlights],
   );
 
   const availableWorkers = useMemo(() => {
@@ -948,14 +1001,26 @@ export default function HomePage() {
       .join("");
   };
 
-  const loadDetectedWeeks = (detectedDates: string[]) => {
+  const loadParsedSchedules = (schedules: ParsedSchedule[]) => {
+    const detectedDates = Array.from(
+      new Set(schedules.flatMap((schedule) => schedule.dates)),
+    ).sort();
+    const detectedDateSet = new Set(detectedDates);
+    const nextParsedShifts = Array.from(new Map([
+      ...parsedShifts.filter((shift) => !detectedDateSet.has(shift.date)),
+      ...schedules.flatMap((schedule) => schedule.shifts),
+    ].map((shift) => [shift.id, shift] as const)).values());
+    const nextParsedFlights = Array.from(new Map([
+      ...parsedFlights.filter((flight) => !detectedDateSet.has(flight.date)),
+      ...schedules.flatMap((schedule) => schedule.flights),
+    ].map((flight) => [flight.id, flight] as const)).values());
     const nextDates = Array.from(
       new Set([...importedDates, ...detectedDates]),
     ).sort();
-    const matching = sampleShifts
+    const matching = nextParsedShifts
       .filter(
         (shift) =>
-          shift.worker === prefs.person &&
+          personKey(shift.worker) === personKey(prefs.person) &&
           shift.status === "working" &&
           detectedDates.includes(shift.date),
       )
@@ -978,6 +1043,8 @@ export default function HomePage() {
       });
       selectDate(detectedDates[0]);
     }
+    setParsedShifts(nextParsedShifts);
+    setParsedFlights(nextParsedFlights);
     setImportedDates(nextDates);
     setPendingDates(detectedDates);
     localStorage.setItem("shiftdeck.activeDates", JSON.stringify(nextDates));
@@ -995,7 +1062,7 @@ export default function HomePage() {
       localStorage.getItem("shiftdeck.importHashes") ?? "[]",
     );
     const newHashes: string[] = [];
-    const detected = new Set<string>();
+    const parsedSchedules: ParsedSchedule[] = [];
     let duplicateFiles = 0;
 
     try {
@@ -1006,15 +1073,8 @@ export default function HomePage() {
         if (savedHashes.includes(hash)) duplicateFiles += 1;
         newHashes.push(hash);
 
-        const knownWeek = weekForFile(file.name);
-        if (knownWeek.length === 7) {
-          knownWeek.forEach((date) => detected.add(date));
-          setImportProgress(Math.round(((index + 1) / files.length) * 88));
-          continue;
-        }
-
         setImportMessage(`Reading the schedule in ${file.name}`);
-        const { createWorker } = await import("tesseract.js");
+        const { createWorker, PSM } = await import("tesseract.js");
         const worker = await createWorker("eng", 1, {
           logger: (status) => {
             if (status.status === "recognizing text") {
@@ -1024,29 +1084,61 @@ export default function HomePage() {
             }
           },
         });
-        const result = await worker.recognize(file);
-        await worker.terminate();
-        const text = result.data.text;
-        if (/7\/26\/2026|7\/31\/2026|8\/1\/2026/.test(text)) {
-          sampleDates.slice(0, 7).forEach((date) => detected.add(date));
+        let parsed: ParsedSchedule | null = null;
+        try {
+          await worker.setParameters({
+            tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+            preserve_interword_spaces: "1",
+          });
+          let result = await worker.recognize(
+            file,
+            { rotateAuto: true },
+            { text: true, tsv: true },
+          );
+          parsed = result.data.tsv
+            ? parseScheduleTsv(result.data.tsv, result.data.confidence)
+            : null;
+          if (!parsed) {
+            await worker.setParameters({
+              tessedit_pageseg_mode: PSM.AUTO,
+              preserve_interword_spaces: "1",
+            });
+            result = await worker.recognize(
+              file,
+              { rotateAuto: true },
+              { text: true, tsv: true },
+            );
+            parsed = result.data.tsv
+              ? parseScheduleTsv(result.data.tsv, result.data.confidence)
+              : null;
+          }
+        } finally {
+          await worker.terminate();
         }
-        if (/8\/2\/2026|8\/6\/2026|8\/8\/2026/.test(text)) {
-          sampleDates.slice(7).forEach((date) => detected.add(date));
-        }
+        if (parsed) parsedSchedules.push(parsed);
       }
 
-      if (!detected.size) {
+      if (!parsedSchedules.length) {
         setPendingDates([selectedDate]);
         setImportMessage(
-          "The photo was readable, but no shift could be confirmed. Use the + button to add one.",
+          "I could read text in the photo, but couldn’t map its dates and schedule grid. Make sure the full table and all seven date columns are visible.",
         );
         setImportProgress(100);
-        setImportState("review");
-        setToast("Photo read — add a shift if one is missing");
+        setImportState("error");
+        setToast("Schedule grid not recognized");
         return;
       }
 
-      const count = loadDetectedWeeks(Array.from(detected));
+      const count = loadParsedSchedules(parsedSchedules);
+      const parsedShiftCount = parsedSchedules
+        .flatMap((schedule) => schedule.shifts)
+        .filter((shift) => shift.status === "working").length;
+      const parsedFlightCount = parsedSchedules.flatMap(
+        (schedule) => schedule.flights,
+      ).length;
+      const warnings = Array.from(
+        new Set(parsedSchedules.flatMap((schedule) => schedule.warnings)),
+      );
       localStorage.setItem(
         "shiftdeck.importHashes",
         JSON.stringify(Array.from(new Set([...savedHashes, ...newHashes]))),
@@ -1058,13 +1150,13 @@ export default function HomePage() {
       }
       setImportProgress(100);
       setImportMessage(
-        `${count} of your shifts found, plus ${sampleShifts.filter((shift) => detected.has(shift.date) && shift.status === "working").length - count} coworker shifts and ${sampleFlights.filter((flight) => detected.has(flight.date)).length} flights.`,
+        `${count} of your shifts found, plus ${Math.max(0, parsedShiftCount - count)} coworker shifts and ${parsedFlightCount} flights.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
       );
       setImportState("review");
       setToast("Schedule imported");
     } catch {
       setPendingDates([selectedDate]);
-      setImportState("review");
+      setImportState("error");
       setImportProgress(100);
       setImportMessage(
         "I couldn’t confidently read that image. Try a clearer photo with the full schedule visible.",
@@ -1161,12 +1253,16 @@ export default function HomePage() {
       "shiftdeck.calendarFeed",
       "shiftdeck.calendarHistory",
       "shiftdeck.activeDates",
+      "shiftdeck.parsedShifts",
+      "shiftdeck.parsedFlights",
       "shiftdeck.events",
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
     setTheme("light");
     setSelectedDate(localDateKey());
     setImportedDates([]);
+    setParsedShifts([]);
+    setParsedFlights([]);
     setEvents([]);
     setImportState("idle");
     setImportProgress(0);
@@ -2053,15 +2149,21 @@ export default function HomePage() {
         </div>
       )}
 
-      {(importState === "review" || importState === "done") && (
+      {(importState === "review" || importState === "done" || importState === "error") && (
         <>
-          <section className="notice success">
-            <Check />
+          <section className={`notice ${importState === "error" ? "warning" : "success"}`}>
+            {importState === "error" ? <AlertTriangle /> : <Check />}
             <div>
-              <b>{importState === "done" ? "Calendar ready" : "Schedule found"}</b>
+              <b>
+                {importState === "done"
+                  ? "Calendar ready"
+                  : importState === "error"
+                    ? "Schedule not recognized"
+                    : "Schedule found"}
+              </b>
               <p>{importMessage}</p>
               {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
-              {canExportCalendar ? (
+              {importState !== "error" && canExportCalendar ? (
                 <button
                   className="button primary calendar-export-button"
                   onClick={() => setExportOpen(true)}
@@ -2069,9 +2171,9 @@ export default function HomePage() {
                   <CalendarDays />
                   Export to Apple Calendar
                 </button>
-              ) : (
+              ) : importState !== "error" ? (
                 <small>Add a shift to enable calendar export.</small>
-              )}
+              ) : null}
             </div>
           </section>
         </>
