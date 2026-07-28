@@ -15,7 +15,6 @@ import {
   Pencil,
   Plane,
   Plus,
-  RefreshCw,
   Settings,
   Sparkles,
   Sun,
@@ -970,10 +969,6 @@ export default function HomePage() {
     window.setTimeout(() => window.location.reload(), 80);
   };
 
-  const refreshFlightMatches = () => {
-    setToast("Live flight data is not connected yet");
-  };
-
   const openAddShift = () => {
     setShiftDraft({
       date: selectedDate,
@@ -1809,16 +1804,13 @@ export default function HomePage() {
           <div>
             <h2>{formatDate(selectedDate, "long")}</h2>
           </div>
-          <div className="flight-heading-actions">
-            <button className="button soft compact-toggle icon-only" onClick={refreshFlightMatches} aria-label="Refresh flight matches">
-              <RefreshCw size={14} />
-            </button>
-            {hiddenFlightCount > 0 && (
+          {hiddenFlightCount > 0 && (
+            <div className="flight-heading-actions">
               <button className="button soft compact-toggle" onClick={() => setShowAllFlights((current) => !current)}>
                 {showAllFlights ? "Show shift only" : `Show all ${dayFlights.length}`}
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         {(["Morning", "Afternoon", "Evening"] as const).map((period) => {
           const flights = visibleFlights.filter((flight) => flight.period === period);
