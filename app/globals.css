@@ -1589,6 +1589,183 @@ main {
   font-size: 11px;
 }
 
+.upload-history {
+  display: grid;
+  gap: 11px;
+}
+
+.upload-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3px;
+}
+
+.upload-history-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.upload-history-heading > span {
+  min-width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.upload-document-list {
+  display: grid;
+  gap: 9px;
+}
+
+.upload-document {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.upload-document-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: stretch;
+}
+
+.upload-document-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 7px 13px 13px;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.upload-document-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 12px;
+}
+
+.upload-document-icon svg {
+  width: 19px;
+}
+
+.upload-document-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.upload-document-copy strong,
+.upload-document-copy span,
+.upload-document-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-document-copy strong {
+  font-size: 13px;
+}
+
+.upload-document-copy span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.upload-document-copy small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.upload-document-tags {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload-document-tags i {
+  padding: 4px 7px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 999px;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.upload-document-tags i.active {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.upload-document-chevron {
+  width: 15px;
+  color: var(--muted);
+  transition: transform 150ms ease;
+}
+
+.upload-document.expanded .upload-document-chevron {
+  transform: rotate(180deg);
+}
+
+.upload-document-delete {
+  width: 38px;
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.upload-document-delete svg {
+  width: 17px;
+}
+
+.upload-document-delete:hover {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.upload-document-preview {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  padding: 0 13px 13px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.upload-document-preview img {
+  width: 100%;
+  max-height: 420px;
+  display: block;
+  object-fit: contain;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
 .notice {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -1904,6 +2081,84 @@ main {
   color: var(--muted);
   font-size: 10px;
   font-weight: 750;
+}
+
+.searchable-select {
+  position: relative;
+  min-width: 0;
+}
+
+.searchable-select > div {
+  position: relative;
+  min-width: 0;
+}
+
+.searchable-select input {
+  padding-right: 32px;
+}
+
+.searchable-select > div > svg {
+  width: 15px;
+  position: absolute;
+  top: 13px;
+  right: 11px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.searchable-options {
+  max-height: 238px;
+  position: absolute;
+  inset: calc(100% + 5px) 0 auto;
+  overflow-y: auto;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 8;
+}
+
+.searchable-options button {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.searchable-options button:hover,
+.searchable-options button[aria-selected="true"] {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.searchable-options button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.searchable-options button svg {
+  width: 14px;
+  flex: 0 0 auto;
+}
+
+.searchable-empty {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .theme-setting > span {
@@ -2755,6 +3010,7 @@ main {
   .shift-fields input,
   .export-fields input,
   .export-fields select,
+  .settings-sheet input,
   .settings-sheet select {
     font-size: 16px;
   }

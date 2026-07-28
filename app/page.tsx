@@ -32,6 +32,12 @@ import {
   Shift,
 } from "./sample-data";
 import { parseScheduleTsv, ParsedSchedule } from "./schedule-parser";
+import {
+  clearScheduleImages,
+  deleteScheduleImage,
+  loadScheduleImage,
+  saveScheduleImage,
+} from "./upload-store";
 
 type Tab = "home" | "workers" | "flights" | "timeoff" | "import";
 
@@ -79,6 +85,37 @@ type TimeOffDraft = {
   date: string;
   start: string;
   end: string;
+};
+
+type ScheduleDocument = {
+  id: string;
+  hash: string;
+  name: string;
+  dates: string[];
+  shifts: Shift[];
+  flights: Flight[];
+  uploadedAt: string;
+  updatedAt: string;
+  revision: number;
+};
+
+type AviationOption = {
+  value: string;
+  label: string;
+  search: string;
+};
+
+type AirportData = {
+  c: string;
+  n: string;
+  m: string;
+  r: string;
+};
+
+type AirlineData = {
+  n: string;
+  i: string;
+  c: string;
 };
 
 type SwapCandidate = {
@@ -150,6 +187,27 @@ const formatDate = (date: string, style: "short" | "long" = "short") =>
     month: style === "long" ? "long" : "short",
     day: "numeric",
   }).format(new Date(`${date}T12:00:00`));
+
+const formatDocumentRange = (dates: string[]) => {
+  if (!dates.length) return "Dates unavailable";
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const first = formatter.format(new Date(`${dates[0]}T12:00:00`));
+  const last = formatter.format(new Date(`${dates.at(-1)}T12:00:00`));
+  return first === last ? first : `${first} – ${last}`;
+};
+
+const formatUpdatedAt = (value: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 
 const formatFieldDate = (date: string) =>
   new Intl.DateTimeFormat("en-US", {
@@ -382,6 +440,11 @@ export default function HomePage() {
   const [importedDates, setImportedDates] = useState<string[]>([]);
   const [parsedShifts, setParsedShifts] = useState<Shift[]>([]);
   const [parsedFlights, setParsedFlights] = useState<Flight[]>([]);
+  const [scheduleDocuments, setScheduleDocuments] = useState<ScheduleDocument[]>([]);
+  const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
+  const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
+  const [airportOptions, setAirportOptions] = useState<AviationOption[]>([]);
+  const [airlineOptions, setAirlineOptions] = useState<AviationOption[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -425,6 +488,7 @@ export default function HomePage() {
       const savedDates = localStorage.getItem("shiftdeck.activeDates");
       const savedParsedShifts = localStorage.getItem("shiftdeck.parsedShifts");
       const savedParsedFlights = localStorage.getItem("shiftdeck.parsedFlights");
+      const savedDocuments = localStorage.getItem("shiftdeck.scheduleDocuments");
       const savedEvents = localStorage.getItem("shiftdeck.events");
       let parsedPrefs = DEFAULT_PREFS;
       let parsedDates: string[] = [];
@@ -460,6 +524,22 @@ export default function HomePage() {
       }
       let restoredShifts: Shift[] = [];
       let restoredFlights: Flight[] = [];
+      if (savedDocuments) {
+        try {
+          const documents = (JSON.parse(savedDocuments) as ScheduleDocument[]).filter(
+            (document) =>
+              document &&
+              typeof document.id === "string" &&
+              typeof document.hash === "string" &&
+              Array.isArray(document.dates) &&
+              Array.isArray(document.shifts) &&
+              Array.isArray(document.flights),
+          );
+          setScheduleDocuments(documents);
+        } catch {
+          localStorage.removeItem("shiftdeck.scheduleDocuments");
+        }
+      }
       if (savedParsedShifts) {
         try {
           restoredShifts = (JSON.parse(savedParsedShifts) as Shift[]).filter(
@@ -576,6 +656,44 @@ export default function HomePage() {
     if (!hydrated) return;
     localStorage.setItem("shiftdeck.parsedFlights", JSON.stringify(parsedFlights));
   }, [hydrated, parsedFlights]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(
+      "shiftdeck.scheduleDocuments",
+      JSON.stringify(scheduleDocuments),
+    );
+  }, [hydrated, scheduleDocuments]);
+
+  useEffect(() => {
+    if (!settingsOpen || (airportOptions.length && airlineOptions.length)) return;
+    let cancelled = false;
+    void Promise.all([
+      fetch("./data/airports.json").then((response) => response.json() as Promise<AirportData[]>),
+      fetch("./data/airlines.json").then((response) => response.json() as Promise<AirlineData[]>),
+    ]).then(([airports, airlines]) => {
+      if (cancelled) return;
+      setAirportOptions(
+        airports.map((airport) => ({
+          value: airport.c,
+          label: `${airport.c} — ${airport.n}${airport.m ? ` · ${airport.m}` : ""}`,
+          search: `${airport.c} ${airport.n} ${airport.m} ${airport.r}`.toLowerCase(),
+        })),
+      );
+      setAirlineOptions(
+        airlines.map((airline) => ({
+          value: airline.n,
+          label: `${airline.n}${airline.i ? ` (${airline.i})` : airline.c ? ` (${airline.c})` : ""}`,
+          search: `${airline.n} ${airline.i} ${airline.c}`.toLowerCase(),
+        })),
+      );
+    }).catch(() => {
+      if (!cancelled) setToast("Airport and airline lists couldn’t be loaded");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [airportOptions.length, airlineOptions.length, settingsOpen]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1053,11 +1171,9 @@ export default function HomePage() {
     setDuplicateNotice("");
     setLoadedFiles(files.map((file) => file.name));
 
-    const savedHashes: string[] = JSON.parse(
-      localStorage.getItem("shiftdeck.importHashes") ?? "[]",
-    );
-    const newHashes: string[] = [];
     const parsedSchedules: ParsedSchedule[] = [];
+    let nextDocuments = [...scheduleDocuments];
+    let updatedDocuments = 0;
     let duplicateFiles = 0;
 
     try {
@@ -1065,8 +1181,10 @@ export default function HomePage() {
         const file = files[index];
         setImportMessage(`Checking ${file.name}`);
         const hash = await hashFile(file);
-        if (savedHashes.includes(hash)) duplicateFiles += 1;
-        newHashes.push(hash);
+        if (nextDocuments.some((document) => document.hash === hash)) {
+          duplicateFiles += 1;
+          continue;
+        }
 
         setImportMessage(`Reading the schedule in ${file.name}`);
         const { createWorker, PSM } = await import("tesseract.js");
@@ -1110,10 +1228,54 @@ export default function HomePage() {
         } finally {
           await worker.terminate();
         }
-        if (parsed) parsedSchedules.push(parsed);
+        if (!parsed) continue;
+        parsedSchedules.push(parsed);
+
+        const replacementIndex = nextDocuments.findIndex((document) =>
+          document.dates.some((date) => parsed?.dates.includes(date)),
+        );
+        const replacement =
+          replacementIndex >= 0 ? nextDocuments[replacementIndex] : null;
+        const now = new Date().toISOString();
+        const documentId = replacement?.id ?? `schedule-${hash.slice(0, 20)}`;
+        const nextDocument: ScheduleDocument = {
+          id: documentId,
+          hash,
+          name: file.name,
+          dates: parsed.dates,
+          shifts: parsed.shifts,
+          flights: parsed.flights,
+          uploadedAt: replacement?.uploadedAt ?? now,
+          updatedAt: now,
+          revision: (replacement?.revision ?? 0) + 1,
+        };
+        if (replacement) {
+          nextDocuments[replacementIndex] = nextDocument;
+          updatedDocuments += 1;
+          const preview = documentPreviews[documentId];
+          if (preview) URL.revokeObjectURL(preview);
+          setDocumentPreviews((current) => {
+            const next = { ...current };
+            delete next[documentId];
+            return next;
+          });
+          if (expandedDocument === documentId) setExpandedDocument(null);
+        } else {
+          nextDocuments.push(nextDocument);
+        }
+        await saveScheduleImage(documentId, file).catch(() => undefined);
       }
 
       if (!parsedSchedules.length) {
+        if (duplicateFiles) {
+          setDuplicateNotice(
+            `${duplicateFiles === 1 ? "This photo has" : "These photos have"} already been imported on this device. Nothing was added twice.`,
+          );
+          setImportMessage("That schedule is already in your upload history.");
+          setImportProgress(100);
+          setImportState("review");
+          return;
+        }
         setPendingDates([selectedDate]);
         setImportMessage(
           "I could read text in the photo, but couldn’t map its dates and schedule grid. Make sure the full table and all seven date columns are visible.",
@@ -1125,6 +1287,10 @@ export default function HomePage() {
       }
 
       const count = loadParsedSchedules(parsedSchedules);
+      nextDocuments = nextDocuments.sort((a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt),
+      );
+      setScheduleDocuments(nextDocuments);
       const parsedShiftCount = parsedSchedules
         .flatMap((schedule) => schedule.shifts)
         .filter((shift) => shift.status === "working").length;
@@ -1136,7 +1302,7 @@ export default function HomePage() {
       );
       localStorage.setItem(
         "shiftdeck.importHashes",
-        JSON.stringify(Array.from(new Set([...savedHashes, ...newHashes]))),
+        JSON.stringify(nextDocuments.map((document) => document.hash)),
       );
       if (duplicateFiles) {
         setDuplicateNotice(
@@ -1145,7 +1311,7 @@ export default function HomePage() {
       }
       setImportProgress(100);
       setImportMessage(
-        `${count} of your shifts found, plus ${Math.max(0, parsedShiftCount - count)} coworker shifts and ${parsedFlightCount} flights.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
+        `${updatedDocuments ? "Updated schedule replaced. " : ""}${count} of your shifts found, plus ${Math.max(0, parsedShiftCount - count)} coworker shifts and ${parsedFlightCount} flights.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
       );
       setImportState("review");
       setToast("Schedule imported");
@@ -1162,6 +1328,69 @@ export default function HomePage() {
   const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
     void processFiles(Array.from(event.target.files ?? []));
     event.target.value = "";
+  };
+
+  const toggleScheduleDocument = async (document: ScheduleDocument) => {
+    if (expandedDocument === document.id) {
+      setExpandedDocument(null);
+      return;
+    }
+    setExpandedDocument(document.id);
+    if (documentPreviews[document.id]) return;
+    const image = await loadScheduleImage(document.id).catch(() => undefined);
+    if (!image) {
+      setToast("The saved preview isn’t available on this device");
+      return;
+    }
+    setDocumentPreviews((current) => ({
+      ...current,
+      [document.id]: URL.createObjectURL(image),
+    }));
+  };
+
+  const removeScheduleDocument = async (document: ScheduleDocument) => {
+    const nextDocuments = scheduleDocuments.filter(
+      (candidate) => candidate.id !== document.id,
+    );
+    const remainingDates = new Set(
+      nextDocuments.flatMap((candidate) => candidate.dates),
+    );
+    const removedDates = new Set(
+      document.dates.filter((date) => !remainingDates.has(date)),
+    );
+    const nextDates = importedDates.filter((date) => !removedDates.has(date));
+
+    setScheduleDocuments(nextDocuments);
+    setImportedDates(nextDates);
+    setParsedShifts((current) =>
+      current.filter((shift) => !removedDates.has(shift.date)),
+    );
+    setParsedFlights((current) =>
+      current.filter((flight) => !removedDates.has(flight.date)),
+    );
+    setEvents((current) =>
+      current.filter((event) => !removedDates.has(event.date)),
+    );
+    setPendingDates((current) =>
+      current.filter((date) => !removedDates.has(date)),
+    );
+    if (removedDates.has(selectedDate)) {
+      setSelectedDate(nextDates[0] ?? localDateKey());
+    }
+    const preview = documentPreviews[document.id];
+    if (preview) URL.revokeObjectURL(preview);
+    setDocumentPreviews((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    if (expandedDocument === document.id) setExpandedDocument(null);
+    await deleteScheduleImage(document.id).catch(() => undefined);
+    localStorage.setItem(
+      "shiftdeck.importHashes",
+      JSON.stringify(nextDocuments.map((candidate) => candidate.hash)),
+    );
+    setToast("Uploaded schedule deleted");
   };
 
   const saveShift = () => {
@@ -1250,6 +1479,7 @@ export default function HomePage() {
       "shiftdeck.activeDates",
       "shiftdeck.parsedShifts",
       "shiftdeck.parsedFlights",
+      "shiftdeck.scheduleDocuments",
       "shiftdeck.events",
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
@@ -1258,6 +1488,11 @@ export default function HomePage() {
     setImportedDates([]);
     setParsedShifts([]);
     setParsedFlights([]);
+    setScheduleDocuments([]);
+    setExpandedDocument(null);
+    Object.values(documentPreviews).forEach((url) => URL.revokeObjectURL(url));
+    setDocumentPreviews({});
+    void clearScheduleImages().catch(() => undefined);
     setEvents([]);
     setImportState("idle");
     setImportProgress(0);
@@ -2133,6 +2368,65 @@ export default function HomePage() {
         )}
       </section>
 
+      {scheduleDocuments.length > 0 && (
+        <section className="upload-history">
+          <div className="upload-history-heading">
+            <h2>Uploaded schedules</h2>
+            <span>{scheduleDocuments.length}</span>
+          </div>
+          <div className="upload-document-list">
+            {scheduleDocuments.map((document) => {
+              const isExpanded = expandedDocument === document.id;
+              return (
+                <article
+                  className={`upload-document ${isExpanded ? "expanded" : ""}`}
+                  key={document.id}
+                >
+                  <div className="upload-document-row">
+                    <button
+                      className="upload-document-main"
+                      onClick={() => void toggleScheduleDocument(document)}
+                      aria-expanded={isExpanded}
+                    >
+                      <span className="upload-document-icon"><FileImage /></span>
+                      <span className="upload-document-copy">
+                        <strong>{document.name}</strong>
+                        <span>{formatDocumentRange(document.dates)}</span>
+                        <small>Updated {formatUpdatedAt(document.updatedAt)}</small>
+                      </span>
+                      <span className="upload-document-tags">
+                        {document.revision > 1 && <i>Updated</i>}
+                        <i className="active">Active</i>
+                      </span>
+                      <ChevronDown className="upload-document-chevron" />
+                    </button>
+                    <button
+                      className="upload-document-delete"
+                      onClick={() => void removeScheduleDocument(document)}
+                      aria-label={`Delete ${document.name}`}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                  {isExpanded && (
+                    <div className="upload-document-preview">
+                      {documentPreviews[document.id] ? (
+                        <img
+                          src={documentPreviews[document.id]}
+                          alt={`Uploaded schedule ${document.name}`}
+                        />
+                      ) : (
+                        <span>Loading photo…</span>
+                      )}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {duplicateNotice && (
         <div className="notice warning">
           <AlertTriangle />
@@ -2320,14 +2614,20 @@ export default function HomePage() {
               <ChevronDown />
             </label>
             <div className="settings-grid">
-              <label>
-                <span>Home airport</span>
-                <input value={prefs.homeAirport} maxLength={4} onChange={(event) => savePrefs({ homeAirport: cleanAirportCode(event.target.value) })} placeholder="ABE" />
-              </label>
-              <label>
-                <span>Airline</span>
-                <input value={prefs.airline} onChange={(event) => savePrefs({ airline: event.target.value })} placeholder="Allegiant" />
-              </label>
+              <SearchableSelect
+                label="Home airport"
+                value={prefs.homeAirport}
+                options={airportOptions}
+                placeholder="Search code or city"
+                onSelect={(value) => savePrefs({ homeAirport: cleanAirportCode(value) })}
+              />
+              <SearchableSelect
+                label="Airline"
+                value={prefs.airline}
+                options={airlineOptions}
+                placeholder="Search airline or code"
+                onSelect={(value) => savePrefs({ airline: value })}
+              />
             </div>
             <div className="theme-setting">
               <span>Appearance</span>
@@ -2379,6 +2679,90 @@ function NavButton({
       {icon}
       <span>{label}</span>
     </button>
+  );
+}
+
+function SearchableSelect({
+  label,
+  value,
+  options,
+  placeholder,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  options: AviationOption[];
+  placeholder: string;
+  onSelect: (value: string) => void;
+}) {
+  const [query, setQuery] = useState(value);
+  const [open, setOpen] = useState(false);
+  const normalizedQuery = query.trim().toLowerCase();
+  const matches = options
+    .filter((option) =>
+      !normalizedQuery ||
+      option.search.includes(normalizedQuery) ||
+      option.value.toLowerCase().startsWith(normalizedQuery),
+    )
+    .slice(0, 8);
+  const listId = `search-${label.toLowerCase().replace(/\s+/g, "-")}`;
+
+  const choose = (option: AviationOption) => {
+    onSelect(option.value);
+    setQuery(option.value);
+    setOpen(false);
+  };
+
+  return (
+    <label className="searchable-select">
+      <span>{label}</span>
+      <div>
+        <input
+          value={query}
+          onFocus={(event) => {
+            setOpen(true);
+            event.currentTarget.select();
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onBlur={() => {
+            window.setTimeout(() => {
+              setOpen(false);
+              setQuery(value);
+            }, 120);
+          }}
+          placeholder={options.length ? placeholder : "Loading…"}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+        />
+        <ChevronDown />
+        {open && (
+          <div className="searchable-options" id={listId} role="listbox">
+            {matches.length ? (
+              matches.map((option) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={option.value === value}
+                  key={`${option.value}-${option.label}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(option)}
+                >
+                  <span>{option.label}</span>
+                  {option.value === value && <Check />}
+                </button>
+              ))
+            ) : (
+              <span className="searchable-empty">No matches</span>
+            )}
+          </div>
+        )}
+      </div>
+    </label>
   );
 }
 
