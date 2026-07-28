@@ -61,19 +61,29 @@ type Preferences = {
   airline: string;
 };
 
-type CalendarRecord = {
-  calendarKey: string;
-  person: string;
-  date: string;
-  start: string;
-  end: string;
-  title: string;
-  signature: string;
-  revision: number;
-  status: "confirmed" | "cancelled";
+type CalendarSubscription = {
+  id: string;
+  writeToken: string;
+  feedUrl: string;
+  createdAt: string;
+  lastSyncedAt?: string;
 };
 
-type CalendarHistory = Record<string, CalendarRecord>;
+type CalendarSyncPayload = {
+  name: string;
+  title: string;
+  location: string;
+  notes: string;
+  reminder1: string;
+  reminder2: string;
+  events: Array<{
+    key: string;
+    date: string;
+    start: string;
+    end: string;
+    title: string;
+  }>;
+};
 
 type ShiftDraft = {
   date: string;
@@ -127,21 +137,6 @@ type SwapCandidate = {
   sameShiftBand: boolean;
   availability: "Off that day" | "Not scheduled";
 };
-
-type CalendarChange =
-  | {
-      kind: "upsert";
-      calendarKey: string;
-      event: CalendarEvent;
-      revision: number;
-      signature: string;
-    }
-  | {
-      kind: "cancel";
-      calendarKey: string;
-      record: CalendarRecord;
-      revision: number;
-    };
 
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
@@ -328,27 +323,6 @@ const calendarKeyFor = (person: string, date: string) =>
 const personKey = (person: string) =>
   person.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
-const calendarUid = (key: string) =>
-  `${key.toLowerCase().replace(/[^a-z0-9:-]+/g, "-")}@shiftdeck.app`;
-
-const eventSignature = (event: CalendarEvent, prefs: Preferences) =>
-  JSON.stringify([
-    event.date,
-    event.start,
-    event.end,
-    event.title,
-    prefs.location,
-    prefs.reminder1,
-    prefs.reminder2,
-  ]);
-
-const revisedTitle = (title: string, revision: number) => {
-  if (revision <= 0) return title;
-  return revision === 1
-    ? `${title} \u2014 Revised`
-    : `${title} \u2014 Revised ${revision}`;
-};
-
 const eventsFor = (shifts: Shift[], person: string, title: string) =>
   shifts
     .filter(
@@ -373,23 +347,58 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-function safeText(value: string) {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/,/g, "\\,")
-    .replace(/;/g, "\\;");
+const CALENDAR_SERVICE_ORIGIN =
+  "https://shiftdeck-schedule.frenchbear.chatgpt.site";
+
+function calendarServiceUrl(path: string) {
+  if (typeof window === "undefined") return `${CALENDAR_SERVICE_ORIGIN}${path}`;
+  const host = window.location.hostname;
+  if (
+    host === "shiftdeck-schedule.frenchbear.chatgpt.site" ||
+    host === "localhost" ||
+    host === "127.0.0.1"
+  ) {
+    return path;
+  }
+  return `${CALENDAR_SERVICE_ORIGIN}${path}`;
 }
 
-function icsTime(date: string, time: string, nextDay = false) {
-  const value = new Date(`${date}T${time}:00`);
-  if (nextDay) value.setDate(value.getDate() + 1);
-  const year = value.getFullYear();
-  const month = `${value.getMonth() + 1}`.padStart(2, "0");
-  const day = `${value.getDate()}`.padStart(2, "0");
-  const hour = `${value.getHours()}`.padStart(2, "0");
-  const minute = `${value.getMinutes()}`.padStart(2, "0");
-  return `${year}${month}${day}T${hour}${minute}00`;
+async function createCalendarFeed() {
+  const response = await fetch(calendarServiceUrl("/api/calendar-feeds"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!response.ok) throw new Error("Calendar setup failed");
+  return (await response.json()) as CalendarSubscription;
+}
+
+async function syncCalendarFeed(
+  subscription: Pick<CalendarSubscription, "id" | "writeToken">,
+  payload: CalendarSyncPayload,
+) {
+  const response = await fetch(
+    calendarServiceUrl(`/api/calendar-feeds/${subscription.id}`),
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${subscription.writeToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) throw new Error("Calendar sync failed");
+  return (await response.json()) as { syncedAt: string };
+}
+
+async function revokeCalendarFeed(subscription: CalendarSubscription) {
+  await fetch(
+    calendarServiceUrl(`/api/calendar-feeds/${subscription.id}`),
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${subscription.writeToken}` },
+    },
+  );
 }
 
 function localDateKey(date = new Date()) {
@@ -471,8 +480,11 @@ export default function HomePage() {
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [duplicateNotice, setDuplicateNotice] = useState("");
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [calendarHistory, setCalendarHistory] = useState<CalendarHistory>({});
-  const [pendingDates, setPendingDates] = useState<string[]>([]);
+  const [calendarSubscription, setCalendarSubscription] =
+    useState<CalendarSubscription | null>(null);
+  const [calendarSyncState, setCalendarSyncState] = useState<
+    "idle" | "syncing" | "synced" | "error"
+  >("idle");
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -482,8 +494,8 @@ export default function HomePage() {
     queueMicrotask(() => {
       const savedPrefs = localStorage.getItem("shiftdeck.preferences");
       const savedTheme = localStorage.getItem("shiftdeck.theme");
-      const savedCalendarHistory = localStorage.getItem(
-        "shiftdeck.calendarHistory",
+      const savedCalendarSubscription = localStorage.getItem(
+        "shiftdeck.calendarSubscription",
       );
       const savedDates = localStorage.getItem("shiftdeck.activeDates");
       const savedParsedShifts = localStorage.getItem("shiftdeck.parsedShifts");
@@ -598,11 +610,21 @@ export default function HomePage() {
       } else {
         setEvents(fallbackEvents);
       }
-      if (savedCalendarHistory) {
+      if (savedCalendarSubscription) {
         try {
-          setCalendarHistory(JSON.parse(savedCalendarHistory));
+          const subscription = JSON.parse(
+            savedCalendarSubscription,
+          ) as CalendarSubscription;
+          if (
+            subscription &&
+            typeof subscription.id === "string" &&
+            typeof subscription.writeToken === "string" &&
+            typeof subscription.feedUrl === "string"
+          ) {
+            setCalendarSubscription(subscription);
+          }
         } catch {
-          localStorage.removeItem("shiftdeck.calendarHistory");
+          localStorage.removeItem("shiftdeck.calendarSubscription");
         }
       }
       if (savedTheme === "dark") setTheme("dark");
@@ -664,6 +686,18 @@ export default function HomePage() {
       JSON.stringify(scheduleDocuments),
     );
   }, [hydrated, scheduleDocuments]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (calendarSubscription) {
+      localStorage.setItem(
+        "shiftdeck.calendarSubscription",
+        JSON.stringify(calendarSubscription),
+      );
+    } else {
+      localStorage.removeItem("shiftdeck.calendarSubscription");
+    }
+  }, [calendarSubscription, hydrated]);
 
   useEffect(() => {
     if (!settingsOpen || (airportOptions.length && airlineOptions.length)) return;
@@ -936,102 +970,73 @@ export default function HomePage() {
     });
   }, [dayFlights, myShift]);
 
-  const calendarChanges = useMemo<CalendarChange[]>(() => {
-    if (!pendingDates.length) return [];
+  const calendarSyncPayload = useMemo<CalendarSyncPayload>(
+    () => ({
+      name: "Shiftdeck",
+      title: prefs.title.trim() || "Work",
+      location: prefs.location.trim(),
+      notes: prefs.notes.trim(),
+      reminder1: prefs.reminder1,
+      reminder2: prefs.reminder2,
+      events: events
+        .map((event) => ({
+          key: event.calendarKey,
+          date: event.date,
+          start: event.start,
+          end: event.end,
+          title: prefs.title.trim() || event.title || "Work",
+        }))
+        .sort((first, second) =>
+          `${first.date}-${first.start}-${first.key}`.localeCompare(
+            `${second.date}-${second.start}-${second.key}`,
+          ),
+        ),
+    }),
+    [
+      events,
+      prefs.location,
+      prefs.notes,
+      prefs.reminder1,
+      prefs.reminder2,
+      prefs.title,
+    ],
+  );
+  const canExportCalendar = events.length > 0;
+  const calendarSubscriptionId = calendarSubscription?.id;
+  const calendarSubscriptionWriteToken = calendarSubscription?.writeToken;
 
-    const pendingDateSet = new Set(pendingDates);
-    const currentKeys = new Set(
-      events
-        .filter((event) => pendingDateSet.has(event.date))
-        .map((event) => event.calendarKey),
-    );
-    const changes: CalendarChange[] = events
-      .filter((event) => pendingDateSet.has(event.date))
-      .flatMap((event) => {
-        const exportEvent = { ...event, title: prefs.title.trim() };
-        const signature = eventSignature(exportEvent, prefs);
-        const previous = calendarHistory[event.calendarKey];
-        if (
-          previous?.status === "confirmed" &&
-          previous.signature === signature
-        ) {
-          return [];
-        }
-        return [
-          {
-            kind: "upsert" as const,
-            calendarKey: event.calendarKey,
-            event: exportEvent,
-            revision: previous ? previous.revision + 1 : 0,
-            signature,
-          },
-        ];
-      });
-
-    Object.values(calendarHistory).forEach((record) => {
-      if (
-        record.person === prefs.person &&
-        pendingDateSet.has(record.date) &&
-        record.status === "confirmed" &&
-        !currentKeys.has(record.calendarKey)
-      ) {
-        changes.push({
-          kind: "cancel",
-          calendarKey: record.calendarKey,
-          record,
-          revision: record.revision + 1,
-        });
-      }
-    });
-
-    return changes.sort((first, second) => {
-      const firstDate =
-        first.kind === "upsert" ? first.event.date : first.record.date;
-      const secondDate =
-        second.kind === "upsert" ? second.event.date : second.record.date;
-      return firstDate.localeCompare(secondDate);
-    });
-  }, [calendarHistory, events, pendingDates, prefs]);
-
-  const calendarReplayChanges = useMemo<CalendarChange[]>(() => {
-    const currentKeys = new Set(events.map((event) => event.calendarKey));
-    const current = events.map((event) => {
-      const exportEvent = { ...event, title: prefs.title.trim() };
-      const previous = calendarHistory[event.calendarKey];
-      return {
-        kind: "upsert" as const,
-        calendarKey: event.calendarKey,
-        event: exportEvent,
-        revision: previous?.revision ?? 0,
-        signature: eventSignature(exportEvent, prefs),
-      };
-    });
-    const cancelled = Object.values(calendarHistory)
-      .filter(
-        (record) =>
-          record.person === prefs.person &&
-          record.status === "cancelled" &&
-          !currentKeys.has(record.calendarKey),
-      )
-      .map((record) => ({
-        kind: "cancel" as const,
-        calendarKey: record.calendarKey,
-        record,
-        revision: record.revision,
-      }));
-    return [...current, ...cancelled].sort((first, second) => {
-      const firstDate =
-        first.kind === "upsert" ? first.event.date : first.record.date;
-      const secondDate =
-        second.kind === "upsert" ? second.event.date : second.record.date;
-      return firstDate.localeCompare(secondDate);
-    });
-  }, [calendarHistory, events, prefs]);
-
-  const calendarExportChanges = calendarChanges.length
-    ? calendarChanges
-    : calendarReplayChanges;
-  const canExportCalendar = calendarExportChanges.length > 0;
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !calendarSubscriptionId ||
+      !calendarSubscriptionWriteToken
+    ) {
+      return;
+    }
+    const subscription = {
+      id: calendarSubscriptionId,
+      writeToken: calendarSubscriptionWriteToken,
+    };
+    const timeout = window.setTimeout(() => {
+      setCalendarSyncState("syncing");
+      void syncCalendarFeed(subscription, calendarSyncPayload)
+        .then(({ syncedAt }) => {
+          setCalendarSubscription((current) =>
+            current?.id === subscription.id
+              ? { ...current, lastSyncedAt: syncedAt }
+              : current,
+          );
+          setCalendarSyncState("synced");
+        })
+        .catch(() => setCalendarSyncState("error"));
+    }, 900);
+    return () => window.clearTimeout(timeout);
+  }, [
+    calendarSubscriptionId,
+    calendarSubscriptionWriteToken,
+    calendarSyncPayload,
+    hydrated,
+  ]);
 
   const selectDate = (date: string) => {
     setSelectedDate(date);
@@ -1159,7 +1164,6 @@ export default function HomePage() {
     setParsedShifts(nextParsedShifts);
     setParsedFlights(nextParsedFlights);
     setImportedDates(nextDates);
-    setPendingDates(detectedDates);
     localStorage.setItem("shiftdeck.activeDates", JSON.stringify(nextDates));
     return matching.length;
   };
@@ -1276,7 +1280,6 @@ export default function HomePage() {
           setImportState("review");
           return;
         }
-        setPendingDates([selectedDate]);
         setImportMessage(
           "I could read text in the photo, but couldn’t map its dates and schedule grid. Make sure the full table and all seven date columns are visible.",
         );
@@ -1316,7 +1319,6 @@ export default function HomePage() {
       setImportState("review");
       setToast("Schedule imported");
     } catch {
-      setPendingDates([selectedDate]);
       setImportState("error");
       setImportProgress(100);
       setImportMessage(
@@ -1370,9 +1372,6 @@ export default function HomePage() {
     );
     setEvents((current) =>
       current.filter((event) => !removedDates.has(event.date)),
-    );
-    setPendingDates((current) =>
-      current.filter((date) => !removedDates.has(date)),
     );
     if (removedDates.has(selectedDate)) {
       setSelectedDate(nextDates[0] ?? localDateKey());
@@ -1431,15 +1430,6 @@ export default function HomePage() {
     setImportedDates((current) =>
       Array.from(new Set([...current, shiftDraft.date])).sort(),
     );
-    setPendingDates((current) =>
-      Array.from(
-        new Set([
-          ...current,
-          shiftDraft.date,
-          ...(editing ? [editing.date] : []),
-        ]),
-      ),
-    );
     setSelectedDate(shiftDraft.date);
     setImportState("review");
     setImportMessage(
@@ -1459,9 +1449,6 @@ export default function HomePage() {
     setEvents((current) =>
       current.filter((event) => event.id !== editing.id),
     );
-    setPendingDates((current) =>
-      current.includes(editing.date) ? current : [...current, editing.date],
-    );
     setImportState("review");
     setImportMessage("Your shift was removed.");
     setShiftEditor(null);
@@ -1469,6 +1456,7 @@ export default function HomePage() {
   };
 
   const clearAllData = () => {
+    const subscriptionToRevoke = calendarSubscription;
     [
       "shiftdeck.preferences",
       "shiftdeck.theme",
@@ -1476,6 +1464,7 @@ export default function HomePage() {
       "shiftdeck.exportedEvents",
       "shiftdeck.calendarFeed",
       "shiftdeck.calendarHistory",
+      "shiftdeck.calendarSubscription",
       "shiftdeck.activeDates",
       "shiftdeck.parsedShifts",
       "shiftdeck.parsedFlights",
@@ -1499,134 +1488,75 @@ export default function HomePage() {
     setImportMessage("");
     setLoadedFiles([]);
     setDuplicateNotice("");
-    setCalendarHistory({});
-    setPendingDates([]);
+    setCalendarSubscription(null);
+    setCalendarSyncState("idle");
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setExportOpen(false);
     setShiftEditor(null);
+    if (subscriptionToRevoke) {
+      void revokeCalendarFeed(subscriptionToRevoke).catch(() => undefined);
+    }
     setToast("All Shiftdeck data cleared from this device");
   };
 
-  const buildCalendar = (changes: CalendarChange[]) => {
-    const stamp = new Date()
-      .toISOString()
-      .replace(/[-:]/g, "")
-      .replace(/\.\d{3}/, "");
-    const reminders = Array.from(
-      new Set([prefs.reminder1, prefs.reminder2].filter(Boolean)),
-    );
-    const lines = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//Shiftdeck//Schedule Export//EN",
-      "CALSCALE:GREGORIAN",
-      "METHOD:PUBLISH",
-      "X-WR-CALNAME:Shiftdeck",
-      ...changes.flatMap((change) => {
-        const event =
-          change.kind === "upsert" ? change.event : change.record;
-        const overnight = toMinutes(event.end) <= toMinutes(event.start);
-        const title = revisedTitle(event.title, change.revision);
-        const eventLines = [
-          "BEGIN:VEVENT",
-          `UID:${calendarUid(change.calendarKey)}`,
-          `DTSTAMP:${stamp}`,
-          `LAST-MODIFIED:${stamp}`,
-          `SEQUENCE:${change.revision}`,
-          `DTSTART:${icsTime(event.date, event.start)}`,
-          `DTEND:${icsTime(event.date, event.end, overnight)}`,
-          `SUMMARY:${safeText(title)}`,
-          `X-SHIFTDECK-REVISION:${change.revision}`,
-        ];
-
-        if (change.kind === "cancel") {
-          eventLines.push("STATUS:CANCELLED");
-        } else {
-          eventLines.push(
-            "STATUS:CONFIRMED",
-            `LOCATION:${safeText(prefs.location)}`,
-            `DESCRIPTION:${safeText(prefs.notes)}`,
-          );
-        }
-
-        if (change.kind === "upsert") {
-          reminders.forEach((reminder) => {
-            eventLines.push(
-              "BEGIN:VALARM",
-              `TRIGGER:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
-              "ACTION:DISPLAY",
-              `DESCRIPTION:${safeText(title)}`,
-              "END:VALARM",
-            );
-          });
-        }
-        eventLines.push("END:VEVENT");
-        return eventLines;
-      }),
-      "END:VCALENDAR",
-    ];
-    return `${lines.join("\r\n")}\r\n`;
-  };
-
-  const exportCalendar = () => {
+  const subscribeToCalendar = async () => {
     if (!prefs.title.trim()) {
       setToast("Add an event title first");
       return;
     }
-    if (!calendarExportChanges.length) {
-      setToast("Add a shift before exporting");
+    if (!events.length) {
+      setToast("Add a shift before subscribing");
       return;
     }
+    setCalendarSyncState("syncing");
+    try {
+      const subscription =
+        calendarSubscription ?? (await createCalendarFeed());
+      const { syncedAt } = await syncCalendarFeed(
+        subscription,
+        calendarSyncPayload,
+      );
+      const syncedSubscription = {
+        ...subscription,
+        lastSyncedAt: syncedAt,
+      };
+      setCalendarSubscription(syncedSubscription);
+      localStorage.setItem(
+        "shiftdeck.calendarSubscription",
+        JSON.stringify(syncedSubscription),
+      );
+      setCalendarSyncState("synced");
+      setImportState("done");
+      setExportOpen(false);
+      setToast("Opening your Shiftdeck subscription in Apple Calendar");
+      window.location.href = syncedSubscription.feedUrl.replace(
+        /^https:/i,
+        "webcal:",
+      );
+    } catch {
+      setCalendarSyncState("error");
+      setToast("Calendar setup couldn’t connect. Try again.");
+    }
+  };
 
-    const content = buildCalendar(calendarExportChanges);
-    const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "Shiftdeck_Schedule.ics";
-    document.body.appendChild(anchor);
-    anchor.click();
-    window.setTimeout(() => {
-      URL.revokeObjectURL(url);
-      anchor.remove();
-    }, 0);
-
-    const nextHistory = { ...calendarHistory };
-    calendarExportChanges.forEach((change) => {
-      if (change.kind === "upsert") {
-        nextHistory[change.calendarKey] = {
-          calendarKey: change.calendarKey,
-          person: prefs.person,
-          date: change.event.date,
-          start: change.event.start,
-          end: change.event.end,
-          title: change.event.title,
-          signature: change.signature,
-          revision: change.revision,
-          status: "confirmed",
-        };
-      } else {
-        nextHistory[change.calendarKey] = {
-          ...change.record,
-          revision: change.revision,
-          status: "cancelled",
-        };
-      }
-    });
-
-    setCalendarHistory(nextHistory);
-    localStorage.setItem(
-      "shiftdeck.calendarHistory",
-      JSON.stringify(nextHistory),
+  const resetCalendarSubscription = async () => {
+    if (!calendarSubscription) return;
+    const confirmed = window.confirm(
+      "Reset the private calendar link? Your current Apple Calendar subscription will stop updating and you’ll need to subscribe again.",
     );
-    setImportState("done");
-    setExportOpen(false);
-    setToast(
-      calendarExportChanges.some((change) => change.revision > 0)
-        ? "Revised shifts are ready for Apple Calendar"
-        : "Schedule is ready for Apple Calendar",
-    );
+    if (!confirmed) return;
+    const subscription = calendarSubscription;
+    setCalendarSyncState("syncing");
+    try {
+      await revokeCalendarFeed(subscription);
+      setCalendarSubscription(null);
+      setCalendarSyncState("idle");
+      setToast("Private calendar link reset");
+    } catch {
+      setCalendarSyncState("error");
+      setToast("The calendar link couldn’t be reset");
+    }
   };
 
   const isFlightDuringShift = (flight: Flight) => {
@@ -2442,7 +2372,7 @@ export default function HomePage() {
             <div>
               <b>
                 {importState === "done"
-                  ? "Calendar ready"
+                  ? "Calendar connected"
                   : importState === "error"
                     ? "Schedule not recognized"
                     : "Schedule found"}
@@ -2455,10 +2385,10 @@ export default function HomePage() {
                   onClick={() => setExportOpen(true)}
                 >
                   <CalendarDays />
-                  Export to Apple Calendar
+                  Apple Calendar
                 </button>
               ) : importState !== "error" ? (
-                <small>Add a shift to enable calendar export.</small>
+                <small>Add a shift to connect Apple Calendar.</small>
               ) : null}
             </div>
           </section>
@@ -2566,11 +2496,14 @@ export default function HomePage() {
 
       {exportOpen && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setExportOpen(false)}>
-          <section className="export-sheet" role="dialog" aria-modal="true" aria-label="Export to Apple Calendar" onMouseDown={(event) => event.stopPropagation()}>
+          <section className="export-sheet" role="dialog" aria-modal="true" aria-label="Subscribe in Apple Calendar" onMouseDown={(event) => event.stopPropagation()}>
             <header>
-              <div><span className="eyebrow neutral">Apple Calendar</span><h2>Export shifts</h2></div>
+              <div><span className="eyebrow neutral">Apple Calendar</span><h2>Subscribe to shifts</h2></div>
               <button onClick={() => setExportOpen(false)} aria-label="Close calendar export"><X /></button>
             </header>
+            <p className="subscription-copy">
+              Subscribe once. New imports and revised shifts will update this calendar automatically.
+            </p>
             <div className="export-fields">
               <label>
                 <span>Title</span>
@@ -2597,7 +2530,16 @@ export default function HomePage() {
                 </label>
               </div>
             </div>
-            <button className="button primary" onClick={exportCalendar}><CalendarDays /> Export to Apple Calendar</button>
+            <button
+              className="button primary"
+              onClick={() => void subscribeToCalendar()}
+              disabled={calendarSyncState === "syncing"}
+            >
+              <CalendarDays />
+              {calendarSyncState === "syncing"
+                ? "Connecting…"
+                : "Subscribe in Apple Calendar"}
+            </button>
           </section>
         </div>
       )}
@@ -2629,6 +2571,38 @@ export default function HomePage() {
                 onSelect={(value) => savePrefs({ airline: value })}
               />
             </div>
+            <div className="calendar-subscription-setting">
+              <div>
+                <span>Apple Calendar</span>
+                <b>
+                  {calendarSubscription
+                    ? calendarSyncState === "syncing"
+                      ? "Updating…"
+                      : calendarSyncState === "error"
+                        ? "Needs attention"
+                        : "Automatic updates on"
+                    : "Not connected"}
+                </b>
+              </div>
+              {calendarSubscription ? (
+                <button
+                  className="button danger subtle"
+                  onClick={() => void resetCalendarSubscription()}
+                >
+                  Reset private link
+                </button>
+              ) : (
+                <button
+                  className="button soft"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setExportOpen(true);
+                  }}
+                >
+                  Connect
+                </button>
+              )}
+            </div>
             <div className="theme-setting">
               <span>Appearance</span>
               <div>
@@ -2649,7 +2623,7 @@ export default function HomePage() {
           <section className="confirm-card" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <span className="confirm-icon danger"><Trash2 /></span>
             <h2>Clear all app data?</h2>
-            <p>This resets saved settings, upload history, and calendar revision history on this device. It will not remove anything already added to Apple Calendar.</p>
+            <p>This resets saved settings and uploads on this device. It also stops the private Shiftdeck subscription feed; remove that calendar from Apple Calendar if you no longer want to see it.</p>
             <div>
               <button className="button soft" onClick={() => setClearConfirmOpen(false)}>Cancel</button>
               <button className="button danger" onClick={clearAllData}>Clear everything</button>

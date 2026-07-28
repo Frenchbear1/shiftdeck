@@ -38,39 +38,48 @@ test("server-renders the blank Shiftdeck app shell", async () => {
   assert.doesNotMatch(html, /Subscribed calendar/);
 });
 
-test("uses the Cycle Tracker download flow with revision-aware events", async () => {
-  const [page, css, hosting] = await Promise.all([
+test("uses a durable Apple Calendar subscription with revision-aware events", async () => {
+  const [page, css, hosting, service, migration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+    readFile(new URL("../worker/calendar-service.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../drizzle/0000_shiftdeck_calendar.sql", import.meta.url),
+      "utf8",
+    ),
   ]);
 
-  assert.match(page, /anchor\.download = "Shiftdeck_Schedule\.ics"/);
-  assert.match(page, /document\.body\.appendChild\(anchor\)/);
-  assert.match(page, /anchor\.click\(\)/);
-  assert.doesNotMatch(page, /navigator\.share|syncCalendarFeed|CalendarFeed/);
+  assert.match(page, /createCalendarFeed/);
+  assert.match(page, /syncCalendarFeed/);
+  assert.match(page, /shiftdeck\.calendarSubscription/);
+  assert.match(page, /window\.location\.href = syncedSubscription\.feedUrl/);
+  assert.match(page, /"webcal:"/);
+  assert.doesNotMatch(page, /anchor\.download|Shiftdeck_Schedule\.ics/);
 
-  assert.match(page, /UID:\$\{calendarUid\(change\.calendarKey\)\}/);
-  assert.match(page, /SEQUENCE:\$\{change\.revision\}/);
-  assert.match(page, /STATUS:CANCELLED/);
-  assert.match(page, /Revised \$\{revision\}/);
-  assert.match(page, /shiftdeck\.calendarHistory/);
-  assert.match(page, /Export to Apple Calendar/);
-  assert.match(page, /aria-label="Export to Apple Calendar"/);
+  assert.match(service, /UID:\$\{uidFor\(feed\.id, event\.event_key\)\}/);
+  assert.match(service, /SEQUENCE:\$\{event\.sequence\}/);
+  assert.match(service, /"CANCELLED" : "CONFIRMED"/);
+  assert.match(service, /Revised \$\{sequence\}/);
+  assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT1H/);
+  assert.match(service, /write_token_hash/);
+  assert.match(page, /Subscribe in Apple Calendar/);
+  assert.match(page, /aria-label="Subscribe in Apple Calendar"/);
   assert.match(page, />Title</);
   assert.match(page, />Place</);
   assert.match(page, />Reminder 1</);
   assert.match(page, />Reminder 2</);
   assert.match(page, /value: "P1W", label: "1 week before"/);
-  assert.match(page, /new Set\(\[prefs\.reminder1, prefs\.reminder2\]/);
-  assert.match(page, /calendarReplayChanges/);
+  assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
   assert.match(page, /aria-label="Add a shift"/);
   assert.match(page, /aria-label="Edit this shift"/);
   assert.match(page, /shiftdeck\.events/);
   assert.match(page, />Appearance</);
   assert.doesNotMatch(page, /compact-shift-list|Check before export|Your shifts|Toggle theme/);
   assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);
-  assert.doesNotMatch(page, /Subscribed calendar|Preferred calendar label/);
+  assert.match(page, /Automatic updates on/);
 
-  assert.equal(JSON.parse(hosting).d1, null);
+  assert.equal(JSON.parse(hosting).d1, "DB");
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_feeds/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_events/);
 });

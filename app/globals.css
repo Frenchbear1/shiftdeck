@@ -2054,6 +2054,13 @@ main {
   gap: 14px;
 }
 
+.subscription-copy {
+  margin: -5px 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .settings-sheet .button,
 .export-sheet > .button {
   width: 100%;
@@ -2064,6 +2071,47 @@ main {
 .theme-setting {
   display: grid;
   gap: 7px;
+}
+
+.calendar-subscription-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.calendar-subscription-setting > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.calendar-subscription-setting span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.calendar-subscription-setting b {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-subscription-setting .button {
+  width: auto;
+  min-height: 38px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding-inline: 12px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .settings-grid {

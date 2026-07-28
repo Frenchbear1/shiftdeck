@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Shiftdeck — Schedule, crew & flights",
   description:
-    "Turn work schedule photos into an editable Apple Calendar export, then see your crew and flight board at a glance.",
+    "Turn work schedule photos into an automatically updating Apple Calendar subscription, then see your crew and flight board at a glance.",
   applicationName: "Shiftdeck",
   manifest: "/manifest.webmanifest",
   icons: {
