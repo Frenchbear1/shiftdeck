@@ -1570,6 +1570,44 @@ export default function HomePage() {
     }
   };
 
+  const saveCalendarSettings = async () => {
+    if (!calendarSubscription) {
+      await subscribeToCalendar();
+      return;
+    }
+    if (!prefs.title.trim()) {
+      setToast("Add an event title first");
+      return;
+    }
+    if (!events.length) {
+      setToast("Add a shift before saving calendar settings");
+      return;
+    }
+    setCalendarSyncState("syncing");
+    try {
+      const { syncedAt } = await syncCalendarFeed(
+        calendarSubscription,
+        calendarSyncPayload,
+      );
+      setCalendarSubscription((current) =>
+        current ? { ...current, lastSyncedAt: syncedAt } : current,
+      );
+      setCalendarSyncState("synced");
+      setExportOpen(false);
+      setToast("Calendar settings updated");
+    } catch (error) {
+      const status = (error as Error & { status?: number }).status;
+      if (status === 404 || status === 410) {
+        setCalendarSubscription(null);
+        setCalendarSyncState("idle");
+        setToast("Calendar connection expired — subscribe again.");
+        return;
+      }
+      setCalendarSyncState("error");
+      setToast("Calendar settings couldn’t be saved. Try again.");
+    }
+  };
+
   const resetCalendarSubscription = async () => {
     if (!calendarSubscription) return;
     const confirmed = window.confirm(
@@ -2415,7 +2453,7 @@ export default function HomePage() {
                   onClick={() => setExportOpen(true)}
                 >
                   <CalendarDays />
-                  Apple Calendar
+                  {calendarSubscription ? "Calendar settings" : "Apple Calendar"}
                 </button>
               ) : importState !== "error" ? (
                 <small>Add a shift to connect Apple Calendar.</small>
@@ -2526,13 +2564,32 @@ export default function HomePage() {
 
       {exportOpen && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setExportOpen(false)}>
-          <section className="export-sheet" role="dialog" aria-modal="true" aria-label="Subscribe in Apple Calendar" onMouseDown={(event) => event.stopPropagation()}>
+          <section
+            className="export-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              calendarSubscription
+                ? "Apple Calendar settings"
+                : "Subscribe in Apple Calendar"
+            }
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <header>
-              <div><span className="eyebrow neutral">Apple Calendar</span><h2>Subscribe to shifts</h2></div>
+              <div>
+                <span className="eyebrow neutral">Apple Calendar</span>
+                <h2>
+                  {calendarSubscription
+                    ? "Calendar settings"
+                    : "Subscribe to shifts"}
+                </h2>
+              </div>
               <button onClick={() => setExportOpen(false)} aria-label="Close calendar export"><X /></button>
             </header>
             <p className="subscription-copy">
-              Subscribe once. New imports and revised shifts will update this calendar automatically.
+              {calendarSubscription
+                ? "You’re already subscribed. Changes here update your existing calendar automatically."
+                : "Subscribe once. New imports and revised shifts will update this calendar automatically."}
             </p>
             <div className="export-fields">
               <label>
@@ -2562,14 +2619,30 @@ export default function HomePage() {
             </div>
             <button
               className="button primary"
-              onClick={() => void subscribeToCalendar()}
+              onClick={() =>
+                void (calendarSubscription
+                  ? saveCalendarSettings()
+                  : subscribeToCalendar())
+              }
               disabled={calendarSyncState === "syncing"}
             >
-              <CalendarDays />
+              {calendarSubscription ? <Check /> : <CalendarDays />}
               {calendarSyncState === "syncing"
-                ? "Connecting…"
-                : "Subscribe in Apple Calendar"}
+                ? calendarSubscription
+                  ? "Saving…"
+                  : "Connecting…"
+                : calendarSubscription
+                  ? "Save changes"
+                  : "Subscribe in Apple Calendar"}
             </button>
+            {calendarSubscription && (
+              <button
+                className="button danger subtle"
+                onClick={() => void resetCalendarSubscription()}
+              >
+                Reset calendar connection
+              </button>
+            )}
           </section>
         </div>
       )}
@@ -2616,10 +2689,13 @@ export default function HomePage() {
               </div>
               {calendarSubscription ? (
                 <button
-                  className="button danger subtle"
-                  onClick={() => void resetCalendarSubscription()}
+                  className="button soft"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setExportOpen(true);
+                  }}
                 >
-                  Reset private link
+                  Edit
                 </button>
               ) : (
                 <button
