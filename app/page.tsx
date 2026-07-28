@@ -350,6 +350,17 @@ function initials(name: string) {
 const CALENDAR_SERVICE_ORIGIN =
   "https://shiftdeck-calendar.frenchbear1.workers.dev";
 
+function isCurrentCalendarSubscription(
+  subscription: CalendarSubscription | null,
+) {
+  if (!subscription) return false;
+  try {
+    return new URL(subscription.feedUrl).origin === CALENDAR_SERVICE_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 function calendarServiceUrl(path: string) {
   if (typeof window === "undefined") return `${CALENDAR_SERVICE_ORIGIN}${path}`;
   const host = window.location.hostname;
@@ -383,7 +394,13 @@ async function syncCalendarFeed(
       body: JSON.stringify(payload),
     },
   );
-  if (!response.ok) throw new Error("Calendar sync failed");
+  if (!response.ok) {
+    const error = new Error("Calendar sync failed") as Error & {
+      status: number;
+    };
+    error.status = response.status;
+    throw error;
+  }
   return (await response.json()) as { syncedAt: string };
 }
 
@@ -617,7 +634,12 @@ export default function HomePage() {
             typeof subscription.writeToken === "string" &&
             typeof subscription.feedUrl === "string"
           ) {
-            setCalendarSubscription(subscription);
+            if (isCurrentCalendarSubscription(subscription)) {
+              setCalendarSubscription(subscription);
+            } else {
+              localStorage.removeItem("shiftdeck.calendarSubscription");
+              setToast("Calendar service upgraded — subscribe once more.");
+            }
           }
         } catch {
           localStorage.removeItem("shiftdeck.calendarSubscription");
@@ -1507,12 +1529,24 @@ export default function HomePage() {
     }
     setCalendarSyncState("syncing");
     try {
-      const subscription =
-        calendarSubscription ?? (await createCalendarFeed());
-      const { syncedAt } = await syncCalendarFeed(
-        subscription,
-        calendarSyncPayload,
-      );
+      let subscription = isCurrentCalendarSubscription(calendarSubscription)
+        ? calendarSubscription!
+        : await createCalendarFeed();
+      let syncedAt: string;
+      try {
+        ({ syncedAt } = await syncCalendarFeed(
+          subscription,
+          calendarSyncPayload,
+        ));
+      } catch (error) {
+        const status = (error as Error & { status?: number }).status;
+        if (status !== 404 && status !== 410) throw error;
+        subscription = await createCalendarFeed();
+        ({ syncedAt } = await syncCalendarFeed(
+          subscription,
+          calendarSyncPayload,
+        ));
+      }
       const syncedSubscription = {
         ...subscription,
         lastSyncedAt: syncedAt,
