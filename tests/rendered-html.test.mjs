@@ -100,13 +100,18 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /value: "TIME_TO_LEAVE", label: "Time to Leave"/);
   assert.match(page, /One reminder is enough/);
   assert.match(page, /calendarServiceUrl\(`\/api\/places/);
+  assert.match(page, /Enter coordinates/);
+  assert.match(page, /Preview in Apple Maps/);
+  assert.match(page, /parseCoordinatePair/);
   assert.match(service, /https:\/\/photon\.komoot\.io\/api/);
   assert.match(service, /countrycode=US/);
+  assert.match(service, /limit=10/);
   assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
   assert.match(service, /\.filter\(Boolean\)/);
   assert.match(service, /TRIGGER;RELATED=START/);
   assert.match(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
   assert.match(service, /X-APPLE-STRUCTURED-LOCATION/);
+  assert.match(service, /const hasStructuredLocation/);
   assert.match(service, /public, no-cache, must-revalidate/);
   assert.match(
     page,

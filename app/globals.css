@@ -2137,6 +2137,8 @@ main {
 
 .place-suggestions button {
   width: 100%;
+  display: grid;
+  gap: 3px;
   padding: 10px;
   border: 0;
   color: inherit;
@@ -2147,6 +2149,18 @@ main {
   line-height: 1.35;
   text-align: left;
   cursor: pointer;
+}
+
+.place-suggestions button b {
+  font-size: 12px;
+}
+
+.place-suggestions button span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .place-suggestions button:hover,
@@ -2167,9 +2181,85 @@ main {
 }
 
 .place-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--green);
   font-size: 10px;
   font-weight: 750;
+}
+
+.place-selected svg {
+  width: 12px;
+  height: 12px;
+}
+
+.coordinate-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: -4px;
+}
+
+.coordinate-toggle,
+.coordinate-tools a,
+.coordinate-fields > button {
+  border: 0;
+  color: var(--blue);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 750;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.coordinate-toggle {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+}
+
+.coordinate-toggle svg {
+  width: 13px;
+}
+
+.coordinate-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.coordinate-fields label {
+  display: grid;
+  gap: 5px;
+}
+
+.coordinate-fields label > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.coordinate-fields > button {
+  height: 40px;
+  padding: 0 8px;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.coordinate-fields > small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
 }
 
 .export-fields label > svg,
@@ -3335,6 +3425,17 @@ main {
 
   .pay-settings-grid > small {
     grid-column: auto;
+  }
+
+  .coordinate-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .coordinate-fields > button {
+    grid-column: 1 / -1;
+    height: 28px;
+    padding: 0;
+    justify-self: start;
   }
 
   .privacy-badge {

@@ -11,6 +11,7 @@ import {
   Clock3,
   FileImage,
   Home,
+  MapPin,
   Moon,
   Pencil,
   Plane,
@@ -118,6 +119,8 @@ type TimeOffDraft = {
 type PlaceSuggestion = {
   id: string;
   label: string;
+  primary: string;
+  secondary: string;
   latitude: number;
   longitude: number;
 };
@@ -369,6 +372,26 @@ const formatHours = (value: number) =>
     maximumFractionDigits: 2,
   }).format(value);
 
+function parseCoordinatePair(value: string) {
+  const match = value
+    .trim()
+    .match(/^(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if (!match) return null;
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+  return { latitude, longitude };
+}
+
 const cleanAirportCode = (value: string) =>
   (value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) || "ABE");
 
@@ -611,9 +634,15 @@ function photonSuggestion(feature: PhotonFeature, index: number): PlaceSuggestio
   ].filter((part, partIndex, all) => part && all.indexOf(part) === partIndex);
   const label = parts.join(", ");
   if (!label) return null;
+  const primary = name || streetLine || city || label;
+  const secondary = parts
+    .filter((part) => part !== primary)
+    .join(", ");
   return {
     id: `${String(properties.osm_type ?? "place")}-${String(properties.osm_id ?? index)}`,
     label,
+    primary,
+    secondary,
     latitude: coordinates[1],
     longitude: coordinates[0],
   };
@@ -670,6 +699,11 @@ export default function HomePage() {
     "idle" | "loading" | "error"
   >("idle");
   const [placeMenuOpen, setPlaceMenuOpen] = useState(false);
+  const [coordinatesOpen, setCoordinatesOpen] = useState(false);
+  const [coordinateDraft, setCoordinateDraft] = useState({
+    latitude: "",
+    longitude: "",
+  });
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -884,11 +918,18 @@ export default function HomePage() {
           return response.json() as Promise<{ features?: PhotonFeature[] }>;
         })
         .then((result) => {
+          const seen = new Set<string>();
           const suggestions = (result.features ?? [])
             .map(photonSuggestion)
             .filter(
               (suggestion): suggestion is PlaceSuggestion => Boolean(suggestion),
-            );
+            )
+            .filter((suggestion) => {
+              const key = `${suggestion.label.toLowerCase()}-${suggestion.latitude.toFixed(5)}-${suggestion.longitude.toFixed(5)}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
           setPlaceSuggestions(suggestions);
           setPlaceLookupState("idle");
         })
@@ -1385,6 +1426,31 @@ export default function HomePage() {
     }
   };
 
+  const updateCoordinateDraft = (
+    field: "latitude" | "longitude",
+    value: string,
+  ) => {
+    const next = { ...coordinateDraft, [field]: value };
+    setCoordinateDraft(next);
+    const latitude = Number(next.latitude);
+    const longitude = Number(next.longitude);
+    const valid =
+      next.latitude.trim() !== "" &&
+      next.longitude.trim() !== "" &&
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude) &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
+    savePrefs({
+      location:
+        valid && !prefs.location.trim() ? "Pinned location" : prefs.location,
+      locationLat: valid ? latitude : null,
+      locationLon: valid ? longitude : null,
+    });
+  };
+
   const changeTheme = (nextTheme: "light" | "dark") => {
     if (nextTheme === theme) return;
     localStorage.setItem("shiftdeck.theme", nextTheme);
@@ -1813,6 +1879,8 @@ export default function HomePage() {
     setDuplicateNotice("");
     setCalendarSubscription(null);
     setCalendarSyncState("idle");
+    setCoordinatesOpen(false);
+    setCoordinateDraft({ latitude: "", longitude: "" });
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setExportOpen(false);
@@ -3070,6 +3138,22 @@ export default function HomePage() {
                 <input
                   value={prefs.location}
                   onChange={(event) => {
+                    const coordinate = parseCoordinatePair(event.target.value);
+                    if (coordinate) {
+                      setCoordinateDraft({
+                        latitude: `${coordinate.latitude}`,
+                        longitude: `${coordinate.longitude}`,
+                      });
+                      setCoordinatesOpen(true);
+                      savePrefs({
+                        location: "Pinned location",
+                        locationLat: coordinate.latitude,
+                        locationLon: coordinate.longitude,
+                      });
+                      setPlaceSuggestions([]);
+                      setPlaceMenuOpen(false);
+                      return;
+                    }
                     savePrefs({
                       location: event.target.value,
                       locationLat: null,
@@ -3112,11 +3196,18 @@ export default function HomePage() {
                               locationLat: suggestion.latitude,
                               locationLon: suggestion.longitude,
                             });
+                            setCoordinateDraft({
+                              latitude: `${suggestion.latitude}`,
+                              longitude: `${suggestion.longitude}`,
+                            });
                             setPlaceSuggestions([]);
                             setPlaceMenuOpen(false);
                           }}
                         >
-                          {suggestion.label}
+                          <b>{suggestion.primary}</b>
+                          {suggestion.secondary && (
+                            <span>{suggestion.secondary}</span>
+                          )}
                         </button>
                       ))
                     ) : (
@@ -3134,9 +3225,99 @@ export default function HomePage() {
                 {prefs.location &&
                   Number.isFinite(prefs.locationLat) &&
                   Number.isFinite(prefs.locationLon) && (
-                    <small className="place-selected">Address linked</small>
+                    <small className="place-selected">
+                      <MapPin />
+                      Map pin attached · {prefs.locationLat!.toFixed(5)},{" "}
+                      {prefs.locationLon!.toFixed(5)}
+                    </small>
                   )}
               </label>
+              <div className="coordinate-tools">
+                <button
+                  type="button"
+                  className="coordinate-toggle"
+                  onClick={() => {
+                    setCoordinatesOpen((current) => {
+                      const next = !current;
+                      if (next) {
+                        setCoordinateDraft({
+                          latitude:
+                            typeof prefs.locationLat === "number"
+                              ? `${prefs.locationLat}`
+                              : "",
+                          longitude:
+                            typeof prefs.locationLon === "number"
+                              ? `${prefs.locationLon}`
+                              : "",
+                        });
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <MapPin />
+                  {coordinatesOpen ? "Hide coordinates" : "Enter coordinates"}
+                </button>
+                {hasStructuredCalendarPlace && (
+                  <a
+                    href={`https://maps.apple.com/?ll=${prefs.locationLat},${prefs.locationLon}&q=${encodeURIComponent(prefs.location.trim())}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Preview in Apple Maps
+                  </a>
+                )}
+              </div>
+              {coordinatesOpen && (
+                <div className="coordinate-fields">
+                  <label>
+                    <span>Latitude</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="-90"
+                      max="90"
+                      step="any"
+                      value={coordinateDraft.latitude}
+                      onChange={(event) =>
+                        updateCoordinateDraft("latitude", event.target.value)
+                      }
+                      placeholder="40.65240"
+                    />
+                  </label>
+                  <label>
+                    <span>Longitude</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="-180"
+                      max="180"
+                      step="any"
+                      value={coordinateDraft.longitude}
+                      onChange={(event) =>
+                        updateCoordinateDraft("longitude", event.target.value)
+                      }
+                      placeholder="-75.44080"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCoordinateDraft({ latitude: "", longitude: "" });
+                      savePrefs({
+                        locationLat: null,
+                        locationLon: null,
+                      });
+                    }}
+                  >
+                    Clear pin
+                  </button>
+                  <small>
+                    You can also paste coordinates such as 40.6524, -75.4408
+                    directly into Place.
+                  </small>
+                </div>
+              )}
               <div className="reminder-grid">
                 <label>
                   <span>Reminder 1</span>

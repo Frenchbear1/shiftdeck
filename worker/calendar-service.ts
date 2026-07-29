@@ -165,7 +165,7 @@ async function searchPlaces(request: Request) {
   if (query.length < 3) return json(request, { features: [] });
   try {
     const response = await fetch(
-      `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=en&limit=6&countrycode=US`,
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=en&limit=10&countrycode=US`,
       {
         headers: { Accept: "application/json" },
         cf: { cacheEverything: true, cacheTtl: 3600 },
@@ -300,11 +300,12 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
   const reminders = Array.from(
     new Set([feed.reminder1, feed.reminder2].filter(Boolean)),
   );
-  const timeToLeave =
-    reminders.includes("TIME_TO_LEAVE") &&
+  const hasStructuredLocation =
     feed.location &&
     feed.location_lat !== null &&
     feed.location_lon !== null;
+  const timeToLeave =
+    reminders.includes("TIME_TO_LEAVE") && hasStructuredLocation;
   const timedReminders = reminders.filter(
     (reminder) => reminder !== "TIME_TO_LEAVE",
   );
@@ -337,13 +338,15 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
     );
     if (event.status === "confirmed") {
       if (feed.location) lines.push(`LOCATION:${safeIcsText(feed.location)}`);
-      if (timeToLeave) {
+      if (hasStructuredLocation) {
         const address = safeIcsParameter(feed.location);
         lines.push(
           `GEO:${feed.location_lat};${feed.location_lon}`,
-          "X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC",
           `X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-ADDRESS="${address}";X-APPLE-RADIUS=75;X-TITLE="${address}":geo:${feed.location_lat},${feed.location_lon}`,
         );
+        if (timeToLeave) {
+          lines.push("X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC");
+        }
       }
       if (feed.notes) lines.push(`DESCRIPTION:${safeIcsText(feed.notes)}`);
       timedReminders.forEach((reminder) => {
