@@ -50,14 +50,19 @@ test("caches the PWA shell and restores Today before background data", async () 
   ]);
 
   assert.match(serviceWorker, /shiftdeck-shell/);
+  assert.match(serviceWorker, /shiftdeck-shell.*v2|CACHE_PREFIX.*v2/s);
   assert.match(serviceWorker, /request\.mode === "navigate"/);
   assert.match(serviceWorker, /warmDocumentAssets/);
   assert.match(serviceWorker, /cache\.match\(scopeRoot\)/);
   assert.match(page, /backgroundHydrated/);
   assert.match(page, /setHydrated\(true\)[\s\S]*?window\.setTimeout/);
   assert.doesNotMatch(layout, /next\/font/);
+  assert.match(layout, /launchPaintStyle/);
+  assert.match(layout, /background: #17191d/);
+  assert.match(layout, /backgroundColor: "#17191d"/);
   assert.match(layout, /navigator\.serviceWorker\.register/);
   assert.match(pagesShell, /navigator\.serviceWorker/);
+  assert.match(pagesShell, /background: #17191d/);
 });
 
 test("rejects schedule headings and OCR fragments as worker names", () => {

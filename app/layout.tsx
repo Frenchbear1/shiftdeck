@@ -46,6 +46,7 @@ const themeBootScript = `
     var themeColor = activeTheme === "dark" ? "#17191d" : "#f4f5f7";
     document.documentElement.dataset.theme = activeTheme;
     document.documentElement.style.colorScheme = activeTheme;
+    document.documentElement.style.backgroundColor = themeColor;
     var themeMeta = document.querySelector('meta[name="theme-color"]');
     if (!themeMeta) {
       themeMeta = document.createElement("meta");
@@ -68,15 +69,33 @@ const themeBootScript = `
   }
 `;
 
+const launchPaintStyle = `
+  html, body {
+    margin: 0;
+    background: #17191d;
+    color-scheme: dark;
+  }
+  html[data-theme="light"],
+  html[data-theme="light"] body {
+    background: #f4f5f7;
+    color-scheme: light;
+  }
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      style={{ backgroundColor: "#17191d", colorScheme: "dark" }}
+    >
       <head>
-        <meta name="theme-color" content="#f4f5f7" />
+        <style dangerouslySetInnerHTML={{ __html: launchPaintStyle }} />
+        <meta name="theme-color" content="#17191d" />
         <meta
           name="apple-mobile-web-app-status-bar-style"
           content="black-translucent"

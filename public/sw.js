@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "shiftdeck-shell";
-const CACHE_NAME = `${CACHE_PREFIX}-v1`;
+const CACHE_NAME = `${CACHE_PREFIX}-v2`;
 const scopeRoot = new URL("./", self.registration.scope);
 
 async function cacheResponse(cache, request, response) {
