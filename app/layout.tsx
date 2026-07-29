@@ -1,16 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Shiftdeck — Schedule, crew & flights",
@@ -72,6 +61,11 @@ const themeBootScript = `
     }
     statusMeta.setAttribute("content", activeTheme === "dark" ? "black-translucent" : "default");
   } catch (error) {}
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register(new URL("sw.js", document.baseURI).href, {
+      scope: new URL("./", document.baseURI).pathname
+    }).catch(function () {});
+  }
 `;
 
 export default function RootLayout({
@@ -89,11 +83,7 @@ export default function RootLayout({
         />
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

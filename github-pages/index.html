@@ -31,6 +31,13 @@
             activeTheme === "dark" ? "black-translucent" : "default",
           );
       } catch (error) {}
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .register(new URL("sw.js", document.baseURI).href, {
+            scope: new URL("./", document.baseURI).pathname,
+          })
+          .catch(() => {});
+      }
     </script>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />

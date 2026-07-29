@@ -717,21 +717,20 @@ export default function HomePage() {
   const [coordinateDraft, setCoordinateDraft] = useState("");
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const [backgroundHydrated, setBackgroundHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const fileInput = useRef<HTMLInputElement>(null);
   const homeDateRail = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    let backgroundTimer: number | undefined;
     queueMicrotask(() => {
+      if (cancelled) return;
       const savedPrefs = localStorage.getItem("shiftdeck.preferences");
       const savedTheme = localStorage.getItem("shiftdeck.theme");
-      const savedCalendarSubscription = localStorage.getItem(
-        "shiftdeck.calendarSubscription",
-      );
       const savedDates = localStorage.getItem("shiftdeck.activeDates");
       const savedParsedShifts = localStorage.getItem("shiftdeck.parsedShifts");
-      const savedParsedFlights = localStorage.getItem("shiftdeck.parsedFlights");
-      const savedDocuments = localStorage.getItem("shiftdeck.scheduleDocuments");
       const savedEvents = localStorage.getItem("shiftdeck.events");
       let parsedPrefs = DEFAULT_PREFS;
       let parsedDates: string[] = [];
@@ -773,6 +772,23 @@ export default function HomePage() {
                 ? saved.filingStatus
                 : DEFAULT_PREFS.filingStatus,
           };
+          const restoredHasMappedPlace =
+            Boolean(parsedPrefs.location.trim()) &&
+            Number.isFinite(parsedPrefs.locationLat) &&
+            Number.isFinite(parsedPrefs.locationLon);
+          if (!restoredHasMappedPlace) {
+            parsedPrefs = {
+              ...parsedPrefs,
+              reminder1:
+                parsedPrefs.reminder1 === "TIME_TO_LEAVE"
+                  ? ""
+                  : parsedPrefs.reminder1,
+              reminder2:
+                parsedPrefs.reminder2 === "TIME_TO_LEAVE"
+                  ? ""
+                  : parsedPrefs.reminder2,
+            };
+          }
           setPrefs(parsedPrefs);
         } catch {
           // A malformed local preference should never block the schedule.
@@ -791,23 +807,6 @@ export default function HomePage() {
         }
       }
       let restoredShifts: Shift[] = [];
-      let restoredFlights: Flight[] = [];
-      if (savedDocuments) {
-        try {
-          const documents = (JSON.parse(savedDocuments) as ScheduleDocument[]).filter(
-            (document) =>
-              document &&
-              typeof document.id === "string" &&
-              typeof document.hash === "string" &&
-              Array.isArray(document.dates) &&
-              Array.isArray(document.shifts) &&
-              Array.isArray(document.flights),
-          );
-          setScheduleDocuments(documents);
-        } catch {
-          localStorage.removeItem("shiftdeck.scheduleDocuments");
-        }
-      }
       if (savedParsedShifts) {
         try {
           restoredShifts = (JSON.parse(savedParsedShifts) as Shift[]).filter(
@@ -822,20 +821,7 @@ export default function HomePage() {
           localStorage.removeItem("shiftdeck.parsedShifts");
         }
       }
-      if (savedParsedFlights) {
-        try {
-          restoredFlights = (JSON.parse(savedParsedFlights) as Flight[]).filter(
-            (flight) =>
-              flight &&
-              typeof flight.id === "string" &&
-              typeof flight.date === "string",
-          );
-        } catch {
-          localStorage.removeItem("shiftdeck.parsedFlights");
-        }
-      }
       setParsedShifts(restoredShifts);
-      setParsedFlights(restoredFlights);
       const fallbackEvents = eventsFor(
         restoredShifts,
         parsedPrefs.person,
@@ -859,31 +845,86 @@ export default function HomePage() {
       } else {
         setEvents(fallbackEvents);
       }
-      if (savedCalendarSubscription) {
-        try {
-          const subscription = JSON.parse(
-            savedCalendarSubscription,
-          ) as CalendarSubscription;
-          if (
-            subscription &&
-            typeof subscription.id === "string" &&
-            typeof subscription.writeToken === "string" &&
-            typeof subscription.feedUrl === "string"
-          ) {
-            if (isCurrentCalendarSubscription(subscription)) {
-              setCalendarSubscription(subscription);
-            } else {
-              localStorage.removeItem("shiftdeck.calendarSubscription");
-              setToast("Calendar service upgraded — subscribe once more.");
-            }
-          }
-        } catch {
-          localStorage.removeItem("shiftdeck.calendarSubscription");
-        }
-      }
       if (savedTheme === "dark") setTheme("dark");
       setHydrated(true);
+      backgroundTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        const savedParsedFlights = localStorage.getItem(
+          "shiftdeck.parsedFlights",
+        );
+        const savedDocuments = localStorage.getItem(
+          "shiftdeck.scheduleDocuments",
+        );
+        const savedCalendarSubscription = localStorage.getItem(
+          "shiftdeck.calendarSubscription",
+        );
+
+        if (savedParsedFlights) {
+          try {
+            const restoredFlights = (
+              JSON.parse(savedParsedFlights) as Flight[]
+            ).filter(
+              (flight) =>
+                flight &&
+                typeof flight.id === "string" &&
+                typeof flight.date === "string",
+            );
+            setParsedFlights(restoredFlights);
+          } catch {
+            localStorage.removeItem("shiftdeck.parsedFlights");
+          }
+        }
+
+        if (savedDocuments) {
+          try {
+            const documents = (
+              JSON.parse(savedDocuments) as ScheduleDocument[]
+            ).filter(
+              (document) =>
+                document &&
+                typeof document.id === "string" &&
+                typeof document.hash === "string" &&
+                Array.isArray(document.dates) &&
+                Array.isArray(document.shifts) &&
+                Array.isArray(document.flights),
+            );
+            setScheduleDocuments(documents);
+          } catch {
+            localStorage.removeItem("shiftdeck.scheduleDocuments");
+          }
+        }
+
+        if (savedCalendarSubscription) {
+          try {
+            const subscription = JSON.parse(
+              savedCalendarSubscription,
+            ) as CalendarSubscription;
+            if (
+              subscription &&
+              typeof subscription.id === "string" &&
+              typeof subscription.writeToken === "string" &&
+              typeof subscription.feedUrl === "string"
+            ) {
+              if (isCurrentCalendarSubscription(subscription)) {
+                setCalendarSubscription(subscription);
+              } else {
+                localStorage.removeItem("shiftdeck.calendarSubscription");
+                setToast("Calendar service upgraded — subscribe once more.");
+              }
+            }
+          } catch {
+            localStorage.removeItem("shiftdeck.calendarSubscription");
+          }
+        }
+        setBackgroundHydrated(true);
+      }, 0);
     });
+    return () => {
+      cancelled = true;
+      if (backgroundTimer !== undefined) {
+        window.clearTimeout(backgroundTimer);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -973,20 +1014,20 @@ export default function HomePage() {
   }, [hydrated, parsedShifts]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!backgroundHydrated) return;
     localStorage.setItem("shiftdeck.parsedFlights", JSON.stringify(parsedFlights));
-  }, [hydrated, parsedFlights]);
+  }, [backgroundHydrated, parsedFlights]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!backgroundHydrated) return;
     localStorage.setItem(
       "shiftdeck.scheduleDocuments",
       JSON.stringify(scheduleDocuments),
     );
-  }, [hydrated, scheduleDocuments]);
+  }, [backgroundHydrated, scheduleDocuments]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!backgroundHydrated) return;
     if (calendarSubscription) {
       localStorage.setItem(
         "shiftdeck.calendarSubscription",
@@ -995,7 +1036,7 @@ export default function HomePage() {
     } else {
       localStorage.removeItem("shiftdeck.calendarSubscription");
     }
-  }, [calendarSubscription, hydrated]);
+  }, [backgroundHydrated, calendarSubscription]);
 
   useEffect(() => {
     if (!settingsOpen || (airportOptions.length && airlineOptions.length)) return;
@@ -1925,22 +1966,6 @@ export default function HomePage() {
   const visibleReminderOptions = hasStructuredCalendarPlace
     ? REMINDER_OPTIONS
     : REMINDER_OPTIONS.filter((option) => option.value !== "TIME_TO_LEAVE");
-  useEffect(() => {
-    if (!hydrated || hasStructuredCalendarPlace || !timeToLeaveSelected) return;
-    setPrefs((current) => ({
-      ...current,
-      reminder1:
-        current.reminder1 === "TIME_TO_LEAVE" ? "" : current.reminder1,
-      reminder2:
-        current.reminder2 === "TIME_TO_LEAVE" ? "" : current.reminder2,
-    }));
-  }, [
-    hasStructuredCalendarPlace,
-    hydrated,
-    prefs.reminder1,
-    prefs.reminder2,
-    timeToLeaveSelected,
-  ]);
   const validateTravelReminder = () => {
     if (!timeToLeaveSelected || hasStructuredCalendarPlace) return true;
     setToast("Choose an address suggestion to use Time to Leave");

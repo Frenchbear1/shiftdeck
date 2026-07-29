@@ -36,7 +36,28 @@ test("server-renders the blank Shiftdeck app shell", async () => {
   assert.match(html, />Flights</);
   assert.match(html, />Import</);
   assert.match(html, /Nothing imported/);
+  assert.match(html, /serviceWorker/);
+  assert.match(html, /sw\.js/);
   assert.doesNotMatch(html, /Subscribed calendar/);
+});
+
+test("caches the PWA shell and restores Today before background data", async () => {
+  const [serviceWorker, page, layout, pagesShell] = await Promise.all([
+    readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/index.html", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(serviceWorker, /shiftdeck-shell/);
+  assert.match(serviceWorker, /request\.mode === "navigate"/);
+  assert.match(serviceWorker, /warmDocumentAssets/);
+  assert.match(serviceWorker, /cache\.match\(scopeRoot\)/);
+  assert.match(page, /backgroundHydrated/);
+  assert.match(page, /setHydrated\(true\)[\s\S]*?window\.setTimeout/);
+  assert.doesNotMatch(layout, /next\/font/);
+  assert.match(layout, /navigator\.serviceWorker\.register/);
+  assert.match(pagesShell, /navigator\.serviceWorker/);
 });
 
 test("rejects schedule headings and OCR fragments as worker names", () => {
