@@ -15,6 +15,7 @@ import {
   Pencil,
   Plane,
   Plus,
+  RefreshCw,
   Settings,
   Sparkles,
   Sun,
@@ -27,11 +28,13 @@ import {
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Flight,
-  sampleFlights,
-  sampleShifts,
   Shift,
 } from "./sample-data";
-import { parseScheduleTsv, ParsedSchedule } from "./schedule-parser";
+import {
+  isPlausibleWorkerName,
+  parseScheduleTsv,
+  ParsedSchedule,
+} from "./schedule-parser";
 import {
   clearScheduleImages,
   deleteScheduleImage,
@@ -140,14 +143,17 @@ type SwapCandidate = {
 
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
-  title: "PIE • Work",
+  title: "",
   reminder1: "",
   reminder2: "",
-  location: "St. Pete–Clearwater International Airport",
+  location: "",
   notes: "Imported from Shiftdeck",
   homeAirport: "ABE",
   airline: "Allegiant",
 };
+
+const LEGACY_DEFAULT_TITLE = "PIE • Work";
+const LEGACY_DEFAULT_LOCATION = "St. Pete–Clearwater International Airport";
 
 const REMINDER_OPTIONS = [
   { value: "", label: "No reminder" },
@@ -522,10 +528,16 @@ export default function HomePage() {
           const saved = JSON.parse(savedPrefs) as Partial<Preferences>;
           parsedPrefs = {
             person: saved.person ?? DEFAULT_PREFS.person,
-            title: saved.title ?? DEFAULT_PREFS.title,
+            title:
+              saved.title === LEGACY_DEFAULT_TITLE
+                ? ""
+                : saved.title ?? DEFAULT_PREFS.title,
             reminder1: saved.reminder1 ?? "",
             reminder2: saved.reminder2 ?? "",
-            location: saved.location ?? DEFAULT_PREFS.location,
+            location:
+              saved.location === LEGACY_DEFAULT_LOCATION
+                ? ""
+                : saved.location ?? DEFAULT_PREFS.location,
             notes: saved.notes ?? DEFAULT_PREFS.notes,
             homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
             airline: saved.airline ?? DEFAULT_PREFS.airline,
@@ -572,7 +584,8 @@ export default function HomePage() {
               shift &&
               typeof shift.id === "string" &&
               typeof shift.date === "string" &&
-              typeof shift.worker === "string",
+              typeof shift.worker === "string" &&
+              isPlausibleWorkerName(shift.worker),
           );
         } catch {
           localStorage.removeItem("shiftdeck.parsedShifts");
@@ -589,14 +602,6 @@ export default function HomePage() {
         } catch {
           localStorage.removeItem("shiftdeck.parsedFlights");
         }
-      }
-      if (!restoredShifts.length && parsedDates.length) {
-        restoredShifts = sampleShifts.filter((shift) =>
-          parsedDates.includes(shift.date),
-        );
-        restoredFlights = sampleFlights.filter((flight) =>
-          parsedDates.includes(flight.date),
-        );
       }
       setParsedShifts(restoredShifts);
       setParsedFlights(restoredFlights);
@@ -1594,7 +1599,9 @@ export default function HomePage() {
       );
       setCalendarSyncState("synced");
       setExportOpen(false);
-      setToast("Calendar settings updated");
+      setToast(
+        "Saved to Shiftdeck. In Apple Calendar, open Calendars and pull down to refresh.",
+      );
     } catch (error) {
       const status = (error as Error & { status?: number }).status;
       if (status === 404 || status === 410) {
@@ -1605,6 +1612,42 @@ export default function HomePage() {
       }
       setCalendarSyncState("error");
       setToast("Calendar settings couldn’t be saved. Try again.");
+    }
+  };
+
+  const syncCalendarNow = async () => {
+    if (!calendarSubscription) {
+      setExportOpen(true);
+      return;
+    }
+    if (!prefs.title.trim()) {
+      setToast("Add an event title before syncing");
+      setExportOpen(true);
+      return;
+    }
+    setCalendarSyncState("syncing");
+    try {
+      const { syncedAt } = await syncCalendarFeed(
+        calendarSubscription,
+        calendarSyncPayload,
+      );
+      setCalendarSubscription((current) =>
+        current ? { ...current, lastSyncedAt: syncedAt } : current,
+      );
+      setCalendarSyncState("synced");
+      setToast(
+        "Shiftdeck is synced. In Apple Calendar, open Calendars and pull down to refresh.",
+      );
+    } catch (error) {
+      const status = (error as Error & { status?: number }).status;
+      if (status === 404 || status === 410) {
+        setCalendarSubscription(null);
+        setCalendarSyncState("idle");
+        setToast("Calendar connection expired — subscribe again.");
+        return;
+      }
+      setCalendarSyncState("error");
+      setToast("Calendar sync couldn’t connect. Try again.");
     }
   };
 
@@ -2448,13 +2491,25 @@ export default function HomePage() {
               <p>{importMessage}</p>
               {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
               {importState !== "error" && canExportCalendar ? (
-                <button
-                  className="button primary calendar-export-button"
-                  onClick={() => setExportOpen(true)}
-                >
-                  <CalendarDays />
-                  {calendarSubscription ? "Calendar settings" : "Apple Calendar"}
-                </button>
+                <div className="calendar-action-row">
+                  <button
+                    className="button primary calendar-export-button"
+                    onClick={() => setExportOpen(true)}
+                  >
+                    <CalendarDays />
+                    {calendarSubscription ? "Calendar settings" : "Apple Calendar"}
+                  </button>
+                  {calendarSubscription && (
+                    <button
+                      className="button soft calendar-sync-button"
+                      onClick={() => void syncCalendarNow()}
+                      disabled={calendarSyncState === "syncing"}
+                    >
+                      <RefreshCw />
+                      {calendarSyncState === "syncing" ? "Syncing…" : "Sync now"}
+                    </button>
+                  )}
+                </div>
               ) : importState !== "error" ? (
                 <small>Add a shift to connect Apple Calendar.</small>
               ) : null}
@@ -2616,6 +2671,10 @@ export default function HomePage() {
                   <ChevronDown />
                 </label>
               </div>
+              <p className="calendar-alert-help">
+                On iPhone, open Calendar → Calendars → ⓘ beside Shiftdeck and
+                turn on Event Alerts. Apple controls “Time to Leave” separately.
+              </p>
             </div>
             <button
               className="button primary"

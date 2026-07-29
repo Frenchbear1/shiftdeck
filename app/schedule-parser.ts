@@ -186,15 +186,57 @@ const cleanNameWord = (raw: string) => {
   return cleaned;
 };
 
-const nameIsValid = (name: string) => {
-  const normalized = name.toLowerCase().replace(/[^a-z]/g, "");
-  return (
-    normalized.length >= 4 &&
-    !normalized.startsWith("subjectto") &&
-    !/^(subjecttochange|sun|mon|tue|wed|thu|fri|sat|amazonschedule|morning|afternoon|evening|open)$/.test(
-      normalized,
-    )
-  );
+const NON_NAME_WORDS = new Set([
+  "subject",
+  "change",
+  "schedule",
+  "amazon",
+  "morning",
+  "afternoon",
+  "evening",
+  "open",
+  "flight",
+  "flights",
+  "arrival",
+  "arrivals",
+  "departure",
+  "departures",
+  "airport",
+  "shift",
+  "shifts",
+  "worker",
+  "workers",
+  "employee",
+  "employees",
+  "date",
+  "time",
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sun",
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+]);
+
+export const isPlausibleWorkerName = (name: string) => {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.toLowerCase().replace(/[^a-z]/g, ""))
+    .filter(Boolean);
+  if (parts.length < 2 || parts.length > 4) return false;
+  if (parts.some((part) => NON_NAME_WORDS.has(part))) return false;
+  if (parts.at(-1)!.length < 4) return false;
+  if (parts.length >= 3 && parts.every((part) => part.length <= 3)) return false;
+  return parts.join("").length >= 6;
 };
 
 const normalizedCellText = (raw: string) =>
@@ -288,7 +330,7 @@ const parseShifts = (
         y: average(group.map((word) => word.rowY)),
       };
     })
-    .filter((row) => nameIsValid(row.name))
+    .filter((row) => isPlausibleWorkerName(row.name))
     .filter((row) => row.name.toLowerCase() !== "open");
 
   if (!namedRows.length) return [];

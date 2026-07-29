@@ -286,7 +286,7 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
       reminders.forEach((reminder) => {
         lines.push(
           "BEGIN:VALARM",
-          `TRIGGER:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
+          `TRIGGER;RELATED=START:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
           "ACTION:DISPLAY",
           `DESCRIPTION:${safeIcsText(title)}`,
           "END:VALARM",

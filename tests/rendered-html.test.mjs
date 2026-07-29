@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { isPlausibleWorkerName } from "../app/schedule-parser.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -38,8 +39,16 @@ test("server-renders the blank Shiftdeck app shell", async () => {
   assert.doesNotMatch(html, /Subscribed calendar/);
 });
 
+test("rejects schedule headings and OCR fragments as worker names", () => {
+  assert.equal(isPlausibleWorkerName("Pass Subject To Sore"), false);
+  assert.equal(isPlausibleWorkerName("She An Ow"), false);
+  assert.equal(isPlausibleWorkerName("Andrew Garcia"), true);
+  assert.equal(isPlausibleWorkerName("David LaBarre"), true);
+  assert.equal(isPlausibleWorkerName("Thales Ferraz Alves"), true);
+});
+
 test("uses a durable Apple Calendar subscription with revision-aware events", async () => {
-  const [page, css, hosting, service, migration] = await Promise.all([
+  const [page, css, hosting, service, migration, parser] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
@@ -48,6 +57,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
       new URL("../drizzle/0000_shiftdeck_calendar.sql", import.meta.url),
       "utf8",
     ),
+    readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /createCalendarFeed/);
@@ -67,7 +77,9 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /write_token_hash/);
   assert.match(page, /Subscribe in Apple Calendar/);
   assert.match(page, /You’re already subscribed/);
-  assert.match(page, /Calendar settings updated/);
+  assert.match(page, /Sync now/);
+  assert.match(page, /pull down to refresh/);
+  assert.match(page, /turn on Event Alerts/);
   assert.match(page, /Reset calendar connection/);
   assert.match(page, /calendarSubscription\s*\?\s*saveCalendarSettings/);
   assert.match(page, /aria-label=\{\s*calendarSubscription/);
@@ -77,6 +89,14 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, />Reminder 2</);
   assert.match(page, /value: "P1W", label: "1 week before"/);
   assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
+  assert.match(service, /TRIGGER;RELATED=START/);
+  assert.match(
+    page,
+    /const DEFAULT_PREFS:[\s\S]*?title: "",[\s\S]*?location: "",/,
+  );
+  assert.match(parser, /isPlausibleWorkerName/);
+  assert.match(parser, /NON_NAME_WORDS/);
+  assert.match(parser, /parts\.at\(-1\)!\.length < 4/);
   assert.match(page, /aria-label="Add a shift"/);
   assert.match(page, /aria-label="Edit this shift"/);
   assert.match(page, /shiftdeck\.events/);

@@ -1835,6 +1835,28 @@ main {
   width: 17px;
 }
 
+.calendar-action-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.notice .calendar-action-row .calendar-export-button,
+.notice .calendar-action-row .calendar-sync-button {
+  margin-top: 0;
+}
+
+.notice .calendar-sync-button {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.notice .calendar-sync-button svg {
+  width: 16px;
+}
+
 .shift-fields label,
 .export-fields label,
 .settings-sheet > label {
@@ -2059,6 +2081,13 @@ main {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.calendar-alert-help {
+  margin: 1px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .settings-sheet .button,
@@ -3053,6 +3082,16 @@ main {
   .notice .calendar-export-button {
     width: 100%;
     justify-self: stretch;
+  }
+
+  .notice .calendar-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+  }
+
+  .notice .calendar-action-row .calendar-export-button {
+    width: 100%;
   }
 
   .shift-fields input,
