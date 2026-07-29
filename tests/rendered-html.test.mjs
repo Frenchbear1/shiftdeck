@@ -130,7 +130,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /customTitle/);
   assert.match(page, />Shift title</);
   assert.doesNotMatch(page, /heroTimeFontSize/);
-  assert.match(css, /\.hero-card h1\.hero-time-range[\s\S]*?font-size: 30px/);
+  assert.match(css, /\.hero-card h1\.hero-time-range[\s\S]*?font-size: 34px/);
   assert.doesNotMatch(css, /--hero-mobile-font-size/);
   assert.doesNotMatch(page, /compact-shift-list|Check before export|Your shifts|Toggle theme/);
   assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);

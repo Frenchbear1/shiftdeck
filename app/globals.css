@@ -307,10 +307,14 @@ main {
   gap: 9px;
 }
 
-.hero-date {
+.hero-shift-label {
+  max-width: calc(100% - 46px);
+  overflow: hidden;
   color: rgba(255,255,255,.9);
   font-size: 14px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hero-edit {
@@ -341,14 +345,14 @@ main {
 }
 
 .hero-card h1 {
-  margin: 28px 0 8px;
+  margin: 14px 0 8px;
   font-size: clamp(46px, 6vw, 76px);
   line-height: 1;
   letter-spacing: -3.5px;
 }
 
 .hero-card h1.hero-time-range {
-  font-size: 56px;
+  font-size: 60px;
   letter-spacing: -3px;
   white-space: nowrap;
 }
@@ -2750,14 +2754,14 @@ main {
   }
 
   .hero-card h1 {
-    margin-top: 24px;
+    margin-top: 12px;
     font-size: clamp(39px, 12.5vw, 49px);
     letter-spacing: -2.3px;
   }
 
   .hero-card h1.hero-time-range {
-    font-size: 30px;
-    letter-spacing: -1.7px;
+    font-size: 34px;
+    letter-spacing: -2px;
   }
 
   .hero-card > p {
@@ -3475,8 +3479,8 @@ main {
   }
 
   .hero-card h1.hero-time-range {
-    font-size: 26px;
-    letter-spacing: -1.4px;
+    font-size: 29px;
+    letter-spacing: -1.6px;
   }
 
   .mobile-date-picker {

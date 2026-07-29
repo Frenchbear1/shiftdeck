@@ -2136,7 +2136,9 @@ export default function HomePage() {
       <section className="hero-card">
         <div className="hero-glow" />
         <div className="hero-topline">
-          <div className="hero-date">{formatDate(selectedDate, "long")}</div>
+          <div className="hero-shift-label">
+            {myEvent ? shiftTitle : formatDate(selectedDate, "long")}
+          </div>
         </div>
         {myEvent && (
           <button className="hero-edit" onClick={openEditShift} aria-label="Edit this shift">
@@ -2150,7 +2152,7 @@ export default function HomePage() {
         </h1>
         <p>
           {myEvent
-            ? shiftTitle
+            ? formatDate(selectedDate, "long")
             : isLoadedDate
               ? "No shift scheduled"
               : "Import a schedule to get started"}
