@@ -4,6 +4,8 @@ export const calendarSchemaStatements = [
     write_token_hash TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT 'Shiftdeck',
     location TEXT NOT NULL DEFAULT '',
+    location_lat REAL,
+    location_lon REAL,
     notes TEXT NOT NULL DEFAULT '',
     reminder1 TEXT NOT NULL DEFAULT '',
     reminder2 TEXT NOT NULL DEFAULT '',

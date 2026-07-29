@@ -59,6 +59,8 @@ type Preferences = {
   reminder1: string;
   reminder2: string;
   location: string;
+  locationLat: number | null;
+  locationLon: number | null;
   notes: string;
   homeAirport: string;
   airline: string;
@@ -76,6 +78,8 @@ type CalendarSyncPayload = {
   name: string;
   title: string;
   location: string;
+  locationLat: number | null;
+  locationLon: number | null;
   notes: string;
   reminder1: string;
   reminder2: string;
@@ -98,6 +102,13 @@ type TimeOffDraft = {
   date: string;
   start: string;
   end: string;
+};
+
+type PlaceSuggestion = {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
 };
 
 type ScheduleDocument = {
@@ -147,6 +158,8 @@ const DEFAULT_PREFS: Preferences = {
   reminder1: "",
   reminder2: "",
   location: "",
+  locationLat: null,
+  locationLon: null,
   notes: "Imported from Shiftdeck",
   homeAirport: "ABE",
   airline: "Allegiant",
@@ -165,6 +178,7 @@ const REMINDER_OPTIONS = [
   { value: "P1D", label: "1 day before" },
   { value: "P2D", label: "2 days before" },
   { value: "P1W", label: "1 week before" },
+  { value: "TIME_TO_LEAVE", label: "Time to Leave" },
 ] as const;
 
 const toMinutes = (time: string) => {
@@ -460,6 +474,50 @@ function flightAwareRouteUrl(flight: Flight, homeAirport: string) {
   return `https://www.flightaware.com/live/findflight?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
 }
 
+type PhotonFeature = {
+  geometry?: { coordinates?: [number, number] };
+  properties?: Record<string, string | number | undefined>;
+};
+
+function photonSuggestion(feature: PhotonFeature, index: number): PlaceSuggestion | null {
+  const coordinates = feature.geometry?.coordinates;
+  if (
+    !coordinates ||
+    !Number.isFinite(coordinates[0]) ||
+    !Number.isFinite(coordinates[1])
+  ) {
+    return null;
+  }
+  const properties = feature.properties ?? {};
+  const name = String(properties.name ?? "").trim();
+  const street = String(properties.street ?? "").trim();
+  const houseNumber = String(properties.housenumber ?? "").trim();
+  const city = String(
+    properties.city ?? properties.town ?? properties.village ?? "",
+  ).trim();
+  const state = String(properties.state ?? "").trim();
+  const postcode = String(properties.postcode ?? "").trim();
+  const country = String(properties.country ?? "").trim();
+  const streetLine = [houseNumber, street].filter(Boolean).join(" ");
+  const regionLine = [city, [state, postcode].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+  const parts = [
+    name && name !== street ? name : "",
+    streetLine,
+    regionLine,
+    country,
+  ].filter((part, partIndex, all) => part && all.indexOf(part) === partIndex);
+  const label = parts.join(", ");
+  if (!label) return null;
+  return {
+    id: `${String(properties.osm_type ?? "place")}-${String(properties.osm_id ?? index)}`,
+    label,
+    latitude: coordinates[1],
+    longitude: coordinates[0],
+  };
+}
+
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>("home");
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -504,6 +562,11 @@ export default function HomePage() {
   const [calendarSyncState, setCalendarSyncState] = useState<
     "idle" | "syncing" | "synced" | "error"
   >("idle");
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placeLookupState, setPlaceLookupState] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
+  const [placeMenuOpen, setPlaceMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -538,6 +601,16 @@ export default function HomePage() {
               saved.location === LEGACY_DEFAULT_LOCATION
                 ? ""
                 : saved.location ?? DEFAULT_PREFS.location,
+            locationLat:
+              typeof saved.locationLat === "number" &&
+              Number.isFinite(saved.locationLat)
+                ? saved.locationLat
+                : null,
+            locationLon:
+              typeof saved.locationLon === "number" &&
+              Number.isFinite(saved.locationLon)
+                ? saved.locationLon
+                : null,
             notes: saved.notes ?? DEFAULT_PREFS.notes,
             homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
             airline: saved.airline ?? DEFAULT_PREFS.airline,
@@ -681,6 +754,43 @@ export default function HomePage() {
     if (!hydrated) return;
     localStorage.setItem("shiftdeck.preferences", JSON.stringify(prefs));
   }, [prefs, hydrated]);
+
+  useEffect(() => {
+    const query = prefs.location.trim();
+    if (!exportOpen || !placeMenuOpen || query.length < 3) {
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setPlaceLookupState("loading");
+      void fetch(
+        calendarServiceUrl(`/api/places?q=${encodeURIComponent(query)}`),
+        { signal: controller.signal },
+      )
+        .then((response) => {
+          if (!response.ok) throw new Error("Place lookup failed");
+          return response.json() as Promise<{ features?: PhotonFeature[] }>;
+        })
+        .then((result) => {
+          const suggestions = (result.features ?? [])
+            .map(photonSuggestion)
+            .filter(
+              (suggestion): suggestion is PlaceSuggestion => Boolean(suggestion),
+            );
+          setPlaceSuggestions(suggestions);
+          setPlaceLookupState("idle");
+        })
+        .catch((error: unknown) => {
+          if ((error as { name?: string }).name === "AbortError") return;
+          setPlaceSuggestions([]);
+          setPlaceLookupState("error");
+        });
+    }, 350);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [exportOpen, placeMenuOpen, prefs.location]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -998,6 +1108,8 @@ export default function HomePage() {
       name: "Shiftdeck",
       title: prefs.title.trim() || "Work",
       location: prefs.location.trim(),
+      locationLat: prefs.locationLat,
+      locationLon: prefs.locationLon,
       notes: prefs.notes.trim(),
       reminder1: prefs.reminder1,
       reminder2: prefs.reminder2,
@@ -1018,6 +1130,8 @@ export default function HomePage() {
     [
       events,
       prefs.location,
+      prefs.locationLat,
+      prefs.locationLon,
       prefs.notes,
       prefs.reminder1,
       prefs.reminder2,
@@ -1523,11 +1637,25 @@ export default function HomePage() {
     setToast("All Shiftdeck data cleared from this device");
   };
 
+  const timeToLeaveSelected =
+    prefs.reminder1 === "TIME_TO_LEAVE" ||
+    prefs.reminder2 === "TIME_TO_LEAVE";
+  const hasStructuredCalendarPlace =
+    Boolean(prefs.location.trim()) &&
+    Number.isFinite(prefs.locationLat) &&
+    Number.isFinite(prefs.locationLon);
+  const validateTravelReminder = () => {
+    if (!timeToLeaveSelected || hasStructuredCalendarPlace) return true;
+    setToast("Choose an address suggestion to use Time to Leave");
+    return false;
+  };
+
   const subscribeToCalendar = async () => {
     if (!prefs.title.trim()) {
       setToast("Add an event title first");
       return;
     }
+    if (!validateTravelReminder()) return;
     if (!events.length) {
       setToast("Add a shift before subscribing");
       return;
@@ -1584,6 +1712,7 @@ export default function HomePage() {
       setToast("Add an event title first");
       return;
     }
+    if (!validateTravelReminder()) return;
     if (!events.length) {
       setToast("Add a shift before saving calendar settings");
       return;
@@ -1622,6 +1751,10 @@ export default function HomePage() {
     }
     if (!prefs.title.trim()) {
       setToast("Add an event title before syncing");
+      setExportOpen(true);
+      return;
+    }
+    if (!validateTravelReminder()) {
       setExportOpen(true);
       return;
     }
@@ -2651,9 +2784,77 @@ export default function HomePage() {
                 <span>Title</span>
                 <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} placeholder="Work" />
               </label>
-              <label>
+              <label className="place-field">
                 <span>Place</span>
-                <input value={prefs.location} onChange={(event) => savePrefs({ location: event.target.value })} placeholder="Optional" />
+                <input
+                  value={prefs.location}
+                  onChange={(event) => {
+                    savePrefs({
+                      location: event.target.value,
+                      locationLat: null,
+                      locationLon: null,
+                    });
+                    setPlaceSuggestions([]);
+                    setPlaceLookupState("idle");
+                    setPlaceMenuOpen(true);
+                  }}
+                  onFocus={() => setPlaceMenuOpen(true)}
+                  onBlur={() =>
+                    window.setTimeout(() => setPlaceMenuOpen(false), 120)
+                  }
+                  placeholder="Search a place or address"
+                  autoComplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={placeMenuOpen && placeSuggestions.length > 0}
+                  aria-controls="calendar-place-suggestions"
+                />
+                {placeMenuOpen && prefs.location.trim().length >= 3 && (
+                  <div
+                    className="place-suggestions"
+                    id="calendar-place-suggestions"
+                    role="listbox"
+                  >
+                    {placeLookupState === "loading" ? (
+                      <span className="place-lookup-message">Finding places…</span>
+                    ) : placeSuggestions.length ? (
+                      placeSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.id}
+                          type="button"
+                          role="option"
+                          aria-selected="false"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            savePrefs({
+                              location: suggestion.label,
+                              locationLat: suggestion.latitude,
+                              locationLon: suggestion.longitude,
+                            });
+                            setPlaceSuggestions([]);
+                            setPlaceMenuOpen(false);
+                          }}
+                        >
+                          {suggestion.label}
+                        </button>
+                      ))
+                    ) : (
+                      <span className="place-lookup-message">
+                        {placeLookupState === "error"
+                          ? "Place search is unavailable right now."
+                          : "No matching places found."}
+                      </span>
+                    )}
+                    <small>
+                      Places from OpenStreetMap via Photon
+                    </small>
+                  </div>
+                )}
+                {prefs.location &&
+                  Number.isFinite(prefs.locationLat) &&
+                  Number.isFinite(prefs.locationLon) && (
+                    <small className="place-selected">Address linked</small>
+                  )}
               </label>
               <div className="reminder-grid">
                 <label>
@@ -2672,8 +2873,10 @@ export default function HomePage() {
                 </label>
               </div>
               <p className="calendar-alert-help">
-                On iPhone, open Calendar → Calendars → ⓘ beside Shiftdeck and
-                turn on Event Alerts. Apple controls “Time to Leave” separately.
+                One reminder is enough; the second is optional. For Time to
+                Leave, choose an address suggestion and enable Time to Leave in
+                iPhone Settings → Apps → Calendar → Default Alert Times. Also
+                keep Event Alerts on for the Shiftdeck calendar.
               </p>
             </div>
             <button

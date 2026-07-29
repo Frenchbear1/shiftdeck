@@ -1960,6 +1960,64 @@ main {
   gap: 10px;
 }
 
+.place-field {
+  z-index: 4;
+}
+
+.place-suggestions {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  left: 0;
+  display: grid;
+  overflow: hidden auto;
+  max-height: min(270px, 42vh);
+  padding: 5px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+}
+
+.place-suggestions button {
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.place-suggestions button:hover,
+.place-suggestions button:focus-visible {
+  background: var(--blue-soft);
+  outline: 0;
+}
+
+.place-suggestions > small,
+.place-lookup-message {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.place-suggestions > small {
+  border-top: 1px solid var(--line);
+}
+
+.place-selected {
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 750;
+}
+
 .export-fields label > svg,
 .settings-sheet > label > svg {
   width: 15px;

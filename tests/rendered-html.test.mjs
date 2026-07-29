@@ -48,17 +48,25 @@ test("rejects schedule headings and OCR fragments as worker names", () => {
 });
 
 test("uses a durable Apple Calendar subscription with revision-aware events", async () => {
-  const [page, css, hosting, service, migration, parser] = await Promise.all([
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
-    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
-    readFile(new URL("../worker/calendar-service.ts", import.meta.url), "utf8"),
-    readFile(
-      new URL("../drizzle/0000_shiftdeck_calendar.sql", import.meta.url),
-      "utf8",
-    ),
-    readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
-  ]);
+  const [page, css, hosting, service, migration, structuredMigration, parser] =
+    await Promise.all([
+      readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+      readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+      readFile(new URL("../worker/calendar-service.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../drizzle/0000_shiftdeck_calendar.sql", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL(
+          "../drizzle/0001_structured_calendar_location.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+      readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
+    ]);
 
   assert.match(page, /createCalendarFeed/);
   assert.match(page, /syncCalendarFeed/);
@@ -80,7 +88,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /You’re already subscribed/);
   assert.match(page, /Sync now/);
   assert.match(page, /pull down to refresh/);
-  assert.match(page, /turn on Event Alerts/);
+  assert.match(page, /Event Alerts on/);
   assert.match(page, /Reset calendar connection/);
   assert.match(page, /calendarSubscription\s*\?\s*saveCalendarSettings/);
   assert.match(page, /aria-label=\{\s*calendarSubscription/);
@@ -89,8 +97,15 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, />Reminder 1</);
   assert.match(page, />Reminder 2</);
   assert.match(page, /value: "P1W", label: "1 week before"/);
+  assert.match(page, /value: "TIME_TO_LEAVE", label: "Time to Leave"/);
+  assert.match(page, /One reminder is enough/);
+  assert.match(page, /calendarServiceUrl\(`\/api\/places/);
+  assert.match(service, /https:\/\/photon\.komoot\.io\/api/);
   assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
+  assert.match(service, /\.filter\(Boolean\)/);
   assert.match(service, /TRIGGER;RELATED=START/);
+  assert.match(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
+  assert.match(service, /X-APPLE-STRUCTURED-LOCATION/);
   assert.match(service, /public, no-cache, must-revalidate/);
   assert.match(
     page,
@@ -111,4 +126,6 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /https:\/\/shiftdeck-calendar\.frenchbear1\.workers\.dev/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_feeds/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_events/);
+  assert.match(structuredMigration, /ADD COLUMN location_lat REAL/);
+  assert.match(structuredMigration, /ADD COLUMN location_lon REAL/);
 });

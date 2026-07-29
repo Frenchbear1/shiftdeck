@@ -22,6 +22,8 @@ type CalendarFeedRow = {
   write_token_hash: string;
   name: string;
   location: string;
+  location_lat: number | null;
+  location_lon: number | null;
   notes: string;
   reminder1: string;
   reminder2: string;
@@ -55,6 +57,8 @@ type SyncPayload = {
   name?: string;
   title?: string;
   location?: string;
+  locationLat?: number | null;
+  locationLon?: number | null;
   notes?: string;
   reminder1?: string;
   reminder2?: string;
@@ -89,7 +93,7 @@ function corsHeaders(request: Request) {
   return {
     "Access-Control-Allow-Origin": allowed ? origin : ALLOWED_ORIGINS.values().next().value,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
@@ -153,6 +157,35 @@ function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
+async function searchPlaces(request: Request) {
+  if (!isAllowedBrowserOrigin(request)) {
+    return json(request, { error: "Origin not allowed" }, 403);
+  }
+  const query = cleanText(new URL(request.url).searchParams.get("q"), 160);
+  if (query.length < 3) return json(request, { features: [] });
+  try {
+    const response = await fetch(
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=en&limit=6`,
+      {
+        headers: { Accept: "application/json" },
+        cf: { cacheEverything: true, cacheTtl: 3600 },
+      } as RequestInit,
+    );
+    if (!response.ok) {
+      return json(request, { error: "Place search failed" }, 502);
+    }
+    const result = (await response.json()) as { features?: unknown[] };
+    return json(
+      request,
+      { features: Array.isArray(result.features) ? result.features : [] },
+      200,
+      { "Cache-Control": "public, max-age=3600" },
+    );
+  } catch {
+    return json(request, { error: "Place search failed" }, 502);
+  }
+}
+
 function validDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -165,6 +198,20 @@ function normalizePayload(payload: SyncPayload) {
   const title = cleanText(payload.title, 160) || "Work";
   const name = cleanText(payload.name, 100) || "Shiftdeck";
   const location = cleanText(payload.location, 300);
+  const locationLat =
+    typeof payload.locationLat === "number" &&
+    Number.isFinite(payload.locationLat) &&
+    payload.locationLat >= -90 &&
+    payload.locationLat <= 90
+      ? payload.locationLat
+      : null;
+  const locationLon =
+    typeof payload.locationLon === "number" &&
+    Number.isFinite(payload.locationLon) &&
+    payload.locationLon >= -180 &&
+    payload.locationLon <= 180
+      ? payload.locationLon
+      : null;
   const notes = cleanText(payload.notes, 1000);
   const reminder1 = cleanText(payload.reminder1, 20);
   const reminder2 = cleanText(payload.reminder2, 20);
@@ -178,6 +225,7 @@ function normalizePayload(payload: SyncPayload) {
     "P1D",
     "P2D",
     "P1W",
+    "TIME_TO_LEAVE",
   ]);
   const seen = new Set<string>();
   const events = (Array.isArray(payload.events) ? payload.events : [])
@@ -204,6 +252,8 @@ function normalizePayload(payload: SyncPayload) {
     name,
     title,
     location,
+    locationLat,
+    locationLon,
     notes,
     reminder1: allowedReminders.has(reminder1) ? reminder1 : "",
     reminder2: allowedReminders.has(reminder2) ? reminder2 : "",
@@ -217,6 +267,10 @@ function safeIcsText(value: string) {
     .replace(/\r?\n/g, "\\n")
     .replace(/,/g, "\\,")
     .replace(/;/g, "\\;");
+}
+
+function safeIcsParameter(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, "\\n");
 }
 
 function icsDateTime(date: string, time: string, nextDay = false) {
@@ -245,6 +299,14 @@ function uidFor(calendarId: string, eventKey: string) {
 function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
   const reminders = Array.from(
     new Set([feed.reminder1, feed.reminder2].filter(Boolean)),
+  );
+  const timeToLeave =
+    reminders.includes("TIME_TO_LEAVE") &&
+    feed.location &&
+    feed.location_lat !== null &&
+    feed.location_lon !== null;
+  const timedReminders = reminders.filter(
+    (reminder) => reminder !== "TIME_TO_LEAVE",
   );
   const lines = [
     "BEGIN:VCALENDAR",
@@ -275,8 +337,16 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
     );
     if (event.status === "confirmed") {
       if (feed.location) lines.push(`LOCATION:${safeIcsText(feed.location)}`);
+      if (timeToLeave) {
+        const address = safeIcsParameter(feed.location);
+        lines.push(
+          `GEO:${feed.location_lat};${feed.location_lon}`,
+          "X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC",
+          `X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-ADDRESS="${address}";X-APPLE-RADIUS=75;X-TITLE="${address}":geo:${feed.location_lat},${feed.location_lon}`,
+        );
+      }
       if (feed.notes) lines.push(`DESCRIPTION:${safeIcsText(feed.notes)}`);
-      reminders.forEach((reminder) => {
+      timedReminders.forEach((reminder) => {
         lines.push(
           "BEGIN:VALARM",
           `TRIGGER;RELATED=START:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
@@ -302,8 +372,8 @@ async function getAuthorizedFeed(
   if (!token) return null;
   const feed = await db
     .prepare(
-      `SELECT id, write_token_hash, name, location, notes, reminder1, reminder2,
-        created_at, updated_at, revoked_at
+      `SELECT id, write_token_hash, name, location, location_lat, location_lon,
+        notes, reminder1, reminder2, created_at, updated_at, revoked_at
        FROM calendar_feeds
        WHERE id = ?1 AND revoked_at IS NULL`,
     )
@@ -401,14 +471,16 @@ async function syncFeed(
     db
       .prepare(
         `UPDATE calendar_feeds
-         SET name = ?2, location = ?3, notes = ?4, reminder1 = ?5,
-           reminder2 = ?6, updated_at = ?7
+         SET name = ?2, location = ?3, location_lat = ?4, location_lon = ?5,
+            notes = ?6, reminder1 = ?7, reminder2 = ?8, updated_at = ?9
          WHERE id = ?1`,
       )
       .bind(
         id,
         payload.name,
         payload.location,
+        payload.locationLat,
+        payload.locationLon,
         payload.notes,
         payload.reminder1,
         payload.reminder2,
@@ -426,6 +498,8 @@ async function syncFeed(
       event.end,
       event.title,
       payload.location,
+      payload.locationLat,
+      payload.locationLon,
       payload.notes,
       payload.reminder1,
       payload.reminder2,
@@ -527,8 +601,8 @@ async function serveFeed(request: Request, db: CalendarDatabase, id: string) {
   if (!validFeedId(id)) return new Response("Calendar not found", { status: 404 });
   const feed = await db
     .prepare(
-      `SELECT id, write_token_hash, name, location, notes, reminder1, reminder2,
-        created_at, updated_at, revoked_at
+      `SELECT id, write_token_hash, name, location, location_lat, location_lon,
+        notes, reminder1, reminder2, created_at, updated_at, revoked_at
        FROM calendar_feeds WHERE id = ?1`,
     )
     .bind(id)
@@ -572,17 +646,21 @@ export async function handleCalendarRequest(
   const url = new URL(request.url);
   const isCalendarRoute =
     url.pathname.startsWith("/api/calendar-feeds") ||
+    url.pathname === "/api/places" ||
     url.pathname.startsWith("/calendar/");
   if (!isCalendarRoute) return null;
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders(request) });
+  }
+  if (request.method === "GET" && url.pathname === "/api/places") {
+    return searchPlaces(request);
+  }
   if (!db) {
     return json(
       request,
       { error: "Calendar storage is not configured" },
       503,
     );
-  }
-  if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders(request) });
   }
   await ensureSchema(db);
 
