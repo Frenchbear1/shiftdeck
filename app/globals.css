@@ -307,27 +307,37 @@ main {
   gap: 9px;
 }
 
+.hero-date {
+  color: rgba(255,255,255,.9);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .hero-edit {
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  z-index: 3;
   display: grid;
   place-items: center;
   padding: 0;
   color: white;
-  background: rgba(255,255,255,.13);
-  border: 1px solid rgba(255,255,255,.2);
-  border-radius: 9px;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
   cursor: pointer;
-  transition: background 150ms ease, transform 150ms ease;
+  transition: color 150ms ease, transform 150ms ease;
 }
 
 .hero-edit:hover {
-  background: rgba(255,255,255,.2);
+  color: rgba(255,255,255,.75);
   transform: translateY(-1px);
 }
 
 .hero-edit svg {
-  width: 13px;
+  width: 19px;
 }
 
 .hero-card h1 {
@@ -338,6 +348,8 @@ main {
 }
 
 .hero-card h1.hero-time-range {
+  font-size: 56px;
+  letter-spacing: -3px;
   white-space: nowrap;
 }
 
@@ -591,35 +603,79 @@ main {
 }
 
 .weekly-pay-card {
-  display: grid;
-  gap: 12px;
   margin-top: 18px;
-  padding: 14px;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 16px;
+  overflow: hidden;
 }
 
-.weekly-pay-heading {
+.weekly-pay-toggle {
+  width: 100%;
+  min-height: 62px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding: 12px 14px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
 }
 
-.weekly-pay-heading b {
+.weekly-pay-toggle > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.weekly-pay-toggle b {
   font-size: 13px;
 }
 
-.weekly-pay-heading span {
+.weekly-pay-toggle small {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
 }
 
+.weekly-pay-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--blue);
+}
+
+.weekly-pay-summary strong {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.weekly-pay-summary svg {
+  width: 16px;
+  transition: transform 160ms ease;
+}
+
+.weekly-pay-card.expanded .weekly-pay-summary svg {
+  transform: rotate(180deg);
+}
+
+.weekly-pay-details {
+  display: grid;
+  gap: 11px;
+  padding: 0 14px 14px;
+  animation: weekly-pay-open 160ms ease both;
+}
+
+@keyframes weekly-pay-open {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .weekly-pay-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
 }
 
@@ -648,8 +704,33 @@ main {
   line-height: 1.15;
 }
 
-.weekly-pay-card > small,
-.hourly-pay-setting > small {
+.weekly-pay-stats .take-home {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: color-mix(in srgb, var(--blue) 22%, var(--line));
+}
+
+.tax-breakdown {
+  display: grid;
+  gap: 5px;
+}
+
+.tax-breakdown span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.tax-breakdown b {
+  color: var(--text);
+  font-size: 10px;
+}
+
+.weekly-pay-details > small,
+.pay-settings-grid > small {
   color: var(--muted);
   font-size: 9px;
   line-height: 1.35;
@@ -2287,6 +2368,38 @@ main {
   font-weight: 750;
 }
 
+.pay-settings-grid {
+  display: grid;
+  grid-template-columns: .8fr 1.2fr;
+  gap: 10px;
+}
+
+.pay-settings-grid label {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pay-settings-grid label > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.pay-settings-grid label > svg {
+  width: 15px;
+  position: absolute;
+  right: 11px;
+  bottom: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.pay-settings-grid > small {
+  grid-column: 1 / -1;
+}
+
 .searchable-select {
   position: relative;
   min-width: 0;
@@ -2631,6 +2744,11 @@ main {
     border-radius: 23px;
   }
 
+  .hero-edit {
+    top: 14px;
+    right: 12px;
+  }
+
   .hero-card h1 {
     margin-top: 24px;
     font-size: clamp(39px, 12.5vw, 49px);
@@ -2638,7 +2756,8 @@ main {
   }
 
   .hero-card h1.hero-time-range {
-    font-size: min(var(--hero-mobile-font-size), 12.5vw);
+    font-size: 30px;
+    letter-spacing: -1.7px;
   }
 
   .hero-card > p {
@@ -3206,6 +3325,14 @@ main {
     grid-template-columns: 1fr 1.45fr;
   }
 
+  .pay-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pay-settings-grid > small {
+    grid-column: auto;
+  }
+
   .privacy-badge {
     justify-self: start;
   }
@@ -3348,15 +3475,8 @@ main {
   }
 
   .hero-card h1.hero-time-range {
-    font-size: min(var(--hero-mobile-font-size), 33px);
-  }
-
-  .hero-card h1.hero-time-range.hero-time-wide {
-    font-size: min(var(--hero-mobile-font-size), 30px);
-  }
-
-  .hero-card h1.hero-time-range.hero-time-extra-wide {
-    font-size: min(var(--hero-mobile-font-size), 27px);
+    font-size: 26px;
+    letter-spacing: -1.4px;
   }
 
   .mobile-date-picker {

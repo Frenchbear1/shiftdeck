@@ -17,7 +17,6 @@ import {
   Plus,
   RefreshCw,
   Settings,
-  Sparkles,
   Sun,
   Trash2,
   Upload,
@@ -27,7 +26,6 @@ import {
 } from "lucide-react";
 import {
   ChangeEvent,
-  CSSProperties,
   useEffect,
   useMemo,
   useRef,
@@ -58,7 +56,10 @@ type CalendarEvent = {
   start: string;
   end: string;
   title: string;
+  customTitle?: boolean;
 };
+
+type FilingStatus = "single" | "married" | "head";
 
 type Preferences = {
   person: string;
@@ -72,6 +73,7 @@ type Preferences = {
   homeAirport: string;
   airline: string;
   hourlyPay: string;
+  filingStatus: FilingStatus;
 };
 
 type CalendarSubscription = {
@@ -104,6 +106,7 @@ type ShiftDraft = {
   date: string;
   start: string;
   end: string;
+  title: string;
 };
 
 type TimeOffDraft = {
@@ -172,9 +175,65 @@ const DEFAULT_PREFS: Preferences = {
   homeAirport: "ABE",
   airline: "Allegiant",
   hourlyPay: "",
+  filingStatus: "single",
 };
 
 const PA_INCOME_TAX_RATE = 0.0307;
+const SOCIAL_SECURITY_TAX_RATE = 0.062;
+const MEDICARE_TAX_RATE = 0.0145;
+
+type FederalWithholdingBracket = {
+  from: number;
+  base: number;
+  rate: number;
+};
+
+const FEDERAL_WEEKLY_WITHHOLDING_2026: Record<
+  FilingStatus,
+  FederalWithholdingBracket[]
+> = {
+  single: [
+    { from: 0, base: 0, rate: 0 },
+    { from: 310, base: 0, rate: 0.1 },
+    { from: 548, base: 23.8, rate: 0.12 },
+    { from: 1279, base: 111.52, rate: 0.22 },
+    { from: 2342, base: 345.38, rate: 0.24 },
+    { from: 4190, base: 788.9, rate: 0.32 },
+    { from: 5237, base: 1123.94, rate: 0.35 },
+    { from: 12629, base: 3711.14, rate: 0.37 },
+  ],
+  married: [
+    { from: 0, base: 0, rate: 0 },
+    { from: 619, base: 0, rate: 0.1 },
+    { from: 1096, base: 47.7, rate: 0.12 },
+    { from: 2558, base: 223.14, rate: 0.22 },
+    { from: 4685, base: 691.08, rate: 0.24 },
+    { from: 8380, base: 1577.88, rate: 0.32 },
+    { from: 10474, base: 2247.96, rate: 0.35 },
+    { from: 15402, base: 3972.76, rate: 0.37 },
+  ],
+  head: [
+    { from: 0, base: 0, rate: 0 },
+    { from: 464, base: 0, rate: 0.1 },
+    { from: 805, base: 34.1, rate: 0.12 },
+    { from: 1762, base: 148.94, rate: 0.22 },
+    { from: 2497, base: 310.64, rate: 0.24 },
+    { from: 4344, base: 753.92, rate: 0.32 },
+    { from: 5391, base: 1088.96, rate: 0.35 },
+    { from: 12784, base: 3676.51, rate: 0.37 },
+  ],
+};
+
+function estimateFederalWithholding(
+  weeklyGross: number,
+  filingStatus: FilingStatus,
+) {
+  const brackets = FEDERAL_WEEKLY_WITHHOLDING_2026[filingStatus];
+  const bracket = [...brackets]
+    .reverse()
+    .find((candidate) => weeklyGross >= candidate.from) ?? brackets[0];
+  return bracket.base + Math.max(0, weeklyGross - bracket.from) * bracket.rate;
+}
 
 const LEGACY_DEFAULT_TITLE = "PIE • Work";
 const LEGACY_DEFAULT_LOCATION = "St. Pete–Clearwater International Airport";
@@ -377,7 +436,8 @@ const eventsFor = (shifts: Shift[], person: string, title: string) =>
       date: shift.date,
       start: shift.start,
       end: shift.end,
-      title,
+      title: title.trim() || "Work",
+      customTitle: false,
     }));
 
 function initials(name: string) {
@@ -482,19 +542,6 @@ function weekRangeFor(dateKey: string) {
   };
 }
 
-function heroTimeFontSize(value: string) {
-  const visualWeight = Array.from(value).reduce((total, character) => {
-    if (character === "1") return total + 0.38;
-    if (/\d/.test(character)) return total + 0.62;
-    if (character === ":") return total + 0.28;
-    if (character === " ") return total + 0.28;
-    if (character === "M") return total + 0.78;
-    if (/[AP]/.test(character)) return total + 0.62;
-    return total + 0.6;
-  }, 0);
-  return Math.max(30, Math.min(49, 315 / visualWeight));
-}
-
 function workdayDateKey(now: Date, shifts: Shift[], person: string) {
   const previousDate = new Date(now);
   previousDate.setDate(previousDate.getDate() - 1);
@@ -596,7 +643,9 @@ export default function HomePage() {
     date: "2026-07-26",
     start: "09:00",
     end: "17:00",
+    title: "Work",
   });
+  const [weekTotalOpen, setWeekTotalOpen] = useState(false);
   const [timeOffDraft, setTimeOffDraft] = useState<TimeOffDraft>({
     date: "2026-07-26",
     start: "09:00",
@@ -672,6 +721,11 @@ export default function HomePage() {
               typeof saved.hourlyPay === "string"
                 ? saved.hourlyPay
                 : DEFAULT_PREFS.hourlyPay,
+            filingStatus:
+              saved.filingStatus === "married" ||
+              saved.filingStatus === "head"
+                ? saved.filingStatus
+                : DEFAULT_PREFS.filingStatus,
           };
           setPrefs(parsedPrefs);
         } catch {
@@ -1004,16 +1058,14 @@ export default function HomePage() {
 
   const weeklySummary = useMemo(() => {
     const range = weekRangeFor(selectedDate);
-    const hours = importedShifts
+    const hours = events
       .filter(
-        (shift) =>
-          shift.worker === prefs.person &&
-          shift.status === "working" &&
-          shift.date >= range.start &&
-          shift.date <= range.end,
+        (event) =>
+          event.date >= range.start &&
+          event.date <= range.end,
       )
-      .reduce((total, shift) => {
-        const [start, end] = normalizedInterval(shift.start, shift.end);
+      .reduce((total, event) => {
+        const [start, end] = normalizedInterval(event.start, event.end);
         return total + (end - start) / 60;
       }, 0);
     const hourlyPay = Number.parseFloat(prefs.hourlyPay);
@@ -1021,14 +1073,37 @@ export default function HomePage() {
       Number.isFinite(hourlyPay) && hourlyPay >= 0
         ? hours * hourlyPay
         : null;
+    const federal =
+      grossPay === null
+        ? null
+        : estimateFederalWithholding(grossPay, prefs.filingStatus);
+    const socialSecurity =
+      grossPay === null ? null : grossPay * SOCIAL_SECURITY_TAX_RATE;
+    const medicare = grossPay === null ? null : grossPay * MEDICARE_TAX_RATE;
+    const paIncomeTax =
+      grossPay === null ? null : grossPay * PA_INCOME_TAX_RATE;
+    const totalEstimatedTaxes =
+      grossPay === null ||
+      federal === null ||
+      socialSecurity === null ||
+      medicare === null ||
+      paIncomeTax === null
+        ? null
+        : federal + socialSecurity + medicare + paIncomeTax;
     return {
       ...range,
       hours,
       grossPay,
-      afterPaTax:
-        grossPay === null ? null : grossPay * (1 - PA_INCOME_TAX_RATE),
+      federal,
+      socialSecurity,
+      medicare,
+      paIncomeTax,
+      estimatedTakeHome:
+        grossPay === null || totalEstimatedTaxes === null
+          ? null
+          : Math.max(0, grossPay - totalEstimatedTaxes),
     };
-  }, [importedShifts, prefs.hourlyPay, prefs.person, selectedDate]);
+  }, [events, prefs.filingStatus, prefs.hourlyPay, selectedDate]);
 
   const dayShifts = useMemo(
     () =>
@@ -1205,7 +1280,9 @@ export default function HomePage() {
           date: event.date,
           start: event.start,
           end: event.end,
-          title: prefs.title.trim() || event.title || "Work",
+          title: event.customTitle
+            ? event.title.trim() || "Work"
+            : prefs.title.trim() || event.title.trim() || "Work",
         }))
         .sort((first, second) =>
           `${first.date}-${first.start}-${first.key}`.localeCompare(
@@ -1320,6 +1397,7 @@ export default function HomePage() {
       date: selectedDate,
       start: "09:00",
       end: "17:00",
+      title: prefs.title.trim() || "Work",
     });
     setShiftEditor({ mode: "add" });
   };
@@ -1330,6 +1408,9 @@ export default function HomePage() {
       date: myEvent.date,
       start: myEvent.start,
       end: myEvent.end,
+      title: myEvent.customTitle
+        ? myEvent.title
+        : prefs.title.trim() || myEvent.title || "Work",
     });
     setShiftEditor({ mode: "edit", eventId: myEvent.id });
   };
@@ -1371,14 +1452,27 @@ export default function HomePage() {
         date: shift.date,
         start: shift.start,
         end: shift.end,
-        title: prefs.title,
+        title: prefs.title.trim() || "Work",
+        customTitle: false,
       }));
     if (matching.length) {
       setEvents((current) => {
         const untouched = current.filter(
           (event) => !detectedDates.includes(event.date),
         );
-        return [...untouched, ...matching].sort((a, b) =>
+        const refreshed = matching.map((event) => {
+          const previous = current.find(
+            (candidate) => candidate.calendarKey === event.calendarKey,
+          );
+          return previous?.customTitle
+            ? {
+                ...event,
+                title: previous.title,
+                customTitle: true,
+              }
+            : event;
+        });
+        return [...untouched, ...refreshed].sort((a, b) =>
           `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`),
         );
       });
@@ -1616,8 +1710,13 @@ export default function HomePage() {
   };
 
   const saveShift = () => {
-    if (!shiftDraft.date || !shiftDraft.start || !shiftDraft.end) {
-      setToast("Add a date, start time, and stop time");
+    if (
+      !shiftDraft.date ||
+      !shiftDraft.start ||
+      !shiftDraft.end ||
+      !shiftDraft.title.trim()
+    ) {
+      setToast("Add a title, date, start time, and stop time");
       return;
     }
 
@@ -1634,7 +1733,8 @@ export default function HomePage() {
       date: shiftDraft.date,
       start: shiftDraft.start,
       end: shiftDraft.end,
-      title: prefs.title,
+      title: shiftDraft.title.trim(),
+      customTitle: true,
     };
 
     setEvents((current) =>
@@ -2016,8 +2116,13 @@ export default function HomePage() {
   const renderHome = () => {
     const isToday = selectedDate === todayDate;
     const isLoadedDate = importedDateSet.has(selectedDate);
-    const heroTitle = myShift
-      ? `${formatTime(myShift.start)} – ${formatTime(myShift.end)}`
+    const shiftTitle = myEvent
+      ? myEvent.customTitle
+        ? myEvent.title.trim() || "Work"
+        : prefs.title.trim() || myEvent.title.trim() || "Work"
+      : prefs.title.trim() || "Work";
+    const heroTitle = myEvent
+      ? `${formatTime(myEvent.start)} – ${formatTime(myEvent.end)}`
       : isLoadedDate
         ? isToday
           ? "You’re off today"
@@ -2025,46 +2130,30 @@ export default function HomePage() {
         : isToday
           ? "No schedule for today"
           : "No schedule loaded";
-    const heroTimeSize = myShift ? heroTimeFontSize(heroTitle) : null;
-    const heroTimeStyle = heroTimeSize
-      ? ({
-          "--hero-mobile-font-size": `${heroTimeSize}px`,
-        } as CSSProperties)
-      : undefined;
-    const heroTimeClass = myShift
-      ? `hero-time-range${
-          heroTimeSize !== null && heroTimeSize <= 34
-            ? " hero-time-extra-wide"
-            : heroTimeSize !== null && heroTimeSize <= 44
-              ? " hero-time-wide"
-              : ""
-        }`
-      : undefined;
 
     return (
     <div className="page-stack">
       <section className="hero-card">
         <div className="hero-glow" />
         <div className="hero-topline">
-          <div className="eyebrow">
-            <Sparkles size={14} />
-            {isToday ? "Today" : "Selected day"}
-          </div>
-          {myEvent && (
-            <button className="hero-edit" onClick={openEditShift} aria-label="Edit this shift">
-              <Pencil />
-            </button>
-          )}
+          <div className="hero-date">{formatDate(selectedDate, "long")}</div>
         </div>
+        {myEvent && (
+          <button className="hero-edit" onClick={openEditShift} aria-label="Edit this shift">
+            <Pencil />
+          </button>
+        )}
         <h1
-          className={heroTimeClass}
-          style={heroTimeStyle}
+          className={myEvent ? "hero-time-range" : undefined}
         >
           {heroTitle}
         </h1>
         <p>
-          {formatDate(selectedDate, "long")}
-          {myShift?.note ? ` · ${myShift.note}` : ""}
+          {myEvent
+            ? shiftTitle
+            : isLoadedDate
+              ? "No shift scheduled"
+              : "Import a schedule to get started"}
         </p>
         <div className="hero-facts">
           <div>
@@ -2090,38 +2179,73 @@ export default function HomePage() {
         {hasSchedule ? (
           <>
             {renderDateRail(false, true)}
-            <div className="weekly-pay-card">
-              <div className="weekly-pay-heading">
-                <b>Week total</b>
-                <span>{weeklySummary.label}</span>
-              </div>
-              <div className="weekly-pay-stats">
-                <div>
-                  <strong>{formatHours(weeklySummary.hours)}</strong>
-                  <span>hours</span>
+            <div className={`weekly-pay-card${weekTotalOpen ? " expanded" : ""}`}>
+              <button
+                className="weekly-pay-toggle"
+                type="button"
+                aria-expanded={weekTotalOpen}
+                onClick={() => setWeekTotalOpen((current) => !current)}
+              >
+                <span>
+                  <b>Week total</b>
+                  <small>{weeklySummary.label}</small>
+                </span>
+                <span className="weekly-pay-summary">
+                  <strong>{formatHours(weeklySummary.hours)} hours</strong>
+                  <ChevronDown />
+                </span>
+              </button>
+              {weekTotalOpen && (
+                <div className="weekly-pay-details">
+                  <div className="weekly-pay-stats">
+                    <div>
+                      <strong>
+                        {weeklySummary.grossPay === null
+                          ? "—"
+                          : formatCurrency(weeklySummary.grossPay)}
+                      </strong>
+                      <span>estimated gross</span>
+                    </div>
+                    <div className="take-home">
+                      <strong>
+                        {weeklySummary.estimatedTakeHome === null
+                          ? "—"
+                          : formatCurrency(weeklySummary.estimatedTakeHome)}
+                      </strong>
+                      <span>estimated take-home</span>
+                    </div>
+                  </div>
+                  {weeklySummary.grossPay === null ? (
+                    <small>Add your hourly pay in Settings to see pay estimates.</small>
+                  ) : (
+                    <>
+                      <div className="tax-breakdown">
+                        <span>
+                          Federal withholding
+                          <b>{formatCurrency(weeklySummary.federal ?? 0)}</b>
+                        </span>
+                        <span>
+                          Social Security
+                          <b>{formatCurrency(weeklySummary.socialSecurity ?? 0)}</b>
+                        </span>
+                        <span>
+                          Medicare
+                          <b>{formatCurrency(weeklySummary.medicare ?? 0)}</b>
+                        </span>
+                        <span>
+                          PA income tax
+                          <b>{formatCurrency(weeklySummary.paIncomeTax ?? 0)}</b>
+                        </span>
+                      </div>
+                      <small>
+                        Rough 2026 paycheck estimate using your federal filing status,
+                        standard W-4 withholding, and PA’s 3.07% rate. Local taxes,
+                        benefits, overtime, and other deductions aren’t included.
+                      </small>
+                    </>
+                  )}
                 </div>
-                <div>
-                  <strong>
-                    {weeklySummary.grossPay === null
-                      ? "—"
-                      : formatCurrency(weeklySummary.grossPay)}
-                  </strong>
-                  <span>estimated gross</span>
-                </div>
-                <div>
-                  <strong>
-                    {weeklySummary.afterPaTax === null
-                      ? "—"
-                      : formatCurrency(weeklySummary.afterPaTax)}
-                  </strong>
-                  <span>after PA tax</span>
-                </div>
-              </div>
-              <small>
-                {weeklySummary.grossPay === null
-                  ? "Add your hourly pay in Settings to see pay estimates."
-                  : "PA estimate uses 3.07% state income tax only; federal, FICA, local taxes, overtime, and deductions aren’t included."}
-              </small>
+              )}
             </div>
           </>
         ) : (
@@ -2852,6 +2976,20 @@ export default function HomePage() {
               <button onClick={() => setShiftEditor(null)} aria-label="Close shift editor"><X /></button>
             </header>
             <div className="shift-fields">
+              <label className="shift-title-field">
+                <span>Shift title</span>
+                <input
+                  type="text"
+                  value={shiftDraft.title}
+                  onChange={(event) =>
+                    setShiftDraft((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  placeholder="Work"
+                />
+              </label>
               <label>
                 <span>Date</span>
                 <div className="time-off-input-shell">
@@ -3077,21 +3215,41 @@ export default function HomePage() {
                 onSelect={(value) => savePrefs({ airline: value })}
               />
             </div>
-            <label className="hourly-pay-setting">
-              <span>Hourly pay ($ per hour)</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                value={prefs.hourlyPay}
-                onChange={(event) =>
-                  savePrefs({ hourlyPay: event.target.value })
-                }
-                placeholder="17.50"
-              />
-              <small>Used for the weekly estimate on Today.</small>
-            </label>
+            <div className="pay-settings-grid">
+              <label className="hourly-pay-setting">
+                <span>Hourly pay ($ per hour)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={prefs.hourlyPay}
+                  onChange={(event) =>
+                    savePrefs({ hourlyPay: event.target.value })
+                  }
+                  placeholder="17.50"
+                />
+              </label>
+              <label>
+                <span>Federal filing status</span>
+                <select
+                  value={prefs.filingStatus}
+                  onChange={(event) =>
+                    savePrefs({
+                      filingStatus: event.target.value as FilingStatus,
+                    })
+                  }
+                >
+                  <option value="single">Single / married separately</option>
+                  <option value="married">Married filing jointly</option>
+                  <option value="head">Head of household</option>
+                </select>
+                <ChevronDown />
+              </label>
+              <small>
+                Used for the rough weekly take-home estimate on Today.
+              </small>
+            </div>
             <div className="calendar-subscription-setting">
               <div>
                 <span>Apple Calendar</span>
