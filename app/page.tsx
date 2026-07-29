@@ -25,7 +25,14 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  CSSProperties,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Flight,
   Shift,
@@ -64,6 +71,7 @@ type Preferences = {
   notes: string;
   homeAirport: string;
   airline: string;
+  hourlyPay: string;
 };
 
 type CalendarSubscription = {
@@ -163,7 +171,10 @@ const DEFAULT_PREFS: Preferences = {
   notes: "Imported from Shiftdeck",
   homeAirport: "ABE",
   airline: "Allegiant",
+  hourlyPay: "",
 };
+
+const PA_INCOME_TAX_RATE = 0.0307;
 
 const LEGACY_DEFAULT_TITLE = "PIE • Work";
 const LEGACY_DEFAULT_LOCATION = "St. Pete–Clearwater International Airport";
@@ -287,6 +298,17 @@ const formatMinutes = (minutes: number) => {
     `${`${hours}`.padStart(2, "0")}:${`${mins}`.padStart(2, "0")}`,
   );
 };
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(value);
+
+const formatHours = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+  }).format(value);
 
 const cleanAirportCode = (value: string) =>
   (value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) || "ABE");
@@ -439,6 +461,38 @@ function localDateKey(date = new Date()) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function weekRangeFor(dateKey: string) {
+  const selected = new Date(`${dateKey}T12:00:00`);
+  const start = new Date(selected);
+  start.setDate(selected.getDate() - selected.getDay());
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return {
+    start: localDateKey(start),
+    end: localDateKey(end),
+    label: `${new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+    }).format(start)} – ${new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+    }).format(end)}`,
+  };
+}
+
+function heroTimeFontSize(value: string) {
+  const visualWeight = Array.from(value).reduce((total, character) => {
+    if (character === "1") return total + 0.38;
+    if (/\d/.test(character)) return total + 0.62;
+    if (character === ":") return total + 0.28;
+    if (character === " ") return total + 0.28;
+    if (character === "M") return total + 0.78;
+    if (/[AP]/.test(character)) return total + 0.62;
+    return total + 0.6;
+  }, 0);
+  return Math.max(30, Math.min(49, 315 / visualWeight));
 }
 
 function workdayDateKey(now: Date, shifts: Shift[], person: string) {
@@ -614,6 +668,10 @@ export default function HomePage() {
             notes: saved.notes ?? DEFAULT_PREFS.notes,
             homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
             airline: saved.airline ?? DEFAULT_PREFS.airline,
+            hourlyPay:
+              typeof saved.hourlyPay === "string"
+                ? saved.hourlyPay
+                : DEFAULT_PREFS.hourlyPay,
           };
           setPrefs(parsedPrefs);
         } catch {
@@ -943,6 +1001,34 @@ export default function HomePage() {
     () => getWorkingShift(importedShifts, selectedDate, prefs.person),
     [importedShifts, selectedDate, prefs.person],
   );
+
+  const weeklySummary = useMemo(() => {
+    const range = weekRangeFor(selectedDate);
+    const hours = importedShifts
+      .filter(
+        (shift) =>
+          shift.worker === prefs.person &&
+          shift.status === "working" &&
+          shift.date >= range.start &&
+          shift.date <= range.end,
+      )
+      .reduce((total, shift) => {
+        const [start, end] = normalizedInterval(shift.start, shift.end);
+        return total + (end - start) / 60;
+      }, 0);
+    const hourlyPay = Number.parseFloat(prefs.hourlyPay);
+    const grossPay =
+      Number.isFinite(hourlyPay) && hourlyPay >= 0
+        ? hours * hourlyPay
+        : null;
+    return {
+      ...range,
+      hours,
+      grossPay,
+      afterPaTax:
+        grossPay === null ? null : grossPay * (1 - PA_INCOME_TAX_RATE),
+    };
+  }, [importedShifts, prefs.hourlyPay, prefs.person, selectedDate]);
 
   const dayShifts = useMemo(
     () =>
@@ -1939,6 +2025,21 @@ export default function HomePage() {
         : isToday
           ? "No schedule for today"
           : "No schedule loaded";
+    const heroTimeSize = myShift ? heroTimeFontSize(heroTitle) : null;
+    const heroTimeStyle = heroTimeSize
+      ? ({
+          "--hero-mobile-font-size": `${heroTimeSize}px`,
+        } as CSSProperties)
+      : undefined;
+    const heroTimeClass = myShift
+      ? `hero-time-range${
+          heroTimeSize !== null && heroTimeSize <= 34
+            ? " hero-time-extra-wide"
+            : heroTimeSize !== null && heroTimeSize <= 44
+              ? " hero-time-wide"
+              : ""
+        }`
+      : undefined;
 
     return (
     <div className="page-stack">
@@ -1955,7 +2056,12 @@ export default function HomePage() {
             </button>
           )}
         </div>
-        <h1>{heroTitle}</h1>
+        <h1
+          className={heroTimeClass}
+          style={heroTimeStyle}
+        >
+          {heroTitle}
+        </h1>
         <p>
           {formatDate(selectedDate, "long")}
           {myShift?.note ? ` · ${myShift.note}` : ""}
@@ -1982,7 +2088,42 @@ export default function HomePage() {
           </span>
         </div>
         {hasSchedule ? (
-          renderDateRail(false, true)
+          <>
+            {renderDateRail(false, true)}
+            <div className="weekly-pay-card">
+              <div className="weekly-pay-heading">
+                <b>Week total</b>
+                <span>{weeklySummary.label}</span>
+              </div>
+              <div className="weekly-pay-stats">
+                <div>
+                  <strong>{formatHours(weeklySummary.hours)}</strong>
+                  <span>hours</span>
+                </div>
+                <div>
+                  <strong>
+                    {weeklySummary.grossPay === null
+                      ? "—"
+                      : formatCurrency(weeklySummary.grossPay)}
+                  </strong>
+                  <span>estimated gross</span>
+                </div>
+                <div>
+                  <strong>
+                    {weeklySummary.afterPaTax === null
+                      ? "—"
+                      : formatCurrency(weeklySummary.afterPaTax)}
+                  </strong>
+                  <span>after PA tax</span>
+                </div>
+              </div>
+              <small>
+                {weeklySummary.grossPay === null
+                  ? "Add your hourly pay in Settings to see pay estimates."
+                  : "PA estimate uses 3.07% state income tax only; federal, FICA, local taxes, overtime, and deductions aren’t included."}
+              </small>
+            </div>
+          </>
         ) : (
           <EmptyState
             icon={<Upload />}
@@ -2936,6 +3077,21 @@ export default function HomePage() {
                 onSelect={(value) => savePrefs({ airline: value })}
               />
             </div>
+            <label className="hourly-pay-setting">
+              <span>Hourly pay ($ per hour)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={prefs.hourlyPay}
+                onChange={(event) =>
+                  savePrefs({ hourlyPay: event.target.value })
+                }
+                placeholder="17.50"
+              />
+              <small>Used for the weekly estimate on Today.</small>
+            </label>
             <div className="calendar-subscription-setting">
               <div>
                 <span>Apple Calendar</span>

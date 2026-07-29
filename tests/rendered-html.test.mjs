@@ -119,6 +119,11 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /aria-label="Edit this shift"/);
   assert.match(page, /shiftdeck\.events/);
   assert.match(page, />Appearance</);
+  assert.match(page, /hourlyPay/);
+  assert.match(page, /PA_INCOME_TAX_RATE = 0\.0307/);
+  assert.match(page, /weekly-pay-card/);
+  assert.match(page, /heroTimeFontSize/);
+  assert.match(css, /--hero-mobile-font-size/);
   assert.doesNotMatch(page, /compact-shift-list|Check before export|Your shifts|Toggle theme/);
   assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);
   assert.match(page, /Automatic updates on/);

@@ -337,6 +337,10 @@ main {
   letter-spacing: -3.5px;
 }
 
+.hero-card h1.hero-time-range {
+  white-space: nowrap;
+}
+
 .hero-card > p {
   margin: 0;
   color: rgba(255,255,255,.8);
@@ -584,6 +588,71 @@ main {
 .date-rail.mobile-tape {
   position: relative;
   scroll-snap-type: x mandatory;
+}
+
+.weekly-pay-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.weekly-pay-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.weekly-pay-heading b {
+  font-size: 13px;
+}
+
+.weekly-pay-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.weekly-pay-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.weekly-pay-stats > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 10px 7px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.weekly-pay-stats strong {
+  overflow: hidden;
+  font-size: clamp(14px, 2.2vw, 18px);
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekly-pay-stats span {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+.weekly-pay-card > small,
+.hourly-pay-setting > small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
 }
 
 .mobile-select {
@@ -2568,6 +2637,10 @@ main {
     letter-spacing: -2.3px;
   }
 
+  .hero-card h1.hero-time-range {
+    font-size: min(var(--hero-mobile-font-size), 12.5vw);
+  }
+
   .hero-card > p {
     font-size: 15px;
   }
@@ -2805,6 +2878,10 @@ main {
   .week-panel .date-rail.mobile-tape {
     margin-top: 12px;
     padding-right: 28px;
+  }
+
+  .week-panel .weekly-pay-card {
+    margin-right: 18px;
   }
 
   .page-stack > .date-rail.mobile-tape {
@@ -3268,6 +3345,18 @@ main {
     font-size: 33px;
     letter-spacing: -1.7px;
     white-space: nowrap;
+  }
+
+  .hero-card h1.hero-time-range {
+    font-size: min(var(--hero-mobile-font-size), 33px);
+  }
+
+  .hero-card h1.hero-time-range.hero-time-wide {
+    font-size: min(var(--hero-mobile-font-size), 30px);
+  }
+
+  .hero-card h1.hero-time-range.hero-time-extra-wide {
+    font-size: min(var(--hero-mobile-font-size), 27px);
   }
 
   .mobile-date-picker {
