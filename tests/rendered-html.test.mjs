@@ -72,7 +72,8 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /UID:\$\{uidFor\(feed\.id, event\.event_key\)\}/);
   assert.match(service, /SEQUENCE:\$\{event\.sequence\}/);
   assert.match(service, /"CANCELLED" : "CONFIRMED"/);
-  assert.match(service, /Revised \$\{sequence\}/);
+  assert.doesNotMatch(service, /Revised \$\{sequence\}|— Revised/);
+  assert.match(service, /const title = event\.base_title/);
   assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT1H/);
   assert.match(service, /write_token_hash/);
   assert.match(page, /Subscribe in Apple Calendar/);
@@ -90,6 +91,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /value: "P1W", label: "1 week before"/);
   assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
   assert.match(service, /TRIGGER;RELATED=START/);
+  assert.match(service, /public, no-cache, must-revalidate/);
   assert.match(
     page,
     /const DEFAULT_PREFS:[\s\S]*?title: "",[\s\S]*?location: "",/,

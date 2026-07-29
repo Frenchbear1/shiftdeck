@@ -242,13 +242,6 @@ function uidFor(calendarId: string, eventKey: string) {
   return `${cleanKey}.${calendarId.slice(0, 12)}@shiftdeck.app`;
 }
 
-function revisedTitle(title: string, sequence: number) {
-  if (sequence <= 0) return title;
-  return sequence === 1
-    ? `${title} — Revised`
-    : `${title} — Revised ${sequence}`;
-}
-
 function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
   const reminders = Array.from(
     new Set([feed.reminder1, feed.reminder2].filter(Boolean)),
@@ -267,7 +260,7 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
 
   events.forEach((event) => {
     const overnight = event.end_time <= event.start_time;
-    const title = revisedTitle(event.base_title, event.sequence);
+    const title = event.base_title;
     lines.push(
       "BEGIN:VEVENT",
       `UID:${uidFor(feed.id, event.event_key)}`,
@@ -565,7 +558,7 @@ async function serveFeed(request: Request, db: CalendarDatabase, id: string) {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Content-Disposition": 'inline; filename="Shiftdeck.ics"',
-      "Cache-Control": "public, max-age=300, must-revalidate",
+      "Cache-Control": "public, no-cache, must-revalidate",
       ETag: etag,
       "X-Robots-Tag": "noindex, nofollow, noarchive",
     },
