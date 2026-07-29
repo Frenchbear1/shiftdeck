@@ -1099,6 +1099,39 @@ main {
   background: var(--blue-soft);
 }
 
+.schedule-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.today-text-button {
+  border: 0;
+  padding: 6px 0;
+  color: var(--blue);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.today-text-button:hover {
+  opacity: .72;
+}
+
+.today-text-button:active {
+  transform: scale(.96);
+}
+
+.today-text-button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
 .time-off-picker {
   display: grid;
   gap: 24px;

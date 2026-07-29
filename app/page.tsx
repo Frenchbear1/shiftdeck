@@ -708,6 +708,7 @@ export default function HomePage() {
   const [hydrated, setHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const fileInput = useRef<HTMLInputElement>(null);
+  const homeDateRail = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -1388,6 +1389,24 @@ export default function HomePage() {
     setSelectedDate(todayDate);
     setShowAllFlights(false);
     setTab("home");
+  };
+
+  const returnToToday = () => {
+    const rail = homeDateRail.current;
+    const todayCard = rail?.querySelector<HTMLElement>(
+      `[data-schedule-date="${todayDate}"]`,
+    );
+
+    if (rail && todayCard) {
+      const centeredLeft =
+        todayCard.offsetLeft - (rail.clientWidth - todayCard.offsetWidth) / 2;
+      rail.scrollTo({
+        left: Math.max(0, centeredLeft),
+        behavior: "smooth",
+      });
+    }
+
+    selectDate(todayDate);
   };
 
   const updateTimeOffDate = (date: string) => {
@@ -2160,8 +2179,15 @@ export default function HomePage() {
     return { groups, labels };
   }, [dayShifts, myShift, prefs.person]);
 
-  const renderDateRail = (compact = false, mobileTape = false) => (
-    <div className={`date-rail ${compact ? "compact" : ""} ${mobileTape ? "mobile-tape" : ""}`}>
+  const renderDateRail = (
+    compact = false,
+    mobileTape = false,
+    isHomeRail = false,
+  ) => (
+    <div
+      className={`date-rail ${compact ? "compact" : ""} ${mobileTape ? "mobile-tape" : ""}`}
+      ref={isHomeRail ? homeDateRail : undefined}
+    >
       {scheduleDates.map((date) => {
         const day = compactDay(date);
         const userShift = getWorkingShift(importedShifts, date, prefs.person);
@@ -2171,6 +2197,7 @@ export default function HomePage() {
             key={date}
             onClick={() => selectDate(date)}
             aria-label={`Show ${formatDate(date, "long")}`}
+            data-schedule-date={date}
           >
             <span>{day.weekday}</span>
             <strong>{day.day}</strong>
@@ -2242,13 +2269,24 @@ export default function HomePage() {
           <div>
             <h2>Your schedule</h2>
           </div>
-          <span className="count-badge">
-            {scheduleDates.length} day{scheduleDates.length === 1 ? "" : "s"}
-          </span>
+          <div className="schedule-heading-actions">
+            {selectedDate !== todayDate && scheduleDates.includes(todayDate) && (
+              <button
+                type="button"
+                className="today-text-button"
+                onClick={returnToToday}
+              >
+                Today
+              </button>
+            )}
+            <span className="count-badge">
+              {scheduleDates.length} day{scheduleDates.length === 1 ? "" : "s"}
+            </span>
+          </div>
         </div>
         {hasSchedule ? (
           <>
-            {renderDateRail(false, true)}
+            {renderDateRail(false, true, true)}
             <div className={`weekly-pay-card${weekTotalOpen ? " expanded" : ""}`}>
               <button
                 className="weekly-pay-toggle"

@@ -132,6 +132,11 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /FEDERAL_WEEKLY_WITHHOLDING_2026/);
   assert.match(page, /weekly-pay-card/);
   assert.match(page, /weekly-pay-toggle/);
+  assert.match(page, /returnToToday/);
+  assert.match(page, /today-text-button/);
+  assert.match(page, /behavior: "smooth"/);
+  assert.match(page, /data-schedule-date/);
+  assert.match(css, /\.today-text-button/);
   assert.match(page, /customTitle/);
   assert.match(page, />Shift title</);
   assert.doesNotMatch(page, /heroTimeFontSize/);
