@@ -103,6 +103,10 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /Enter coordinates/);
   assert.match(page, /Preview in Apple Maps/);
   assert.match(page, /parseCoordinatePair/);
+  assert.match(page, /longitudeDirection === "W" \? -1 : 1/);
+  assert.match(page, /formatAppleCoordinates/);
+  assert.match(page, /Paste from Apple Maps in one go/);
+  assert.match(page, /40\.65382° N, 75\.43225° W/);
   assert.match(service, /https:\/\/photon\.komoot\.io\/api/);
   assert.match(service, /countrycode=US/);
   assert.match(service, /limit=10/);

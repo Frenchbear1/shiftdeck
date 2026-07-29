@@ -375,10 +375,22 @@ const formatHours = (value: number) =>
 function parseCoordinatePair(value: string) {
   const match = value
     .trim()
-    .match(/^(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+    .toUpperCase()
+    .replace(/[−–—]/g, "-")
+    .match(
+      /^([+-]?\d{1,2}(?:\.\d+)?)\s*°?\s*([NS])?\s*[,;]\s*([+-]?\d{1,3}(?:\.\d+)?)\s*°?\s*([EW])?$/,
+    );
   if (!match) return null;
-  const latitude = Number(match[1]);
-  const longitude = Number(match[2]);
+  const latitudeDirection = match[2];
+  const longitudeDirection = match[4];
+  let latitude = Number(match[1]);
+  let longitude = Number(match[3]);
+  if (latitudeDirection) {
+    latitude = Math.abs(latitude) * (latitudeDirection === "S" ? -1 : 1);
+  }
+  if (longitudeDirection) {
+    longitude = Math.abs(longitude) * (longitudeDirection === "W" ? -1 : 1);
+  }
   if (
     !Number.isFinite(latitude) ||
     !Number.isFinite(longitude) ||
@@ -391,6 +403,9 @@ function parseCoordinatePair(value: string) {
   }
   return { latitude, longitude };
 }
+
+const formatAppleCoordinates = (latitude: number, longitude: number) =>
+  `${Math.abs(latitude).toFixed(5)}° ${latitude < 0 ? "S" : "N"}, ${Math.abs(longitude).toFixed(5)}° ${longitude < 0 ? "W" : "E"}`;
 
 const cleanAirportCode = (value: string) =>
   (value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) || "ABE");
@@ -700,10 +715,7 @@ export default function HomePage() {
   >("idle");
   const [placeMenuOpen, setPlaceMenuOpen] = useState(false);
   const [coordinatesOpen, setCoordinatesOpen] = useState(false);
-  const [coordinateDraft, setCoordinateDraft] = useState({
-    latitude: "",
-    longitude: "",
-  });
+  const [coordinateDraft, setCoordinateDraft] = useState("");
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -1445,28 +1457,14 @@ export default function HomePage() {
     }
   };
 
-  const updateCoordinateDraft = (
-    field: "latitude" | "longitude",
-    value: string,
-  ) => {
-    const next = { ...coordinateDraft, [field]: value };
-    setCoordinateDraft(next);
-    const latitude = Number(next.latitude);
-    const longitude = Number(next.longitude);
-    const valid =
-      next.latitude.trim() !== "" &&
-      next.longitude.trim() !== "" &&
-      Number.isFinite(latitude) &&
-      Number.isFinite(longitude) &&
-      latitude >= -90 &&
-      latitude <= 90 &&
-      longitude >= -180 &&
-      longitude <= 180;
+  const updateCoordinateDraft = (value: string) => {
+    setCoordinateDraft(value);
+    const coordinate = parseCoordinatePair(value);
     savePrefs({
       location:
-        valid && !prefs.location.trim() ? "Pinned location" : prefs.location,
-      locationLat: valid ? latitude : null,
-      locationLon: valid ? longitude : null,
+        coordinate && !prefs.location.trim() ? "Pinned location" : prefs.location,
+      locationLat: coordinate?.latitude ?? null,
+      locationLon: coordinate?.longitude ?? null,
     });
   };
 
@@ -1899,7 +1897,7 @@ export default function HomePage() {
     setCalendarSubscription(null);
     setCalendarSyncState("idle");
     setCoordinatesOpen(false);
-    setCoordinateDraft({ latitude: "", longitude: "" });
+    setCoordinateDraft("");
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setExportOpen(false);
@@ -3178,10 +3176,12 @@ export default function HomePage() {
                   onChange={(event) => {
                     const coordinate = parseCoordinatePair(event.target.value);
                     if (coordinate) {
-                      setCoordinateDraft({
-                        latitude: `${coordinate.latitude}`,
-                        longitude: `${coordinate.longitude}`,
-                      });
+                      setCoordinateDraft(
+                        formatAppleCoordinates(
+                          coordinate.latitude,
+                          coordinate.longitude,
+                        ),
+                      );
                       setCoordinatesOpen(true);
                       savePrefs({
                         location: "Pinned location",
@@ -3234,10 +3234,12 @@ export default function HomePage() {
                               locationLat: suggestion.latitude,
                               locationLon: suggestion.longitude,
                             });
-                            setCoordinateDraft({
-                              latitude: `${suggestion.latitude}`,
-                              longitude: `${suggestion.longitude}`,
-                            });
+                            setCoordinateDraft(
+                              formatAppleCoordinates(
+                                suggestion.latitude,
+                                suggestion.longitude,
+                              ),
+                            );
                             setPlaceSuggestions([]);
                             setPlaceMenuOpen(false);
                           }}
@@ -3265,8 +3267,11 @@ export default function HomePage() {
                   Number.isFinite(prefs.locationLon) && (
                     <small className="place-selected">
                       <MapPin />
-                      Map pin attached · {prefs.locationLat!.toFixed(5)},{" "}
-                      {prefs.locationLon!.toFixed(5)}
+                      Map pin attached ·{" "}
+                      {formatAppleCoordinates(
+                        prefs.locationLat!,
+                        prefs.locationLon!,
+                      )}
                     </small>
                   )}
               </label>
@@ -3278,16 +3283,15 @@ export default function HomePage() {
                     setCoordinatesOpen((current) => {
                       const next = !current;
                       if (next) {
-                        setCoordinateDraft({
-                          latitude:
-                            typeof prefs.locationLat === "number"
-                              ? `${prefs.locationLat}`
-                              : "",
-                          longitude:
+                        setCoordinateDraft(
+                          typeof prefs.locationLat === "number" &&
                             typeof prefs.locationLon === "number"
-                              ? `${prefs.locationLon}`
-                              : "",
-                        });
+                            ? formatAppleCoordinates(
+                                prefs.locationLat,
+                                prefs.locationLon,
+                              )
+                            : "",
+                        );
                       }
                       return next;
                     });
@@ -3309,39 +3313,22 @@ export default function HomePage() {
               {coordinatesOpen && (
                 <div className="coordinate-fields">
                   <label>
-                    <span>Latitude</span>
+                    <span>Coordinates</span>
                     <input
-                      type="number"
-                      inputMode="decimal"
-                      min="-90"
-                      max="90"
-                      step="any"
-                      value={coordinateDraft.latitude}
-                      onChange={(event) =>
-                        updateCoordinateDraft("latitude", event.target.value)
-                      }
-                      placeholder="40.65240"
-                    />
-                  </label>
-                  <label>
-                    <span>Longitude</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="-180"
-                      max="180"
-                      step="any"
-                      value={coordinateDraft.longitude}
-                      onChange={(event) =>
-                        updateCoordinateDraft("longitude", event.target.value)
-                      }
-                      placeholder="-75.44080"
+                      type="text"
+                      inputMode="text"
+                      value={coordinateDraft}
+                      onChange={(event) => updateCoordinateDraft(event.target.value)}
+                      placeholder="40.65382° N, 75.43225° W"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck="false"
                     />
                   </label>
                   <button
                     type="button"
                     onClick={() => {
-                      setCoordinateDraft({ latitude: "", longitude: "" });
+                      setCoordinateDraft("");
                       savePrefs({
                         locationLat: null,
                         locationLon: null,
@@ -3351,8 +3338,8 @@ export default function HomePage() {
                     Clear pin
                   </button>
                   <small>
-                    You can also paste coordinates such as 40.6524, -75.4408
-                    directly into Place.
+                    Paste from Apple Maps in one go. N/S and E/W are converted
+                    automatically.
                   </small>
                 </div>
               )}

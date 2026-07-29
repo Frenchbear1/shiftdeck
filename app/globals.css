@@ -2261,7 +2261,7 @@ main {
 
 .coordinate-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 8px;
   padding: 10px;
@@ -2279,6 +2279,11 @@ main {
   color: var(--muted);
   font-size: 10px;
   font-weight: 750;
+}
+
+.coordinate-fields input {
+  min-width: 0;
+  font-size: 16px;
 }
 
 .coordinate-fields > button {
