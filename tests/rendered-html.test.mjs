@@ -101,6 +101,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /One reminder is enough/);
   assert.match(page, /calendarServiceUrl\(`\/api\/places/);
   assert.match(service, /https:\/\/photon\.komoot\.io\/api/);
+  assert.match(service, /countrycode=US/);
   assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
   assert.match(service, /\.filter\(Boolean\)/);
   assert.match(service, /TRIGGER;RELATED=START/);

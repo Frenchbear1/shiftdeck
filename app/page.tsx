@@ -2802,7 +2802,7 @@ export default function HomePage() {
                   onBlur={() =>
                     window.setTimeout(() => setPlaceMenuOpen(false), 120)
                   }
-                  placeholder="Search a place or address"
+                  placeholder="Search a U.S. place or address"
                   autoComplete="off"
                   role="combobox"
                   aria-autocomplete="list"

@@ -165,7 +165,7 @@ async function searchPlaces(request: Request) {
   if (query.length < 3) return json(request, { features: [] });
   try {
     const response = await fetch(
-      `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=en&limit=6`,
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=en&limit=6&countrycode=US`,
       {
         headers: { Accept: "application/json" },
         cf: { cacheEverything: true, cacheTtl: 3600 },
