@@ -2022,28 +2022,6 @@ main {
   width: 17px;
 }
 
-.calendar-action-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.notice .calendar-action-row .calendar-export-button,
-.notice .calendar-action-row .calendar-sync-button {
-  margin-top: 0;
-}
-
-.notice .calendar-sync-button {
-  min-height: 44px;
-  padding: 0 14px;
-}
-
-.notice .calendar-sync-button svg {
-  width: 16px;
-}
-
 .shift-fields label,
 .export-fields label,
 .settings-sheet > label {
@@ -2261,7 +2239,7 @@ main {
 
 .coordinate-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: end;
   gap: 8px;
   padding: 10px;
@@ -2272,6 +2250,7 @@ main {
 
 .coordinate-fields label {
   display: grid;
+  grid-column: 1 / -1;
   gap: 5px;
 }
 
@@ -2287,6 +2266,7 @@ main {
 }
 
 .coordinate-fields > button {
+  grid-column: 1;
   height: 40px;
   padding: 0 8px;
   color: var(--danger);
@@ -2294,7 +2274,8 @@ main {
 }
 
 .coordinate-fields > small {
-  grid-column: 1 / -1;
+  grid-column: 2;
+  align-self: center;
   color: var(--muted);
   font-size: 9px;
   line-height: 1.35;
@@ -2421,13 +2402,6 @@ main {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
-}
-
-.calendar-alert-help {
-  margin: 1px 0 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .settings-sheet .button,
@@ -3465,12 +3439,7 @@ main {
     grid-column: auto;
   }
 
-  .coordinate-fields {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
   .coordinate-fields > button {
-    grid-column: 1 / -1;
     height: 28px;
     padding: 0;
     justify-self: start;
@@ -3487,16 +3456,6 @@ main {
   .notice .calendar-export-button {
     width: 100%;
     justify-self: stretch;
-  }
-
-  .notice .calendar-action-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    width: 100%;
-  }
-
-  .notice .calendar-action-row .calendar-export-button {
-    width: 100%;
   }
 
   .shift-fields input,

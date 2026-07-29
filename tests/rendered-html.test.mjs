@@ -86,9 +86,8 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /write_token_hash/);
   assert.match(page, /Subscribe in Apple Calendar/);
   assert.match(page, /You’re already subscribed/);
-  assert.match(page, /Sync now/);
+  assert.doesNotMatch(page, /Sync now|syncCalendarNow|calendar-sync-button/);
   assert.match(page, /pull down to refresh/);
-  assert.match(page, /Event Alerts on/);
   assert.match(page, /Reset calendar connection/);
   assert.match(page, /calendarSubscription\s*\?\s*saveCalendarSettings/);
   assert.match(page, /aria-label=\{\s*calendarSubscription/);
@@ -98,7 +97,13 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, />Reminder 2</);
   assert.match(page, /value: "P1W", label: "1 week before"/);
   assert.match(page, /value: "TIME_TO_LEAVE", label: "Time to Leave"/);
-  assert.match(page, /One reminder is enough/);
+  assert.match(
+    page,
+    /value: "TIME_TO_LEAVE", label: "Time to Leave"[\s\S]*?value: "PT15M", label: "15 minutes before"/,
+  );
+  assert.match(page, /visibleReminderOptions/);
+  assert.match(page, /option\.value !== "TIME_TO_LEAVE"/);
+  assert.doesNotMatch(page, /One reminder is enough|calendar-alert-help/);
   assert.match(page, /calendarServiceUrl\(`\/api\/places/);
   assert.match(page, /Enter coordinates/);
   assert.match(page, /Preview in Apple Maps/);

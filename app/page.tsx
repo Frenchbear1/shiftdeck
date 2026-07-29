@@ -16,7 +16,6 @@ import {
   Pencil,
   Plane,
   Plus,
-  RefreshCw,
   Settings,
   Sun,
   Trash2,
@@ -244,6 +243,7 @@ const LEGACY_DEFAULT_LOCATION = "St. Pete–Clearwater International Airport";
 const REMINDER_OPTIONS = [
   { value: "", label: "No reminder" },
   { value: "PT0M", label: "At event time" },
+  { value: "TIME_TO_LEAVE", label: "Time to Leave" },
   { value: "PT15M", label: "15 minutes before" },
   { value: "PT30M", label: "30 minutes before" },
   { value: "PT1H", label: "1 hour before" },
@@ -251,7 +251,6 @@ const REMINDER_OPTIONS = [
   { value: "P1D", label: "1 day before" },
   { value: "P2D", label: "2 days before" },
   { value: "P1W", label: "1 week before" },
-  { value: "TIME_TO_LEAVE", label: "Time to Leave" },
 ] as const;
 
 const toMinutes = (time: string) => {
@@ -1465,6 +1464,14 @@ export default function HomePage() {
         coordinate && !prefs.location.trim() ? "Pinned location" : prefs.location,
       locationLat: coordinate?.latitude ?? null,
       locationLon: coordinate?.longitude ?? null,
+      ...(coordinate
+        ? {}
+        : {
+            reminder1:
+              prefs.reminder1 === "TIME_TO_LEAVE" ? "" : prefs.reminder1,
+            reminder2:
+              prefs.reminder2 === "TIME_TO_LEAVE" ? "" : prefs.reminder2,
+          }),
     });
   };
 
@@ -1915,6 +1922,25 @@ export default function HomePage() {
     Boolean(prefs.location.trim()) &&
     Number.isFinite(prefs.locationLat) &&
     Number.isFinite(prefs.locationLon);
+  const visibleReminderOptions = hasStructuredCalendarPlace
+    ? REMINDER_OPTIONS
+    : REMINDER_OPTIONS.filter((option) => option.value !== "TIME_TO_LEAVE");
+  useEffect(() => {
+    if (!hydrated || hasStructuredCalendarPlace || !timeToLeaveSelected) return;
+    setPrefs((current) => ({
+      ...current,
+      reminder1:
+        current.reminder1 === "TIME_TO_LEAVE" ? "" : current.reminder1,
+      reminder2:
+        current.reminder2 === "TIME_TO_LEAVE" ? "" : current.reminder2,
+    }));
+  }, [
+    hasStructuredCalendarPlace,
+    hydrated,
+    prefs.reminder1,
+    prefs.reminder2,
+    timeToLeaveSelected,
+  ]);
   const validateTravelReminder = () => {
     if (!timeToLeaveSelected || hasStructuredCalendarPlace) return true;
     setToast("Choose an address suggestion to use Time to Leave");
@@ -2012,46 +2038,6 @@ export default function HomePage() {
       }
       setCalendarSyncState("error");
       setToast("Calendar settings couldn’t be saved. Try again.");
-    }
-  };
-
-  const syncCalendarNow = async () => {
-    if (!calendarSubscription) {
-      setExportOpen(true);
-      return;
-    }
-    if (!prefs.title.trim()) {
-      setToast("Add an event title before syncing");
-      setExportOpen(true);
-      return;
-    }
-    if (!validateTravelReminder()) {
-      setExportOpen(true);
-      return;
-    }
-    setCalendarSyncState("syncing");
-    try {
-      const { syncedAt } = await syncCalendarFeed(
-        calendarSubscription,
-        calendarSyncPayload,
-      );
-      setCalendarSubscription((current) =>
-        current ? { ...current, lastSyncedAt: syncedAt } : current,
-      );
-      setCalendarSyncState("synced");
-      setToast(
-        "Shiftdeck is synced. In Apple Calendar, open Calendars and pull down to refresh.",
-      );
-    } catch (error) {
-      const status = (error as Error & { status?: number }).status;
-      if (status === 404 || status === 410) {
-        setCalendarSubscription(null);
-        setCalendarSyncState("idle");
-        setToast("Calendar connection expired — subscribe again.");
-        return;
-      }
-      setCalendarSyncState("error");
-      setToast("Calendar sync couldn’t connect. Try again.");
     }
   };
 
@@ -2995,25 +2981,13 @@ export default function HomePage() {
               <p>{importMessage}</p>
               {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
               {importState !== "error" && canExportCalendar ? (
-                <div className="calendar-action-row">
-                  <button
-                    className="button primary calendar-export-button"
-                    onClick={() => setExportOpen(true)}
-                  >
-                    <CalendarDays />
-                    {calendarSubscription ? "Calendar settings" : "Apple Calendar"}
-                  </button>
-                  {calendarSubscription && (
-                    <button
-                      className="button soft calendar-sync-button"
-                      onClick={() => void syncCalendarNow()}
-                      disabled={calendarSyncState === "syncing"}
-                    >
-                      <RefreshCw />
-                      {calendarSyncState === "syncing" ? "Syncing…" : "Sync now"}
-                    </button>
-                  )}
-                </div>
+                <button
+                  className="button primary calendar-export-button"
+                  onClick={() => setExportOpen(true)}
+                >
+                  <CalendarDays />
+                  {calendarSubscription ? "Calendar settings" : "Apple Calendar"}
+                </button>
               ) : importState !== "error" ? (
                 <small>Add a shift to connect Apple Calendar.</small>
               ) : null}
@@ -3196,6 +3170,14 @@ export default function HomePage() {
                       location: event.target.value,
                       locationLat: null,
                       locationLon: null,
+                      reminder1:
+                        prefs.reminder1 === "TIME_TO_LEAVE"
+                          ? ""
+                          : prefs.reminder1,
+                      reminder2:
+                        prefs.reminder2 === "TIME_TO_LEAVE"
+                          ? ""
+                          : prefs.reminder2,
                     });
                     setPlaceSuggestions([]);
                     setPlaceLookupState("idle");
@@ -3332,6 +3314,14 @@ export default function HomePage() {
                       savePrefs({
                         locationLat: null,
                         locationLon: null,
+                        reminder1:
+                          prefs.reminder1 === "TIME_TO_LEAVE"
+                            ? ""
+                            : prefs.reminder1,
+                        reminder2:
+                          prefs.reminder2 === "TIME_TO_LEAVE"
+                            ? ""
+                            : prefs.reminder2,
                       });
                     }}
                   >
@@ -3347,24 +3337,18 @@ export default function HomePage() {
                 <label>
                   <span>Reminder 1</span>
                   <select value={prefs.reminder1} onChange={(event) => savePrefs({ reminder1: event.target.value })}>
-                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
+                    {visibleReminderOptions.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
                   </select>
                   <ChevronDown />
                 </label>
                 <label>
                   <span>Reminder 2</span>
                   <select value={prefs.reminder2} onChange={(event) => savePrefs({ reminder2: event.target.value })}>
-                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
+                    {visibleReminderOptions.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
                   </select>
                   <ChevronDown />
                 </label>
               </div>
-              <p className="calendar-alert-help">
-                One reminder is enough; the second is optional. For Time to
-                Leave, choose an address suggestion and enable Time to Leave in
-                iPhone Settings → Apps → Calendar → Default Alert Times. Also
-                keep Event Alerts on for the Shiftdeck calendar.
-              </p>
             </div>
             <button
               className="button primary"
