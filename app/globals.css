@@ -2239,7 +2239,7 @@ main {
 
 .coordinate-fields {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 8px;
   padding: 10px;
@@ -2260,22 +2260,31 @@ main {
   font-weight: 750;
 }
 
+.coordinate-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.coordinate-field-heading button {
+  border: 0;
+  padding: 0;
+  color: var(--danger);
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
 .coordinate-fields input {
   min-width: 0;
   font-size: 16px;
 }
 
-.coordinate-fields > button {
-  grid-column: 1;
-  height: 40px;
-  padding: 0 8px;
-  color: var(--danger);
-  white-space: nowrap;
-}
-
 .coordinate-fields > small {
-  grid-column: 2;
-  align-self: center;
+  grid-column: 1;
   color: var(--muted);
   font-size: 9px;
   line-height: 1.35;
@@ -3429,20 +3438,6 @@ main {
 
   .settings-grid {
     grid-template-columns: 1fr 1.45fr;
-  }
-
-  .pay-settings-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .pay-settings-grid > small {
-    grid-column: auto;
-  }
-
-  .coordinate-fields > button {
-    height: 28px;
-    padding: 0;
-    justify-self: start;
   }
 
   .privacy-badge {

@@ -3295,7 +3295,29 @@ export default function HomePage() {
               {coordinatesOpen && (
                 <div className="coordinate-fields">
                   <label>
-                    <span>Coordinates</span>
+                    <span className="coordinate-field-heading">
+                      <span>Coordinates</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCoordinateDraft("");
+                          savePrefs({
+                            locationLat: null,
+                            locationLon: null,
+                            reminder1:
+                              prefs.reminder1 === "TIME_TO_LEAVE"
+                                ? ""
+                                : prefs.reminder1,
+                            reminder2:
+                              prefs.reminder2 === "TIME_TO_LEAVE"
+                                ? ""
+                                : prefs.reminder2,
+                          });
+                        }}
+                      >
+                        Clear pin
+                      </button>
+                    </span>
                     <input
                       type="text"
                       inputMode="text"
@@ -3307,30 +3329,7 @@ export default function HomePage() {
                       spellCheck="false"
                     />
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCoordinateDraft("");
-                      savePrefs({
-                        locationLat: null,
-                        locationLon: null,
-                        reminder1:
-                          prefs.reminder1 === "TIME_TO_LEAVE"
-                            ? ""
-                            : prefs.reminder1,
-                        reminder2:
-                          prefs.reminder2 === "TIME_TO_LEAVE"
-                            ? ""
-                            : prefs.reminder2,
-                      });
-                    }}
-                  >
-                    Clear pin
-                  </button>
-                  <small>
-                    Paste from Apple Maps in one go. N/S and E/W are converted
-                    automatically.
-                  </small>
+                  <small>Paste from Apple Maps</small>
                 </div>
               )}
               <div className="reminder-grid">
@@ -3409,7 +3408,7 @@ export default function HomePage() {
             </div>
             <div className="pay-settings-grid">
               <label className="hourly-pay-setting">
-                <span>Hourly pay ($ per hour)</span>
+                <span>Hourly pay</span>
                 <input
                   type="number"
                   min="0"

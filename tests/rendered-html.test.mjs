@@ -110,7 +110,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /parseCoordinatePair/);
   assert.match(page, /longitudeDirection === "W" \? -1 : 1/);
   assert.match(page, /formatAppleCoordinates/);
-  assert.match(page, /Paste from Apple Maps in one go/);
+  assert.match(page, /<small>Paste from Apple Maps<\/small>/);
   assert.match(page, /40\.65382° N, 75\.43225° W/);
   assert.match(service, /https:\/\/photon\.komoot\.io\/api/);
   assert.match(service, /countrycode=US/);
@@ -134,6 +134,8 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /shiftdeck\.events/);
   assert.match(page, />Appearance</);
   assert.match(page, /hourlyPay/);
+  assert.match(page, />Hourly pay</);
+  assert.doesNotMatch(page, /\(\$ per hour\)/);
   assert.match(page, /filingStatus/);
   assert.match(page, /PA_INCOME_TAX_RATE = 0\.0307/);
   assert.match(page, /SOCIAL_SECURITY_TAX_RATE = 0\.062/);
