@@ -26,6 +26,32 @@ export type ParsedSchedule = {
 
 const DAY_MS = 86_400_000;
 
+export function isScheduleRevision(
+  existingDates: string[],
+  incomingDates: string[],
+) {
+  const existing = new Set(existingDates);
+  const incoming = new Set(incomingDates);
+  const smallerWeekSize = Math.min(existing.size, incoming.size);
+  if (!smallerWeekSize) return false;
+
+  const overlappingDates = [...existing].filter((date) =>
+    incoming.has(date),
+  ).length;
+
+  if (smallerWeekSize < 5) {
+    return (
+      overlappingDates === existing.size &&
+      overlappingDates === incoming.size
+    );
+  }
+
+  return (
+    overlappingDates >= 5 &&
+    overlappingDates >= Math.ceil(smallerWeekSize * 0.7)
+  );
+}
+
 const median = (values: number[]) => {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);

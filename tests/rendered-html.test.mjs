@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { isPlausibleWorkerName } from "../app/schedule-parser.ts";
+import {
+  isPlausibleWorkerName,
+  isScheduleRevision,
+} from "../app/schedule-parser.ts";
 import { matchFlightAwareResult } from "../worker/flightaware.ts";
 
 async function render() {
@@ -61,6 +64,20 @@ test("keeps Workers and Flights date navigation compact", async () => {
   assert.doesNotMatch(page, /<span>Showing<\/span>/);
   assert.doesNotMatch(page, /<span>During your shift<\/span>/);
   assert.doesNotMatch(css, /\.flight-summary/);
+});
+
+test("contains the desktop timeline grid inside the shift plot", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    page,
+    /className="timeline-plot"[\s\S]{0,500}?className="timeline-grid"[\s\S]{0,500}?className="timeline-rows"/,
+  );
+  assert.match(css, /\.timeline-grid\s*\{[\s\S]{0,120}?inset:\s*0;/);
+  assert.doesNotMatch(css, /inset:\s*98px 26px 26px 172px/);
 });
 
 test("protects work references behind owner-approved device access", async () => {
@@ -150,6 +167,42 @@ test("rejects schedule headings and OCR fragments as worker names", () => {
   assert.equal(isPlausibleWorkerName("Andrew Garcia"), true);
   assert.equal(isPlausibleWorkerName("David LaBarre"), true);
   assert.equal(isPlausibleWorkerName("Thales Ferraz Alves"), true);
+});
+
+test("only replaces an imported schedule when most of its week matches", () => {
+  const firstWeek = [
+    "2026-07-26",
+    "2026-07-27",
+    "2026-07-28",
+    "2026-07-29",
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-01",
+  ];
+  const differentWeekWithOneMisreadOverlap = [
+    "2026-07-30",
+    "2026-08-09",
+    "2026-08-10",
+    "2026-08-11",
+    "2026-08-12",
+    "2026-08-13",
+    "2026-08-14",
+  ];
+  const correctedVersion = [
+    "2026-07-26",
+    "2026-07-27",
+    "2026-07-28",
+    "2026-07-29",
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-02",
+  ];
+
+  assert.equal(
+    isScheduleRevision(firstWeek, differentWeekWithOneMisreadOverlap),
+    false,
+  );
+  assert.equal(isScheduleRevision(firstWeek, correctedVersion), true);
 });
 
 test("uses a durable Apple Calendar subscription with revision-aware events", async () => {

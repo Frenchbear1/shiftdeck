@@ -50,6 +50,7 @@ import {
 } from "./sample-data";
 import {
   isPlausibleWorkerName,
+  isScheduleRevision,
   parseScheduleTsv,
   ParsedSchedule,
 } from "./schedule-parser";
@@ -2104,7 +2105,7 @@ export default function HomePage() {
         parsedSchedules.push(parsed);
 
         const replacementIndex = nextDocuments.findIndex((document) =>
-          document.dates.some((date) => parsed?.dates.includes(date)),
+          isScheduleRevision(document.dates, parsed.dates),
         );
         const replacement =
           replacementIndex >= 0 ? nextDocuments[replacementIndex] : null;
@@ -2886,32 +2887,34 @@ export default function HomePage() {
                 </span>
               ))}
             </div>
-            <div className="timeline-grid">
-              {timeline.labels.map((label) => (
-                <i style={{ left: `${label.left}%` }} key={label.left} />
-              ))}
-            </div>
-            <div className="timeline-rows">
-              {timeline.groups.map((group) => (
-                <div className="timeline-row" key={group.key}>
-                  <div className="timeline-names">
-                    {group.shifts.map((shift) => (
-                      <span key={shift.id}>
-                        {shift.worker === prefs.person ? "You" : shift.worker}
+            <div className="timeline-plot">
+              <div className="timeline-grid">
+                {timeline.labels.map((label) => (
+                  <i style={{ left: `${label.left}%` }} key={label.left} />
+                ))}
+              </div>
+              <div className="timeline-rows">
+                {timeline.groups.map((group) => (
+                  <div className="timeline-row" key={group.key}>
+                    <div className="timeline-names">
+                      {group.shifts.map((shift) => (
+                        <span key={shift.id}>
+                          {shift.worker === prefs.person ? "You" : shift.worker}
+                        </span>
+                      ))}
+                    </div>
+                    <div
+                      className={`shift-bar relation-${group.relation}`}
+                      style={{ left: `${group.left}%`, width: `${Math.max(group.width, 3)}%` }}
+                    >
+                      <span>
+                        {formatTime(group.shifts[0].start)}–{formatTime(group.shifts[0].end)}
                       </span>
-                    ))}
+                      {group.shifts.length > 1 && <b>{group.shifts.length} together</b>}
+                    </div>
                   </div>
-                  <div
-                    className={`shift-bar relation-${group.relation}`}
-                    style={{ left: `${group.left}%`, width: `${Math.max(group.width, 3)}%` }}
-                  >
-                    <span>
-                      {formatTime(group.shifts[0].start)}–{formatTime(group.shifts[0].end)}
-                    </span>
-                    {group.shifts.length > 1 && <b>{group.shifts.length} together</b>}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
           <div className="mobile-crew-list">

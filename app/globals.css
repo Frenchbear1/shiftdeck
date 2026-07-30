@@ -1645,8 +1645,7 @@ main {
 .key-overlap { background: var(--violet); }
 
 .timeline-axis,
-.timeline-grid,
-.timeline-rows {
+.timeline-plot {
   position: relative;
   margin-left: 146px;
 }
@@ -1667,7 +1666,7 @@ main {
 
 .timeline-grid {
   position: absolute;
-  inset: 98px 26px 26px 172px;
+  inset: 0;
   z-index: 0;
   pointer-events: none;
 }
@@ -1680,6 +1679,8 @@ main {
 }
 
 .timeline-rows {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 12px;
   padding-top: 17px;
