@@ -1260,6 +1260,13 @@ main {
   font-size: 15px;
 }
 
+.page-title-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
 .shift-hours-label {
   justify-self: end;
   margin-left: auto;
@@ -2146,43 +2153,6 @@ main {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.5;
-}
-
-.flight-summary {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.flight-summary > div {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  box-shadow: var(--shadow);
-}
-
-.flight-summary span {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 750;
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  white-space: nowrap;
-}
-
-.flight-summary strong {
-  font-size: 21px;
-  letter-spacing: -.5px;
-}
-
-.flight-summary > div:last-child {
-  display: none;
 }
 
 .flight-panel-heading {
@@ -4226,30 +4196,6 @@ main {
 
   .roster-grid {
     grid-template-columns: 1fr;
-  }
-
-  .flight-summary {
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-
-  .flight-summary > div {
-    min-height: 52px;
-    padding: 11px 13px;
-    border-radius: 14px;
-  }
-
-  .flight-summary span {
-    font-size: 9px;
-    letter-spacing: .03em;
-  }
-
-  .flight-summary strong {
-    font-size: 19px;
-  }
-
-  .flight-summary > div:last-child {
-    grid-column: 1 / -1;
   }
 
   .flight-panel-heading {

@@ -43,6 +43,26 @@ test("server-renders the blank Shiftdeck app shell", async () => {
   assert.doesNotMatch(html, /Subscribed calendar/);
 });
 
+test("keeps Workers and Flights date navigation compact", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    page,
+    /<h1>Workers<\/h1>[\s\S]{0,900}?selectedDate !== todayDate[\s\S]{0,500}?onClick=\{returnToToday\}[\s\S]{0,100}?>\s*Today/,
+  );
+  assert.match(
+    page,
+    /<h1>Flights<\/h1>[\s\S]{0,900}?selectedDate !== todayDate[\s\S]{0,500}?onClick=\{returnToToday\}[\s\S]{0,100}?>\s*Today/,
+  );
+  assert.match(css, /\.page-title-actions/);
+  assert.doesNotMatch(page, /<span>Showing<\/span>/);
+  assert.doesNotMatch(page, /<span>During your shift<\/span>/);
+  assert.doesNotMatch(css, /\.flight-summary/);
+});
+
 test("protects work references behind owner-approved device access", async () => {
   const [page, css, references, service, migration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

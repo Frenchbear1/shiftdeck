@@ -2853,10 +2853,21 @@ export default function HomePage() {
         <div>
           <h1>Workers</h1>
         </div>
-        <div className="date-stepper desktop-date-stepper">
-          <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
-          <span>{formatDate(selectedDate)}</span>
-          <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
+        <div className="page-title-actions">
+          {selectedDate !== todayDate && (
+            <button
+              type="button"
+              className="today-text-button"
+              onClick={returnToToday}
+            >
+              Today
+            </button>
+          )}
+          <div className="date-stepper desktop-date-stepper">
+            <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
+            <span>{formatDate(selectedDate)}</span>
+            <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
+          </div>
         </div>
       </header>
       {renderDateRail(false, true)}
@@ -3005,27 +3016,24 @@ export default function HomePage() {
           <div>
             <h1>Flights</h1>
           </div>
-        <div className="date-stepper desktop-date-stepper">
-          <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
-          <span>{formatDate(selectedDate)}</span>
-          <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
-        </div>
-      </header>
+          <div className="page-title-actions">
+            {selectedDate !== todayDate && (
+              <button
+                type="button"
+                className="today-text-button"
+                onClick={returnToToday}
+              >
+                Today
+              </button>
+            )}
+            <div className="date-stepper desktop-date-stepper">
+              <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
+              <span>{formatDate(selectedDate)}</span>
+              <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
+            </div>
+          </div>
+        </header>
         {renderDateRail(false, true)}
-      <section className="flight-summary">
-        <div>
-          <span>Showing</span>
-          <strong>{visibleFlights.length}</strong>
-        </div>
-        <div>
-          <span>During your shift</span>
-          <strong>{flightsDuringShift.length}</strong>
-        </div>
-        <div>
-          <span>Your hours</span>
-          <strong>{myShift ? `${formatTime(myShift.start)}–${formatTime(myShift.end)}` : "Off"}</strong>
-        </div>
-      </section>
       <section className="panel flight-panel">
         <div className="section-heading flight-panel-heading">
           <div>
