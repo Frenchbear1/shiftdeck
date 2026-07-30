@@ -802,6 +802,7 @@ export default function HomePage() {
   const [airlineOptions, setAirlineOptions] = useState<AviationOption[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [referenceSettingsOpen, setReferenceSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [shiftEditor, setShiftEditor] = useState<{
     mode: "add" | "edit";
@@ -1024,11 +1025,11 @@ export default function HomePage() {
         refreshOwnerRequests(referenceOwnerToken),
         refreshApprovedReferenceDevices(referenceOwnerToken),
       ]).catch(() => {
-          localStorage.removeItem(REFERENCE_OWNER_KEY);
-          setReferenceOwnerToken("");
-          setPendingReferenceRequests([]);
-          setApprovedReferenceDevices([]);
-        });
+        localStorage.removeItem(REFERENCE_OWNER_KEY);
+        setReferenceOwnerToken("");
+        setPendingReferenceRequests([]);
+        setApprovedReferenceDevices([]);
+      });
     };
     refresh();
     const interval = window.setInterval(refresh, 10000);
@@ -1041,7 +1042,12 @@ export default function HomePage() {
   ]);
 
   useEffect(() => {
-    if (!settingsOpen || !referenceOwnerToken) return;
+    if (
+      (!settingsOpen && !referenceSettingsOpen) ||
+      !referenceOwnerToken
+    ) {
+      return;
+    }
     void Promise.all([
       refreshOwnerRequests(referenceOwnerToken),
       refreshApprovedReferenceDevices(referenceOwnerToken),
@@ -1055,6 +1061,7 @@ export default function HomePage() {
     referenceOwnerToken,
     refreshApprovedReferenceDevices,
     refreshOwnerRequests,
+    referenceSettingsOpen,
     settingsOpen,
   ]);
 
@@ -2322,6 +2329,7 @@ export default function HomePage() {
     setCoordinateDraft("");
     setClearConfirmOpen(false);
     setSettingsOpen(false);
+    setReferenceSettingsOpen(false);
     setExportOpen(false);
     setShiftEditor(null);
     setReferenceVault(null);
@@ -4373,6 +4381,65 @@ export default function HomePage() {
                 </button>
               )}
             </div>
+            <div className="reference-access-setting">
+              <div>
+                <span>Reference access</span>
+                <b>
+                  {referenceOwnerToken
+                    ? `Owner controls on · ${approvedReferenceDevices.length} approved`
+                    : "Owner controls disconnected"}
+                </b>
+              </div>
+              <button
+                className="button soft"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setReferenceSettingsOpen(true);
+                }}
+              >
+                Manage
+              </button>
+            </div>
+            <div className="theme-setting">
+              <span>Appearance</span>
+              <div>
+                <button className={theme === "light" ? "active" : ""} onClick={() => changeTheme("light")}><Sun /> Light</button>
+                <button className={theme === "dark" ? "active" : ""} onClick={() => changeTheme("dark")}><Moon /> Dark</button>
+              </div>
+            </div>
+            <div className="danger-zone">
+              <button className="button danger subtle" onClick={() => setClearConfirmOpen(true)}><Trash2 /> Clear all data</button>
+            </div>
+            <button className="button primary" onClick={() => { setSettingsOpen(false); setToast("Preferences saved on this device"); }}><Check /> Save preferences</button>
+          </section>
+        </div>
+      )}
+
+      {referenceSettingsOpen && (
+        <div
+          className="modal-layer"
+          role="presentation"
+          onMouseDown={() => setReferenceSettingsOpen(false)}
+        >
+          <section
+            className="reference-management-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Manage reference access"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <h2>Manage reference access</h2>
+              </div>
+              <button
+                onClick={() => setReferenceSettingsOpen(false)}
+                aria-label="Close reference access"
+              >
+                <X />
+              </button>
+            </header>
+
             <section className="reference-settings">
               <div className="reference-settings-heading">
                 <span>
@@ -4486,17 +4553,6 @@ export default function HomePage() {
                 </div>
               )}
             </section>
-            <div className="theme-setting">
-              <span>Appearance</span>
-              <div>
-                <button className={theme === "light" ? "active" : ""} onClick={() => changeTheme("light")}><Sun /> Light</button>
-                <button className={theme === "dark" ? "active" : ""} onClick={() => changeTheme("dark")}><Moon /> Dark</button>
-              </div>
-            </div>
-            <div className="danger-zone">
-              <button className="button danger subtle" onClick={() => setClearConfirmOpen(true)}><Trash2 /> Clear all data</button>
-            </div>
-            <button className="button primary" onClick={() => { setSettingsOpen(false); setToast("Preferences saved on this device"); }}><Check /> Save preferences</button>
           </section>
         </div>
       )}

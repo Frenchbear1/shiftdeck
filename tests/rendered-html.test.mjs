@@ -61,7 +61,9 @@ test("protects work references behind owner-approved device access", async () =>
   assert.match(page, /Approval requested/);
   assert.match(page, /reference-owner-status/);
   assert.match(page, /No requests/);
-  assert.match(page, /Reference access/);
+  assert.match(page, /reference-access-setting/);
+  assert.match(page, /Manage reference access/);
+  assert.match(page, /referenceSettingsOpen/);
   assert.match(page, /Disconnect all approved devices/);
   assert.match(page, /Disconnect owner controls on this device/);
   assert.match(page, /resolveReferenceRequest/);
@@ -69,6 +71,7 @@ test("protects work references behind owner-approved device access", async () =>
   assert.match(css, /\.reference-card-grid/);
   assert.match(css, /\.reference-access-gate/);
   assert.match(css, /\.reference-owner-status/);
+  assert.match(css, /\.reference-management-sheet/);
   assert.match(css, /\.reference-device-list/);
   assert.match(service, /REFERENCE_OWNER_CODE/);
   assert.match(service, /reference_access_requests/);

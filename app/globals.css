@@ -3057,6 +3057,7 @@ main {
 }
 
 .settings-sheet,
+.reference-management-sheet,
 .export-sheet,
 .shift-sheet,
 .confirm-card {
@@ -3075,6 +3076,7 @@ main {
 }
 
 .settings-sheet header,
+.reference-management-sheet header,
 .export-sheet header,
 .shift-sheet header {
   display: flex;
@@ -3084,6 +3086,7 @@ main {
 }
 
 .settings-sheet header h2,
+.reference-management-sheet header h2,
 .export-sheet header h2,
 .shift-sheet header h2 {
   margin: 5px 0 0;
@@ -3091,6 +3094,7 @@ main {
 }
 
 .settings-sheet header > button,
+.reference-management-sheet header > button,
 .export-sheet header > button,
 .shift-sheet header > button {
   width: 36px;
@@ -3105,6 +3109,7 @@ main {
 }
 
 .settings-sheet,
+.reference-management-sheet,
 .export-sheet,
 .shift-sheet {
   display: grid;
@@ -3130,7 +3135,8 @@ main {
   gap: 7px;
 }
 
-.calendar-subscription-setting {
+.calendar-subscription-setting,
+.reference-access-setting {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3142,26 +3148,30 @@ main {
   border-radius: 13px;
 }
 
-.calendar-subscription-setting > div {
+.calendar-subscription-setting > div,
+.reference-access-setting > div {
   display: grid;
   gap: 3px;
   min-width: 0;
 }
 
-.calendar-subscription-setting span {
+.calendar-subscription-setting span,
+.reference-access-setting span {
   color: var(--muted);
   font-size: 10px;
   font-weight: 750;
 }
 
-.calendar-subscription-setting b {
+.calendar-subscription-setting b,
+.reference-access-setting b {
   overflow: hidden;
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.calendar-subscription-setting .button {
+.calendar-subscription-setting .button,
+.reference-access-setting .button {
   width: auto;
   min-height: 38px;
   flex: 0 0 auto;
@@ -4381,6 +4391,7 @@ main {
   }
 
   .settings-sheet,
+  .reference-management-sheet,
   .export-sheet,
   .shift-sheet {
     width: 100%;
