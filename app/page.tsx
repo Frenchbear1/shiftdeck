@@ -743,8 +743,6 @@ function quickReferenceIcon(id: string) {
       return <UserRoundCheck />;
     case "accessibility":
       return <ContactRound />;
-    case "manuals":
-      return <BookOpenText />;
     case "hazmat":
       return <FileText />;
     case "trafficking":
@@ -845,7 +843,12 @@ export default function HomePage() {
     });
     if (!response.ok) throw new Error("Reference access expired");
     const vault = (await response.json()) as ReferenceVault;
-    setReferenceVault(vault);
+    setReferenceVault({
+      ...vault,
+      quickReferences: vault.quickReferences.filter(
+        (reference) => reference.id !== "manuals",
+      ),
+    });
     setReferenceAccessState("approved");
     setReferenceAccessMessage("");
   }, []);
@@ -3411,7 +3414,7 @@ export default function HomePage() {
               </h2>
               <p>
                 {referenceAccessMessage ||
-                  "Only devices approved by the owner can open contacts and work manuals."}
+                  "Only devices approved by the owner can open contacts and work references."}
               </p>
             </div>
             {(referenceAccessState === "denied" ||

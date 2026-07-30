@@ -421,8 +421,17 @@ async function referenceVault(request: Request, db: CalendarDatabase) {
     return json(request, { error: "References are not configured" }, 503);
   }
   try {
+    const payload = JSON.parse(vault.payload) as {
+      quickReferences?: Array<{ id?: string }>;
+      [key: string]: unknown;
+    };
+    if (Array.isArray(payload.quickReferences)) {
+      payload.quickReferences = payload.quickReferences.filter(
+        (reference) => reference?.id !== "manuals",
+      );
+    }
     return json(request, {
-      ...JSON.parse(vault.payload),
+      ...payload,
       updatedAt: vault.updated_at,
     });
   } catch {

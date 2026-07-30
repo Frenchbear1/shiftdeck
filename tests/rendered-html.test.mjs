@@ -69,6 +69,9 @@ test("protects work references behind owner-approved device access", async () =>
   assert.match(service, /reference_sessions/);
   assert.match(service, /\/api\/references\/owner\/login/);
   assert.match(service, /approve\|deny/);
+  assert.match(service, /reference\?\.id !== "manuals"/);
+  assert.match(page, /reference\.id !== "manuals"/);
+  assert.doesNotMatch(page, /contacts and work manuals/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS reference_vault/);
   assert.doesNotMatch(references, /export const|tel:|mailto:|https?:\/\//);
   assert.doesNotMatch(page, /CONTACT_GROUPS|QUICK_REFERENCES/);
