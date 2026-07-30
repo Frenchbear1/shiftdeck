@@ -35,10 +35,43 @@ test("server-renders the blank Shiftdeck app shell", async () => {
   assert.match(html, />Workers</);
   assert.match(html, />Flights</);
   assert.match(html, />Import</);
+  assert.match(html, />References</);
   assert.match(html, /Nothing imported/);
   assert.match(html, /serviceWorker/);
   assert.match(html, /sw\.js/);
   assert.doesNotMatch(html, /Subscribed calendar/);
+});
+
+test("protects work references behind owner-approved device access", async () => {
+  const [page, css, references, service, migration] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/reference-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/reference-service.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../drizzle/0002_reference_access.sql", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(page, /type Tab[\s\S]*?"references"/);
+  assert.match(page, /label="References"/);
+  assert.match(page, /renderReferences/);
+  assert.match(page, /REFERENCE_ACCESS_KEY/);
+  assert.match(page, /Approval requested/);
+  assert.match(page, /Owner access/);
+  assert.match(page, /resolveReferenceRequest/);
+  assert.match(css, /grid-template-columns: repeat\(6, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.reference-card-grid/);
+  assert.match(css, /\.reference-access-gate/);
+  assert.match(service, /REFERENCE_OWNER_CODE/);
+  assert.match(service, /reference_access_requests/);
+  assert.match(service, /reference_sessions/);
+  assert.match(service, /\/api\/references\/owner\/login/);
+  assert.match(service, /approve\|deny/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS reference_vault/);
+  assert.doesNotMatch(references, /export const|tel:|mailto:|https?:\/\//);
+  assert.doesNotMatch(page, /CONTACT_GROUPS|QUICK_REFERENCES/);
 });
 
 test("caches the PWA shell and restores Today before background data", async () => {

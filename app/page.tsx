@@ -2,6 +2,8 @@
 
 import {
   AlertTriangle,
+  BookOpenText,
+  BriefcaseBusiness,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -9,23 +11,34 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  ContactRound,
+  ExternalLink,
   FileImage,
+  FileText,
   Home,
+  KeyRound,
+  LockKeyhole,
+  Mail,
   MapPin,
   Moon,
   Pencil,
   Plane,
+  Phone,
   Plus,
   Settings,
+  ShieldCheck,
+  ShieldAlert,
   Sun,
   Trash2,
   Upload,
+  UserRoundCheck,
   UsersRound,
   WandSparkles,
   X,
 } from "lucide-react";
 import {
   ChangeEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -41,13 +54,24 @@ import {
   ParsedSchedule,
 } from "./schedule-parser";
 import {
+  QuickReference,
+  ReferenceLink,
+  ReferenceVault,
+} from "./reference-data";
+import {
   clearScheduleImages,
   deleteScheduleImage,
   loadScheduleImage,
   saveScheduleImage,
 } from "./upload-store";
 
-type Tab = "home" | "workers" | "flights" | "timeoff" | "import";
+type Tab =
+  | "home"
+  | "workers"
+  | "flights"
+  | "timeoff"
+  | "import"
+  | "references";
 
 type CalendarEvent = {
   id: string;
@@ -83,6 +107,28 @@ type CalendarSubscription = {
   createdAt: string;
   lastSyncedAt?: string;
 };
+
+type StoredReferenceRequest = {
+  id: string;
+  requestToken: string;
+  status: "pending" | "approved" | "denied" | "superseded";
+  createdAt: string;
+};
+
+type PendingReferenceRequest = {
+  id: string;
+  deviceName: string;
+  status: "pending";
+  createdAt: string;
+};
+
+type ReferenceAccessState =
+  | "idle"
+  | "checking"
+  | "pending"
+  | "approved"
+  | "denied"
+  | "error";
 
 type CalendarSyncPayload = {
   name: string;
@@ -509,6 +555,29 @@ function calendarServiceUrl(path: string) {
   return `${CALENDAR_SERVICE_ORIGIN}${path}`;
 }
 
+const REFERENCE_DEVICE_KEY = "shiftdeck.referenceDeviceId";
+const REFERENCE_REQUEST_KEY = "shiftdeck.referenceRequest";
+const REFERENCE_ACCESS_KEY = "shiftdeck.referenceAccessToken";
+const REFERENCE_OWNER_KEY = "shiftdeck.referenceOwnerToken";
+
+function referenceDeviceId() {
+  const saved = localStorage.getItem(REFERENCE_DEVICE_KEY);
+  if (saved) return saved;
+  const created = crypto.randomUUID().replace(/-/g, "");
+  localStorage.setItem(REFERENCE_DEVICE_KEY, created);
+  return created;
+}
+
+function referenceDeviceName() {
+  const agent = navigator.userAgent;
+  if (/iPhone/i.test(agent)) return "iPhone";
+  if (/iPad/i.test(agent)) return "iPad";
+  if (/Android/i.test(agent)) return "Android phone";
+  if (/Macintosh/i.test(agent)) return "Mac";
+  if (/Windows/i.test(agent)) return "Windows PC";
+  return "Shiftdeck device";
+}
+
 async function createCalendarFeed() {
   const response = await fetch(calendarServiceUrl("/api/calendar-feeds"), {
     method: "POST",
@@ -662,8 +731,55 @@ function photonSuggestion(feature: PhotonFeature, index: number): PlaceSuggestio
   };
 }
 
+function quickReferenceIcon(id: string) {
+  switch (id) {
+    case "emergency":
+      return <ShieldAlert />;
+    case "shift-trades":
+      return <BriefcaseBusiness />;
+    case "pto":
+      return <CalendarDays />;
+    case "safety":
+      return <UserRoundCheck />;
+    case "accessibility":
+      return <ContactRound />;
+    case "manuals":
+      return <BookOpenText />;
+    case "hazmat":
+      return <FileText />;
+    case "trafficking":
+      return <Phone />;
+    default:
+      return <BookOpenText />;
+  }
+}
+
+function referenceLinkIcon(link: ReferenceLink) {
+  if (link.kind === "phone") return <Phone />;
+  if (link.kind === "email") return <Mail />;
+  return <ExternalLink />;
+}
+
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>("home");
+  const [referenceDetail, setReferenceDetail] = useState<
+    "contacts" | string | null
+  >(null);
+  const [referenceVault, setReferenceVault] = useState<ReferenceVault | null>(
+    null,
+  );
+  const [referenceAccessState, setReferenceAccessState] =
+    useState<ReferenceAccessState>("idle");
+  const [referenceRequest, setReferenceRequest] =
+    useState<StoredReferenceRequest | null>(null);
+  const [referenceAccessMessage, setReferenceAccessMessage] = useState("");
+  const [referenceOwnerToken, setReferenceOwnerToken] = useState("");
+  const [referenceOwnerCode, setReferenceOwnerCode] = useState("");
+  const [referenceOwnerOpen, setReferenceOwnerOpen] = useState(false);
+  const [referenceOwnerBusy, setReferenceOwnerBusy] = useState(false);
+  const [pendingReferenceRequests, setPendingReferenceRequests] = useState<
+    PendingReferenceRequest[]
+  >([]);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [selectedDate, setSelectedDate] = useState(() => localDateKey());
@@ -721,6 +837,164 @@ export default function HomePage() {
   const [clockNow, setClockNow] = useState(() => new Date());
   const fileInput = useRef<HTMLInputElement>(null);
   const homeDateRail = useRef<HTMLDivElement>(null);
+
+  const loadReferenceVault = useCallback(async (token: string) => {
+    const response = await fetch(calendarServiceUrl("/api/references"), {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("Reference access expired");
+    const vault = (await response.json()) as ReferenceVault;
+    setReferenceVault(vault);
+    setReferenceAccessState("approved");
+    setReferenceAccessMessage("");
+  }, []);
+
+  const checkReferenceRequest = useCallback(
+    async (stored: StoredReferenceRequest) => {
+      const response = await fetch(
+        calendarServiceUrl(`/api/references/request/${stored.id}`),
+        {
+          headers: { Authorization: `Bearer ${stored.requestToken}` },
+          cache: "no-store",
+        },
+      );
+      if (!response.ok) throw new Error("That access request expired");
+      const result = (await response.json()) as StoredReferenceRequest & {
+        accessToken?: string;
+      };
+      if (result.status === "approved" && result.accessToken) {
+        localStorage.setItem(REFERENCE_ACCESS_KEY, result.accessToken);
+        localStorage.removeItem(REFERENCE_REQUEST_KEY);
+        setReferenceRequest(null);
+        await loadReferenceVault(result.accessToken);
+        return;
+      }
+      const next = { ...stored, status: result.status };
+      localStorage.setItem(REFERENCE_REQUEST_KEY, JSON.stringify(next));
+      setReferenceRequest(next);
+      setReferenceAccessState(
+        result.status === "denied" || result.status === "superseded"
+          ? "denied"
+          : "pending",
+      );
+      setReferenceAccessMessage(
+        result.status === "pending"
+          ? "Waiting for the owner to approve this device."
+          : "This request was not approved. You can send a new one.",
+      );
+    },
+    [loadReferenceVault],
+  );
+
+  const createReferenceRequest = useCallback(async () => {
+    setReferenceAccessState("checking");
+    setReferenceAccessMessage("Sending this device to the approval inbox…");
+    const response = await fetch(calendarServiceUrl("/api/references/request"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceId: referenceDeviceId(),
+        deviceName: referenceDeviceName(),
+      }),
+    });
+    const result = (await response.json()) as StoredReferenceRequest & {
+      error?: string;
+    };
+    if (!response.ok) {
+      throw new Error(result.error || "Could not request access");
+    }
+    localStorage.setItem(REFERENCE_REQUEST_KEY, JSON.stringify(result));
+    setReferenceRequest(result);
+    setReferenceAccessState("pending");
+    setReferenceAccessMessage("Waiting for the owner to approve this device.");
+  }, []);
+
+  const bootstrapReferenceAccess = useCallback(async () => {
+    setReferenceAccessState("checking");
+    try {
+      const ownerToken = localStorage.getItem(REFERENCE_OWNER_KEY) ?? "";
+      const accessToken = localStorage.getItem(REFERENCE_ACCESS_KEY) ?? "";
+      if (ownerToken) {
+        setReferenceOwnerToken(ownerToken);
+        await loadReferenceVault(ownerToken);
+        return;
+      }
+      if (accessToken) {
+        try {
+          await loadReferenceVault(accessToken);
+          return;
+        } catch {
+          localStorage.removeItem(REFERENCE_ACCESS_KEY);
+        }
+      }
+      const savedRequest = localStorage.getItem(REFERENCE_REQUEST_KEY);
+      if (savedRequest) {
+        const parsed = JSON.parse(savedRequest) as StoredReferenceRequest;
+        setReferenceRequest(parsed);
+        await checkReferenceRequest(parsed);
+        return;
+      }
+      await createReferenceRequest();
+    } catch (error) {
+      setReferenceAccessState("error");
+      setReferenceAccessMessage(
+        error instanceof Error ? error.message : "Could not request access",
+      );
+    }
+  }, [checkReferenceRequest, createReferenceRequest, loadReferenceVault]);
+
+  const refreshOwnerRequests = useCallback(async (token: string) => {
+    const response = await fetch(
+      calendarServiceUrl("/api/references/owner/requests"),
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) throw new Error("Owner access expired");
+    setPendingReferenceRequests(
+      (await response.json()) as PendingReferenceRequest[],
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || tab !== "references" || referenceVault) return;
+    queueMicrotask(() => void bootstrapReferenceAccess());
+  }, [bootstrapReferenceAccess, hydrated, referenceVault, tab]);
+
+  useEffect(() => {
+    if (
+      tab !== "references" ||
+      referenceAccessState !== "pending" ||
+      !referenceRequest
+    ) {
+      return;
+    }
+    const poll = () => {
+      void checkReferenceRequest(referenceRequest).catch((error) => {
+        setReferenceAccessState("error");
+        setReferenceAccessMessage(
+          error instanceof Error ? error.message : "Could not check access",
+        );
+      });
+    };
+    const interval = window.setInterval(poll, 4000);
+    return () => window.clearInterval(interval);
+  }, [checkReferenceRequest, referenceAccessState, referenceRequest, tab]);
+
+  useEffect(() => {
+    if (tab !== "references" || !referenceOwnerToken) return;
+    const refresh = () => {
+      void refreshOwnerRequests(referenceOwnerToken).catch(() => {
+        localStorage.removeItem(REFERENCE_OWNER_KEY);
+        setReferenceOwnerToken("");
+      });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 10000);
+    return () => window.clearInterval(interval);
+  }, [referenceOwnerToken, refreshOwnerRequests, tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1478,6 +1752,11 @@ export default function HomePage() {
     setTab("timeoff");
   };
 
+  const openReferencesTab = () => {
+    setReferenceDetail(null);
+    setTab("references");
+  };
+
   const jumpDate = (amount: number) => {
     if (!scheduleDates.length) return;
     const current = Math.max(0, scheduleDates.indexOf(selectedDate));
@@ -1924,6 +2203,10 @@ export default function HomePage() {
       "shiftdeck.parsedFlights",
       "shiftdeck.scheduleDocuments",
       "shiftdeck.events",
+      REFERENCE_DEVICE_KEY,
+      REFERENCE_REQUEST_KEY,
+      REFERENCE_ACCESS_KEY,
+      REFERENCE_OWNER_KEY,
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
     setTheme("light");
@@ -1950,6 +2233,14 @@ export default function HomePage() {
     setSettingsOpen(false);
     setExportOpen(false);
     setShiftEditor(null);
+    setReferenceVault(null);
+    setReferenceAccessState("idle");
+    setReferenceRequest(null);
+    setReferenceAccessMessage("");
+    setReferenceOwnerToken("");
+    setReferenceOwnerCode("");
+    setReferenceOwnerOpen(false);
+    setPendingReferenceRequests([]);
     if (subscriptionToRevoke) {
       void revokeCalendarFeed(subscriptionToRevoke).catch(() => undefined);
     }
@@ -2888,6 +3179,396 @@ export default function HomePage() {
     );
   };
 
+  const signInReferenceOwner = async () => {
+    if (!referenceOwnerCode.trim()) return;
+    setReferenceOwnerBusy(true);
+    setReferenceAccessMessage("");
+    try {
+      const response = await fetch(
+        calendarServiceUrl("/api/references/owner/login"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: referenceOwnerCode.trim(),
+            deviceName: referenceDeviceName(),
+          }),
+        },
+      );
+      const result = (await response.json()) as {
+        ownerToken?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.ownerToken) {
+        throw new Error(result.error || "Could not sign in as owner");
+      }
+      localStorage.setItem(REFERENCE_OWNER_KEY, result.ownerToken);
+      setReferenceOwnerToken(result.ownerToken);
+      setReferenceOwnerCode("");
+      setReferenceOwnerOpen(false);
+      await Promise.all([
+        loadReferenceVault(result.ownerToken),
+        refreshOwnerRequests(result.ownerToken),
+      ]);
+      setToast("Owner access saved on this device");
+    } catch (error) {
+      setReferenceAccessMessage(
+        error instanceof Error ? error.message : "Could not sign in as owner",
+      );
+    } finally {
+      setReferenceOwnerBusy(false);
+    }
+  };
+
+  const resolveReferenceRequest = async (
+    id: string,
+    action: "approve" | "deny",
+  ) => {
+    if (!referenceOwnerToken) return;
+    const response = await fetch(
+      calendarServiceUrl(
+        `/api/references/owner/requests/${id}/${action}`,
+      ),
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${referenceOwnerToken}` },
+      },
+    );
+    if (!response.ok) {
+      setToast("Could not update that request");
+      return;
+    }
+    await refreshOwnerRequests(referenceOwnerToken);
+    setToast(action === "approve" ? "Device approved" : "Request denied");
+  };
+
+  const retryReferenceAccess = () => {
+    localStorage.removeItem(REFERENCE_REQUEST_KEY);
+    setReferenceRequest(null);
+    setReferenceAccessMessage("");
+    void createReferenceRequest().catch((error) => {
+      setReferenceAccessState("error");
+      setReferenceAccessMessage(
+        error instanceof Error ? error.message : "Could not request access",
+      );
+    });
+  };
+
+  const openReferenceDetail = (detail: "contacts" | string) => {
+    setReferenceDetail(detail);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const closeReferenceDetail = () => {
+    setReferenceDetail(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const renderContacts = () => (
+    <div className="page-stack reference-detail-page">
+      <header className="reference-detail-heading">
+        <button
+          className="reference-back"
+          onClick={closeReferenceDetail}
+          aria-label="Back to references"
+        >
+          <ChevronLeft />
+        </button>
+        <div>
+          <h1>Contacts</h1>
+          <p>Tap a phone number or email to open it.</p>
+        </div>
+      </header>
+
+      {(referenceVault?.contactGroups ?? []).map((group) => (
+        <section className="panel contact-group" key={group.title}>
+          <div className="reference-section-title">
+            <h2>{group.title}</h2>
+            <span>{group.contacts.length}</span>
+          </div>
+          <div className="contact-list">
+            {group.contacts.map((contact) => (
+              <article className="contact-card" key={contact.id}>
+                <span className="contact-avatar">{initials(contact.name)}</span>
+                <div className="contact-copy">
+                  <div>
+                    <strong>{contact.name}</strong>
+                    {contact.role && <span>{contact.role}</span>}
+                    {contact.note && <small>{contact.note}</small>}
+                  </div>
+                  {contact.methods && contact.methods.length > 0 && (
+                    <div className="contact-methods">
+                      {contact.methods.map((method) => (
+                        <a href={method.href} key={`${contact.id}-${method.value}`}>
+                          {method.kind === "phone" ? <Phone /> : <Mail />}
+                          <span>
+                            <small>{method.label}</small>
+                            <b>{method.value}</b>
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+
+  const renderQuickReference = (reference: QuickReference) => (
+    <div className="page-stack reference-detail-page">
+      <header className="reference-detail-heading">
+        <button
+          className="reference-back"
+          onClick={closeReferenceDetail}
+          aria-label="Back to references"
+        >
+          <ChevronLeft />
+        </button>
+        <span className={`reference-detail-icon ${reference.id}`}>
+          {quickReferenceIcon(reference.id)}
+        </span>
+        <div>
+          <h1>{reference.title}</h1>
+          <p>{reference.summary}</p>
+        </div>
+      </header>
+
+      {reference.sections.map((section) => (
+        <section
+          className="panel reference-section-card"
+          key={`${reference.id}-${section.title}`}
+        >
+          <h2>{section.title}</h2>
+          {section.copy && <p>{section.copy}</p>}
+          {section.bullets && (
+            <ul>
+              {section.bullets.map((bullet) => (
+                <li key={bullet}>{bullet}</li>
+              ))}
+            </ul>
+          )}
+          {section.links && (
+            <div className="reference-link-list">
+              {section.links.map((link) => (
+                <a
+                  href={link.href}
+                  target={link.kind === "web" ? "_blank" : undefined}
+                  rel={link.kind === "web" ? "noreferrer" : undefined}
+                  key={`${section.title}-${link.label}`}
+                >
+                  <span className="reference-link-icon">
+                    {referenceLinkIcon(link)}
+                  </span>
+                  <span>
+                    <strong>{link.label}</strong>
+                    {link.note && <small>{link.note}</small>}
+                  </span>
+                  {link.kind === "web" && <ExternalLink className="reference-link-open" />}
+                </a>
+              ))}
+            </div>
+          )}
+          {section.callout && (
+            <div className="reference-callout">
+              <AlertTriangle />
+              <p>{section.callout}</p>
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+
+  const renderReferences = () => {
+    if (!referenceVault) {
+      return (
+        <div className="page-stack references-page">
+          <header className="page-title">
+            <div><h1>References</h1></div>
+          </header>
+          <section className="panel reference-access-gate">
+            <span
+              className={`reference-access-icon ${referenceAccessState}`}
+              aria-hidden="true"
+            >
+              {referenceAccessState === "approved" ? (
+                <ShieldCheck />
+              ) : (
+                <LockKeyhole />
+              )}
+            </span>
+            <div className="reference-access-copy">
+              <h2>
+                {referenceAccessState === "pending"
+                  ? "Approval requested"
+                  : referenceAccessState === "checking"
+                    ? "Checking access"
+                    : "Private references"}
+              </h2>
+              <p>
+                {referenceAccessMessage ||
+                  "Only devices approved by the owner can open contacts and work manuals."}
+              </p>
+            </div>
+            {(referenceAccessState === "denied" ||
+              referenceAccessState === "error") && (
+              <button className="button primary" onClick={retryReferenceAccess}>
+                Send a new request
+              </button>
+            )}
+            <button
+              className="reference-owner-toggle"
+              onClick={() => setReferenceOwnerOpen((open) => !open)}
+            >
+              <KeyRound />
+              Owner access
+            </button>
+            {referenceOwnerOpen && (
+              <div className="reference-owner-login">
+                <label>
+                  Owner code
+                  <input
+                    type="password"
+                    value={referenceOwnerCode}
+                    onChange={(event) =>
+                      setReferenceOwnerCode(event.target.value)
+                    }
+                    autoComplete="one-time-code"
+                    inputMode="text"
+                    placeholder="Enter your private owner code"
+                  />
+                </label>
+                <button
+                  className="button primary"
+                  disabled={referenceOwnerBusy || !referenceOwnerCode.trim()}
+                  onClick={() => void signInReferenceOwner()}
+                >
+                  <ShieldCheck />
+                  {referenceOwnerBusy ? "Checking…" : "Unlock owner access"}
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      );
+    }
+
+    if (referenceDetail === "contacts") return renderContacts();
+    const selectedReference = referenceDetail
+      ? referenceVault.quickReferences.find(
+          (reference) => reference.id === referenceDetail,
+        )
+      : null;
+    if (selectedReference) return renderQuickReference(selectedReference);
+
+    return (
+      <div className="page-stack references-page">
+        <header className="page-title">
+          <div>
+            <h1>References</h1>
+          </div>
+        </header>
+
+        {referenceOwnerToken && (
+          <section className="panel reference-approval-panel">
+            <div className="reference-approval-heading">
+              <span><ShieldCheck /></span>
+              <div>
+                <h2>Device approvals</h2>
+                <p>
+                  {pendingReferenceRequests.length
+                    ? `${pendingReferenceRequests.length} waiting`
+                    : "No requests waiting"}
+                </p>
+              </div>
+            </div>
+            {pendingReferenceRequests.length > 0 && (
+              <div className="reference-request-list">
+                {pendingReferenceRequests.map((request) => (
+                  <article key={request.id}>
+                    <div>
+                      <strong>{request.deviceName}</strong>
+                      <small>
+                        {new Date(request.createdAt).toLocaleString([], {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </small>
+                    </div>
+                    <button
+                      className="reference-deny"
+                      onClick={() =>
+                        void resolveReferenceRequest(request.id, "deny")
+                      }
+                    >
+                      Deny
+                    </button>
+                    <button
+                      className="reference-approve"
+                      onClick={() =>
+                        void resolveReferenceRequest(request.id, "approve")
+                      }
+                    >
+                      Approve
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        <button
+          className="reference-contacts-card"
+          onClick={() => openReferenceDetail("contacts")}
+        >
+          <span className="reference-contacts-icon"><ContactRound /></span>
+          <span>
+            <strong>Contacts</strong>
+            <small>People, HR, AOC, and duty phone</small>
+          </span>
+          <span className="reference-card-count">
+            {referenceVault.contactGroups.reduce(
+              (total, group) => total + group.contacts.length,
+              0,
+            )}
+          </span>
+          <ChevronRight />
+        </button>
+
+        <section className="reference-library">
+          <div className="reference-library-heading">
+            <h2>Quick references</h2>
+            <span>{referenceVault.quickReferences.length}</span>
+          </div>
+          <div className="reference-card-grid">
+            {referenceVault.quickReferences.map((reference) => (
+              <button
+                className={`reference-card ${reference.id}`}
+                onClick={() => openReferenceDetail(reference.id)}
+                key={reference.id}
+              >
+                <span className="reference-card-icon">
+                  {quickReferenceIcon(reference.id)}
+                </span>
+                <span className="reference-card-copy">
+                  <strong>{reference.title}</strong>
+                  <small>{reference.summary}</small>
+                </span>
+                <span className="reference-card-badge">{reference.badge}</span>
+                <ChevronRight />
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  };
+
   const renderImport = () => (
     <div className="page-stack">
       <header className="page-title">
@@ -3037,6 +3718,7 @@ export default function HomePage() {
           <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
           <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
           <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
+          <NavButton icon={<BookOpenText />} label="References" active={tab === "references"} onClick={openReferencesTab} />
         </nav>
         <div className="sidebar-bottom">
           <button onClick={openAddShift}><Plus /><span>Add shift</span></button>
@@ -3062,6 +3744,7 @@ export default function HomePage() {
           {tab === "flights" && renderFlights()}
           {tab === "timeoff" && renderTimeOff()}
           {tab === "import" && renderImport()}
+          {tab === "references" && renderReferences()}
         </div>
       </main>
 
@@ -3071,6 +3754,7 @@ export default function HomePage() {
         <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
         <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
         <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
+        <NavButton icon={<BookOpenText />} label="References" active={tab === "references"} onClick={openReferencesTab} />
       </nav>
 
       {shiftEditor && (

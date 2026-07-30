@@ -511,6 +511,684 @@ main {
   background: color-mix(in srgb, var(--violet) 14%, transparent);
 }
 
+.references-page,
+.reference-detail-page {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.reference-access-gate {
+  min-height: 320px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.reference-access-icon {
+  width: 66px;
+  height: 66px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 21px;
+}
+
+.reference-access-icon svg {
+  width: 29px;
+  height: 29px;
+}
+
+.reference-access-icon.pending {
+  animation: reference-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes reference-pulse {
+  50% { transform: scale(.94); opacity: .72; }
+}
+
+.reference-access-copy {
+  max-width: 430px;
+  display: grid;
+  gap: 7px;
+}
+
+.reference-access-copy h2,
+.reference-access-copy p {
+  margin: 0;
+}
+
+.reference-access-copy h2 {
+  font-size: 25px;
+  letter-spacing: -.7px;
+}
+
+.reference-access-copy p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.reference-owner-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.reference-owner-toggle svg {
+  width: 16px;
+}
+
+.reference-owner-login {
+  width: min(100%, 390px);
+  display: grid;
+  gap: 11px;
+  padding-top: 2px;
+}
+
+.reference-owner-login label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.reference-owner-login input {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  padding: 0 14px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 16px;
+}
+
+.reference-approval-panel {
+  display: grid;
+  gap: 15px;
+  border-color: color-mix(in srgb, var(--blue) 35%, var(--line));
+}
+
+.reference-approval-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.reference-approval-heading > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 13px;
+}
+
+.reference-approval-heading svg {
+  width: 20px;
+}
+
+.reference-approval-heading h2,
+.reference-approval-heading p {
+  margin: 0;
+}
+
+.reference-approval-heading h2 {
+  font-size: 18px;
+}
+
+.reference-approval-heading p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reference-request-list {
+  display: grid;
+  gap: 8px;
+}
+
+.reference-request-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 11px;
+  background: var(--surface-2);
+  border-radius: 14px;
+}
+
+.reference-request-list article > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.reference-request-list small {
+  color: var(--muted);
+}
+
+.reference-request-list button {
+  min-height: 36px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.reference-deny {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+
+.reference-approve {
+  color: white;
+  background: var(--blue);
+}
+
+.reference-contacts-card,
+.reference-card {
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.reference-contacts-card {
+  min-height: 118px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 17px;
+  padding: 23px 25px;
+  border-radius: 22px;
+  transition: transform 150ms ease, border-color 150ms ease;
+}
+
+.reference-contacts-card:hover,
+.reference-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--blue) 38%, var(--line));
+}
+
+.reference-contacts-icon,
+.reference-card-icon,
+.reference-detail-icon {
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.reference-contacts-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+}
+
+.reference-contacts-icon svg {
+  width: 27px;
+}
+
+.reference-contacts-card > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.reference-contacts-card strong {
+  font-size: 23px;
+  letter-spacing: -.5px;
+}
+
+.reference-contacts-card small,
+.reference-card small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.reference-card-count,
+.reference-card-badge,
+.reference-library-heading > span,
+.reference-section-title > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.reference-card-count {
+  min-width: 31px;
+  height: 31px;
+}
+
+.reference-contacts-card > svg,
+.reference-card > svg {
+  width: 19px;
+  color: var(--muted);
+}
+
+.reference-library {
+  display: grid;
+  gap: 13px;
+}
+
+.reference-library-heading,
+.reference-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.reference-library-heading {
+  padding: 0 3px;
+}
+
+.reference-library-heading h2,
+.reference-section-title h2 {
+  margin: 0;
+  letter-spacing: -.5px;
+}
+
+.reference-library-heading h2 {
+  font-size: 22px;
+}
+
+.reference-library-heading > span,
+.reference-section-title > span {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 9px;
+}
+
+.reference-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.reference-card {
+  min-height: 138px;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 19px;
+  transition: transform 150ms ease, border-color 150ms ease;
+}
+
+.reference-card-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+}
+
+.reference-card-icon svg {
+  width: 21px;
+}
+
+.reference-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.reference-card-copy strong {
+  padding-right: 40px;
+  font-size: 16px;
+}
+
+.reference-card-badge {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  min-height: 25px;
+  padding: 0 9px;
+}
+
+.reference-card > svg {
+  position: absolute;
+  right: 17px;
+  bottom: 17px;
+}
+
+.reference-card.emergency .reference-card-icon,
+.reference-detail-icon.emergency {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
+
+.reference-card.safety .reference-card-icon,
+.reference-detail-icon.safety,
+.reference-card.accessibility .reference-card-icon,
+.reference-detail-icon.accessibility {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.reference-card.pto .reference-card-icon,
+.reference-detail-icon.pto,
+.reference-card.trafficking .reference-card-icon,
+.reference-detail-icon.trafficking {
+  color: var(--violet);
+  background: color-mix(in srgb, var(--violet) 14%, transparent);
+}
+
+.reference-card.hazmat .reference-card-icon,
+.reference-detail-icon.hazmat {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.reference-detail-heading {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 0 2px;
+}
+
+.reference-detail-heading:has(.reference-back + div) {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.reference-back {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.reference-back svg {
+  width: 21px;
+}
+
+.reference-detail-icon {
+  width: 49px;
+  height: 49px;
+  border-radius: 15px;
+}
+
+.reference-detail-icon svg {
+  width: 23px;
+}
+
+.reference-detail-heading h1 {
+  margin: 0;
+  font-size: 35px;
+  line-height: 1.05;
+  letter-spacing: -1.5px;
+}
+
+.reference-detail-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.contact-group {
+  display: grid;
+  gap: 16px;
+}
+
+.reference-section-title h2 {
+  font-size: 21px;
+}
+
+.contact-list {
+  display: grid;
+}
+
+.contact-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+
+.contact-card:first-child {
+  padding-top: 4px;
+  border-top: 0;
+}
+
+.contact-card:last-child {
+  padding-bottom: 3px;
+}
+
+.contact-avatar {
+  width: 43px;
+  height: 43px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.contact-copy {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.contact-copy > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.contact-copy strong {
+  font-size: 15px;
+}
+
+.contact-copy > div:first-child span,
+.contact-copy > div:first-child small {
+  color: var(--muted);
+}
+
+.contact-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contact-methods a {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  color: var(--blue);
+  text-decoration: none;
+  background: var(--blue-soft);
+  border-radius: 13px;
+}
+
+.contact-methods a > svg {
+  width: 17px;
+  flex: 0 0 auto;
+}
+
+.contact-methods a > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.contact-methods small {
+  color: color-mix(in srgb, var(--blue) 78%, var(--muted));
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.contact-methods b {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.reference-section-card {
+  display: grid;
+  gap: 15px;
+}
+
+.reference-section-card h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -.5px;
+}
+
+.reference-section-card > p {
+  margin: -4px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.reference-section-card ul {
+  display: grid;
+  gap: 11px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reference-section-card li {
+  position: relative;
+  padding-left: 22px;
+  line-height: 1.48;
+}
+
+.reference-section-card li::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  position: absolute;
+  top: .48em;
+  left: 2px;
+  background: var(--blue);
+  border-radius: 50%;
+}
+
+.reference-link-list {
+  display: grid;
+  gap: 8px;
+}
+
+.reference-link-list > a {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.reference-link-list > a:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--blue) 36%, var(--line));
+}
+
+.reference-link-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 11px;
+}
+
+.reference-link-icon svg {
+  width: 17px;
+}
+
+.reference-link-list > a > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.reference-link-list strong {
+  overflow-wrap: anywhere;
+  color: var(--blue);
+  font-size: 14px;
+}
+
+.reference-link-list small {
+  color: var(--muted);
+}
+
+.reference-link-open {
+  width: 16px;
+  color: var(--muted);
+}
+
+.reference-callout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px 14px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-radius: 14px;
+}
+
+.reference-callout svg {
+  width: 18px;
+}
+
+.reference-callout p {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .panel {
   min-width: 0;
   padding: 26px;
@@ -2815,7 +3493,7 @@ main {
     position: fixed;
     inset: auto 0 0;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     padding: 5px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
     background: color-mix(in srgb, var(--surface) 93%, transparent);
     border-top: 1px solid var(--line);
@@ -2831,7 +3509,9 @@ main {
     gap: 3px;
     color: var(--muted);
     border-radius: 12px;
-    font-size: 9px;
+    min-width: 0;
+    padding: 0 1px;
+    font-size: 8px;
   }
 
   .bottom-nav button.active {
@@ -2840,7 +3520,7 @@ main {
   }
 
   .bottom-nav svg {
-    width: 21px;
+    width: 20px;
   }
 
   .content-wrap {
@@ -3546,6 +4226,160 @@ main {
 
   .danger-zone .button {
     width: 100%;
+  }
+
+  .references-page,
+  .reference-detail-page {
+    max-width: 100%;
+  }
+
+  .reference-contacts-card {
+    min-height: 100px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 17px;
+    border-radius: 18px;
+  }
+
+  .reference-contacts-icon {
+    width: 49px;
+    height: 49px;
+    border-radius: 15px;
+  }
+
+  .reference-contacts-card strong {
+    font-size: 19px;
+  }
+
+  .reference-contacts-card > svg {
+    display: none;
+  }
+
+  .reference-card-count {
+    min-width: 29px;
+    height: 29px;
+  }
+
+  .reference-library {
+    gap: 10px;
+  }
+
+  .reference-library-heading h2 {
+    font-size: 19px;
+  }
+
+  .reference-card-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .reference-card {
+    min-height: 104px;
+    align-items: center;
+    padding: 15px;
+    border-radius: 17px;
+  }
+
+  .reference-card-icon {
+    width: 43px;
+    height: 43px;
+  }
+
+  .reference-card-copy strong {
+    padding-right: 46px;
+    font-size: 15px;
+  }
+
+  .reference-card-badge {
+    top: 14px;
+    right: 14px;
+  }
+
+  .reference-card > svg {
+    right: 14px;
+    bottom: 14px;
+  }
+
+  .reference-detail-heading {
+    min-height: 62px;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 0 2px;
+  }
+
+  .reference-back {
+    width: 38px;
+    height: 38px;
+    border-radius: 13px;
+  }
+
+  .reference-detail-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+  }
+
+  .reference-detail-heading h1 {
+    font-size: 26px;
+    letter-spacing: -1px;
+  }
+
+  .reference-detail-heading p {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .contact-group,
+  .reference-section-card {
+    padding: 17px;
+  }
+
+  .reference-section-title h2,
+  .reference-section-card h2 {
+    font-size: 19px;
+  }
+
+  .contact-card {
+    gap: 11px;
+    padding: 15px 0;
+  }
+
+  .contact-avatar {
+    width: 39px;
+    height: 39px;
+    border-radius: 13px;
+  }
+
+  .contact-methods {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .contact-methods a {
+    width: 100%;
+    padding: 9px 11px;
+  }
+
+  .contact-methods b {
+    font-size: 12px;
+  }
+
+  .reference-section-card {
+    gap: 13px;
+  }
+
+  .reference-section-card li {
+    font-size: 14px;
+  }
+
+  .reference-link-list > a {
+    padding: 11px;
+  }
+
+  .reference-link-list strong {
+    font-size: 13px;
   }
 
   .confirm-card {
