@@ -3057,8 +3057,7 @@ export default function HomePage() {
                     <a
                       className={`flight-card ${during ? "during" : "outside-shift"}`}
                       href={flightAwareRouteUrl(flight, prefs.homeAirport)}
-                      target="_blank"
-                      rel="noreferrer"
+                      target="_self"
                       aria-label="Open this exact flight in FlightAware"
                       key={flight.id}
                     >

@@ -59,6 +59,14 @@ test("protects work references behind owner-approved device access", async () =>
   assert.match(page, /label="References"/);
   assert.match(page, /renderReferences/);
   assert.match(page, /REFERENCE_ACCESS_KEY/);
+  assert.match(
+    page,
+    /href=\{flightAwareRouteUrl\(flight, prefs\.homeAirport\)\}[^>]*target="_self"/,
+  );
+  assert.doesNotMatch(
+    page,
+    /href=\{flightAwareRouteUrl\(flight, prefs\.homeAirport\)\}[^>]*target="_blank"/,
+  );
   assert.match(page, /referencePreloadReady/);
   assert.match(page, /bootstrapReferenceAccess\(false\)/);
   assert.match(page, /Approval requested/);
