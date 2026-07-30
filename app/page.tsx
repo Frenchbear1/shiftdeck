@@ -779,6 +779,7 @@ export default function HomePage() {
     useState<StoredReferenceRequest | null>(null);
   const [referenceAccessMessage, setReferenceAccessMessage] = useState("");
   const [referenceOwnerToken, setReferenceOwnerToken] = useState("");
+  const [referencePreloadReady, setReferencePreloadReady] = useState(false);
   const [referenceOwnerCode, setReferenceOwnerCode] = useState("");
   const [referenceOwnerBusy, setReferenceOwnerBusy] = useState(false);
   const [referenceOwnerMessage, setReferenceOwnerMessage] = useState("");
@@ -925,39 +926,47 @@ export default function HomePage() {
     setReferenceAccessMessage("Waiting for the owner to approve this device.");
   }, []);
 
-  const bootstrapReferenceAccess = useCallback(async () => {
-    setReferenceAccessState("checking");
-    try {
-      const ownerToken = localStorage.getItem(REFERENCE_OWNER_KEY) ?? "";
-      const accessToken = localStorage.getItem(REFERENCE_ACCESS_KEY) ?? "";
-      if (ownerToken) {
-        setReferenceOwnerToken(ownerToken);
-        await loadReferenceVault(ownerToken);
-        return;
-      }
-      if (accessToken) {
-        try {
-          await loadReferenceVault(accessToken);
+  const bootstrapReferenceAccess = useCallback(
+    async (createIfMissing = true) => {
+      setReferenceAccessState("checking");
+      try {
+        const ownerToken = localStorage.getItem(REFERENCE_OWNER_KEY) ?? "";
+        const accessToken = localStorage.getItem(REFERENCE_ACCESS_KEY) ?? "";
+        if (ownerToken) {
+          setReferenceOwnerToken(ownerToken);
+          await loadReferenceVault(ownerToken);
           return;
-        } catch {
-          localStorage.removeItem(REFERENCE_ACCESS_KEY);
         }
+        if (accessToken) {
+          try {
+            await loadReferenceVault(accessToken);
+            return;
+          } catch {
+            localStorage.removeItem(REFERENCE_ACCESS_KEY);
+          }
+        }
+        const savedRequest = localStorage.getItem(REFERENCE_REQUEST_KEY);
+        if (savedRequest) {
+          const parsed = JSON.parse(savedRequest) as StoredReferenceRequest;
+          setReferenceRequest(parsed);
+          await checkReferenceRequest(parsed);
+          return;
+        }
+        if (createIfMissing) {
+          await createReferenceRequest();
+        } else {
+          setReferenceAccessState("idle");
+          setReferenceAccessMessage("");
+        }
+      } catch (error) {
+        setReferenceAccessState("error");
+        setReferenceAccessMessage(
+          error instanceof Error ? error.message : "Could not request access",
+        );
       }
-      const savedRequest = localStorage.getItem(REFERENCE_REQUEST_KEY);
-      if (savedRequest) {
-        const parsed = JSON.parse(savedRequest) as StoredReferenceRequest;
-        setReferenceRequest(parsed);
-        await checkReferenceRequest(parsed);
-        return;
-      }
-      await createReferenceRequest();
-    } catch (error) {
-      setReferenceAccessState("error");
-      setReferenceAccessMessage(
-        error instanceof Error ? error.message : "Could not request access",
-      );
-    }
-  }, [checkReferenceRequest, createReferenceRequest, loadReferenceVault]);
+    },
+    [checkReferenceRequest, createReferenceRequest, loadReferenceVault],
+  );
 
   const refreshOwnerRequests = useCallback(async (token: string) => {
     const response = await fetch(
@@ -994,9 +1003,33 @@ export default function HomePage() {
   }, [hydrated, referenceOwnerToken]);
 
   useEffect(() => {
-    if (!hydrated || tab !== "references" || referenceVault) return;
+    if (!hydrated || referencePreloadReady) return;
+    queueMicrotask(() => {
+      void bootstrapReferenceAccess(false).finally(() => {
+        setReferencePreloadReady(true);
+      });
+    });
+  }, [bootstrapReferenceAccess, hydrated, referencePreloadReady]);
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !referencePreloadReady ||
+      tab !== "references" ||
+      referenceVault ||
+      referenceAccessState !== "idle"
+    ) {
+      return;
+    }
     queueMicrotask(() => void bootstrapReferenceAccess());
-  }, [bootstrapReferenceAccess, hydrated, referenceVault, tab]);
+  }, [
+    bootstrapReferenceAccess,
+    hydrated,
+    referenceAccessState,
+    referencePreloadReady,
+    referenceVault,
+    tab,
+  ]);
 
   useEffect(() => {
     if (
@@ -2337,6 +2370,7 @@ export default function HomePage() {
     setReferenceRequest(null);
     setReferenceAccessMessage("");
     setReferenceOwnerToken("");
+    setReferencePreloadReady(true);
     setReferenceOwnerCode("");
     setReferenceOwnerMessage("");
     setReferenceDeviceBusy("");

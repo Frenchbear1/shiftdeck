@@ -58,6 +58,8 @@ test("protects work references behind owner-approved device access", async () =>
   assert.match(page, /label="References"/);
   assert.match(page, /renderReferences/);
   assert.match(page, /REFERENCE_ACCESS_KEY/);
+  assert.match(page, /referencePreloadReady/);
+  assert.match(page, /bootstrapReferenceAccess\(false\)/);
   assert.match(page, /Approval requested/);
   assert.match(page, /reference-owner-status/);
   assert.match(page, /No requests/);
