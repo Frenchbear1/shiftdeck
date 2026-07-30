@@ -346,6 +346,118 @@ async function ownerRequests(request: Request, db: CalendarDatabase) {
   );
 }
 
+async function approvedDevices(request: Request, db: CalendarDatabase) {
+  if (!(await authorizedSession(request, db, true))) {
+    return json(request, { error: "Owner access required" }, 401);
+  }
+  const now = new Date().toISOString();
+  const result = await db
+    .prepare(
+      `SELECT id, device_name, created_at, expires_at
+       FROM reference_sessions
+       WHERE is_owner = 0
+         AND revoked_at IS NULL
+         AND expires_at > ?1
+       ORDER BY created_at DESC
+       LIMIT 100`,
+    )
+    .bind(now)
+    .all<{
+      id: string;
+      device_name: string;
+      created_at: string;
+      expires_at: string;
+    }>();
+  return json(
+    request,
+    (result.results ?? []).map((row) => ({
+      id: row.id,
+      deviceName: row.device_name,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+    })),
+  );
+}
+
+async function revokeApprovedDevice(
+  request: Request,
+  db: CalendarDatabase,
+  id: string,
+) {
+  if (!(await authorizedSession(request, db, true))) {
+    return json(request, { error: "Owner access required" }, 401);
+  }
+  if (!validId(id)) return json(request, { error: "Device not found" }, 404);
+  const device = await db
+    .prepare(
+      `SELECT id
+       FROM reference_sessions
+       WHERE id = ?1
+         AND is_owner = 0
+         AND revoked_at IS NULL`,
+    )
+    .bind(id)
+    .first<{ id: string }>();
+  if (!device) return json(request, { error: "Device not found" }, 404);
+  await db
+    .prepare(
+      `UPDATE reference_sessions
+       SET revoked_at = ?2
+       WHERE id = ?1
+         AND is_owner = 0
+         AND revoked_at IS NULL`,
+    )
+    .bind(id, new Date().toISOString())
+    .run();
+  return json(request, { status: "revoked" });
+}
+
+async function revokeAllApprovedDevices(
+  request: Request,
+  db: CalendarDatabase,
+) {
+  if (!(await authorizedSession(request, db, true))) {
+    return json(request, { error: "Owner access required" }, 401);
+  }
+  const now = new Date().toISOString();
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE reference_sessions
+         SET revoked_at = ?1
+         WHERE is_owner = 0
+           AND revoked_at IS NULL`,
+      )
+      .bind(now),
+    db
+      .prepare(
+        `UPDATE reference_access_requests
+         SET status = 'denied', resolved_at = ?1
+         WHERE status = 'pending'`,
+      )
+      .bind(now),
+  ]);
+  return json(request, { status: "reset" });
+}
+
+async function ownerLogout(request: Request, db: CalendarDatabase) {
+  const session = await authorizedSession(request, db, true);
+  if (!session) {
+    return json(request, { error: "Owner access required" }, 401);
+  }
+  await db
+    .prepare(
+      `UPDATE reference_sessions
+       SET revoked_at = ?2
+       WHERE id = ?1
+         AND is_owner = 1
+         AND revoked_at IS NULL`,
+    )
+    .bind(session.id, new Date().toISOString())
+    .run();
+  return json(request, { status: "disconnected" });
+}
+
 async function resolveAccessRequest(
   request: Request,
   db: CalendarDatabase,
@@ -480,6 +592,30 @@ export async function handleReferenceRequest(
     url.pathname === "/api/references/owner/requests"
   ) {
     return ownerRequests(request, db);
+  }
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/references/owner/devices"
+  ) {
+    return approvedDevices(request, db);
+  }
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/references/owner/logout"
+  ) {
+    return ownerLogout(request, db);
+  }
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/references/owner/devices/revoke-all"
+  ) {
+    return revokeAllApprovedDevices(request, db);
+  }
+  const ownerDeviceMatch = url.pathname.match(
+    /^\/api\/references\/owner\/devices\/([A-Za-z0-9_-]+)\/revoke$/,
+  );
+  if (request.method === "POST" && ownerDeviceMatch) {
+    return revokeApprovedDevice(request, db, ownerDeviceMatch[1]);
   }
   const ownerActionMatch = url.pathname.match(
     /^\/api\/references\/owner\/requests\/([A-Za-z0-9_-]+)\/(approve|deny)$/,

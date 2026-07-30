@@ -571,22 +571,42 @@ main {
   line-height: 1.5;
 }
 
-.reference-owner-toggle {
+.reference-owner-status {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px;
-  color: var(--muted);
-  background: transparent;
-  border: 0;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 750;
-  cursor: pointer;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  color: color-mix(in srgb, var(--green) 78%, var(--text));
+  background: var(--green-soft);
+  border: 1px solid color-mix(in srgb, var(--green) 24%, transparent);
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
-.reference-owner-toggle svg {
-  width: 16px;
+.reference-owner-status.waiting {
+  color: color-mix(in srgb, var(--blue) 84%, var(--text));
+  background: var(--blue-soft);
+  border-color: color-mix(in srgb, var(--blue) 28%, transparent);
+}
+
+.reference-owner-status svg {
+  width: 15px;
+  height: 15px;
+}
+
+.reference-owner-status b {
+  font-size: 11px;
+}
+
+.reference-owner-status span {
+  color: var(--muted);
+}
+
+.reference-settings-button {
+  min-height: 42px;
+  margin-top: 2px;
 }
 
 .reference-owner-login {
@@ -616,6 +636,13 @@ main {
   border-radius: 14px;
   font: inherit;
   font-size: 16px;
+}
+
+.reference-owner-login p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .reference-approval-panel {
@@ -3142,6 +3169,153 @@ main {
   padding-inline: 12px;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.reference-settings {
+  display: grid;
+  gap: 11px;
+  padding: 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.reference-settings-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reference-settings-heading > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 12px;
+}
+
+.reference-settings-heading svg {
+  width: 18px;
+  height: 18px;
+}
+
+.reference-settings-heading > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.reference-settings-heading small,
+.reference-device-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.reference-settings-heading b {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-device-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 2px;
+}
+
+.reference-device-summary b {
+  min-width: 25px;
+  padding: 3px 7px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 999px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.reference-device-list {
+  display: grid;
+  gap: 7px;
+}
+
+.reference-device-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+.reference-device-list article > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.reference-device-list article b {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-device-list article small,
+.reference-device-empty {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.reference-device-empty {
+  margin: 0;
+  padding: 9px 10px;
+  background: var(--surface);
+  border-radius: 10px;
+  line-height: 1.4;
+}
+
+.reference-device-list .button,
+.reference-settings > .button,
+.reference-settings .reference-owner-login .button {
+  width: auto;
+  min-height: 36px;
+  margin: 0;
+  padding-inline: 11px;
+  font-size: 11px;
+}
+
+.reference-settings > .button {
+  width: 100%;
+}
+
+.reference-settings .reference-owner-login {
+  width: 100%;
+  justify-items: stretch;
+  padding-top: 1px;
+}
+
+.reference-settings .reference-owner-login input {
+  height: 42px;
+  background: var(--surface);
+}
+
+.reference-settings .reference-owner-login .button {
+  width: 100%;
+  min-height: 42px;
+}
+
+.reference-owner-error {
+  color: var(--danger);
+  line-height: 1.4;
 }
 
 .settings-grid {

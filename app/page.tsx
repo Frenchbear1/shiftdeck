@@ -122,6 +122,13 @@ type PendingReferenceRequest = {
   createdAt: string;
 };
 
+type ApprovedReferenceDevice = {
+  id: string;
+  deviceName: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
 type ReferenceAccessState =
   | "idle"
   | "checking"
@@ -773,10 +780,14 @@ export default function HomePage() {
   const [referenceAccessMessage, setReferenceAccessMessage] = useState("");
   const [referenceOwnerToken, setReferenceOwnerToken] = useState("");
   const [referenceOwnerCode, setReferenceOwnerCode] = useState("");
-  const [referenceOwnerOpen, setReferenceOwnerOpen] = useState(false);
   const [referenceOwnerBusy, setReferenceOwnerBusy] = useState(false);
+  const [referenceOwnerMessage, setReferenceOwnerMessage] = useState("");
+  const [referenceDeviceBusy, setReferenceDeviceBusy] = useState("");
   const [pendingReferenceRequests, setPendingReferenceRequests] = useState<
     PendingReferenceRequest[]
+  >([]);
+  const [approvedReferenceDevices, setApprovedReferenceDevices] = useState<
+    ApprovedReferenceDevice[]
   >([]);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
@@ -961,6 +972,26 @@ export default function HomePage() {
     );
   }, []);
 
+  const refreshApprovedReferenceDevices = useCallback(async (token: string) => {
+    const response = await fetch(
+      calendarServiceUrl("/api/references/owner/devices"),
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) throw new Error("Owner access expired");
+    setApprovedReferenceDevices(
+      (await response.json()) as ApprovedReferenceDevice[],
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || referenceOwnerToken) return;
+    const savedOwnerToken = localStorage.getItem(REFERENCE_OWNER_KEY) ?? "";
+    if (savedOwnerToken) setReferenceOwnerToken(savedOwnerToken);
+  }, [hydrated, referenceOwnerToken]);
+
   useEffect(() => {
     if (!hydrated || tab !== "references" || referenceVault) return;
     queueMicrotask(() => void bootstrapReferenceAccess());
@@ -989,15 +1020,72 @@ export default function HomePage() {
   useEffect(() => {
     if (tab !== "references" || !referenceOwnerToken) return;
     const refresh = () => {
-      void refreshOwnerRequests(referenceOwnerToken).catch(() => {
-        localStorage.removeItem(REFERENCE_OWNER_KEY);
-        setReferenceOwnerToken("");
-      });
+      void Promise.all([
+        refreshOwnerRequests(referenceOwnerToken),
+        refreshApprovedReferenceDevices(referenceOwnerToken),
+      ]).catch(() => {
+          localStorage.removeItem(REFERENCE_OWNER_KEY);
+          setReferenceOwnerToken("");
+          setPendingReferenceRequests([]);
+          setApprovedReferenceDevices([]);
+        });
     };
     refresh();
     const interval = window.setInterval(refresh, 10000);
     return () => window.clearInterval(interval);
-  }, [referenceOwnerToken, refreshOwnerRequests, tab]);
+  }, [
+    referenceOwnerToken,
+    refreshApprovedReferenceDevices,
+    refreshOwnerRequests,
+    tab,
+  ]);
+
+  useEffect(() => {
+    if (!settingsOpen || !referenceOwnerToken) return;
+    void Promise.all([
+      refreshOwnerRequests(referenceOwnerToken),
+      refreshApprovedReferenceDevices(referenceOwnerToken),
+    ]).catch(() => {
+      localStorage.removeItem(REFERENCE_OWNER_KEY);
+      setReferenceOwnerToken("");
+      setPendingReferenceRequests([]);
+      setApprovedReferenceDevices([]);
+    });
+  }, [
+    referenceOwnerToken,
+    refreshApprovedReferenceDevices,
+    refreshOwnerRequests,
+    settingsOpen,
+  ]);
+
+  useEffect(() => {
+    if (
+      tab !== "references" ||
+      referenceOwnerToken ||
+      referenceAccessState !== "approved" ||
+      !referenceVault
+    ) {
+      return;
+    }
+    const accessToken = localStorage.getItem(REFERENCE_ACCESS_KEY) ?? "";
+    if (!accessToken) return;
+    const recheck = () => {
+      void loadReferenceVault(accessToken).catch(() => {
+        localStorage.removeItem(REFERENCE_ACCESS_KEY);
+        setReferenceVault(null);
+        setReferenceAccessState("idle");
+        setReferenceAccessMessage("");
+      });
+    };
+    const interval = window.setInterval(recheck, 10000);
+    return () => window.clearInterval(interval);
+  }, [
+    loadReferenceVault,
+    referenceAccessState,
+    referenceOwnerToken,
+    referenceVault,
+    tab,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2242,8 +2330,10 @@ export default function HomePage() {
     setReferenceAccessMessage("");
     setReferenceOwnerToken("");
     setReferenceOwnerCode("");
-    setReferenceOwnerOpen(false);
+    setReferenceOwnerMessage("");
+    setReferenceDeviceBusy("");
     setPendingReferenceRequests([]);
+    setApprovedReferenceDevices([]);
     if (subscriptionToRevoke) {
       void revokeCalendarFeed(subscriptionToRevoke).catch(() => undefined);
     }
@@ -3185,7 +3275,7 @@ export default function HomePage() {
   const signInReferenceOwner = async () => {
     if (!referenceOwnerCode.trim()) return;
     setReferenceOwnerBusy(true);
-    setReferenceAccessMessage("");
+    setReferenceOwnerMessage("");
     try {
       const response = await fetch(
         calendarServiceUrl("/api/references/owner/login"),
@@ -3208,14 +3298,14 @@ export default function HomePage() {
       localStorage.setItem(REFERENCE_OWNER_KEY, result.ownerToken);
       setReferenceOwnerToken(result.ownerToken);
       setReferenceOwnerCode("");
-      setReferenceOwnerOpen(false);
       await Promise.all([
         loadReferenceVault(result.ownerToken),
         refreshOwnerRequests(result.ownerToken),
+        refreshApprovedReferenceDevices(result.ownerToken),
       ]);
       setToast("Owner access saved on this device");
     } catch (error) {
-      setReferenceAccessMessage(
+      setReferenceOwnerMessage(
         error instanceof Error ? error.message : "Could not sign in as owner",
       );
     } finally {
@@ -3243,6 +3333,106 @@ export default function HomePage() {
     }
     await refreshOwnerRequests(referenceOwnerToken);
     setToast(action === "approve" ? "Device approved" : "Request denied");
+  };
+
+  const revokeApprovedReferenceDevice = async (deviceId: string) => {
+    if (!referenceOwnerToken) return;
+    setReferenceDeviceBusy(deviceId);
+    try {
+      const response = await fetch(
+        calendarServiceUrl(
+          `/api/references/owner/devices/${deviceId}/revoke`,
+        ),
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${referenceOwnerToken}` },
+        },
+      );
+      if (!response.ok) throw new Error("Could not disconnect that device");
+      await refreshApprovedReferenceDevices(referenceOwnerToken);
+      setToast("Reference access disconnected");
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Could not disconnect that device",
+      );
+    } finally {
+      setReferenceDeviceBusy("");
+    }
+  };
+
+  const revokeAllApprovedReferenceDevices = async () => {
+    if (!referenceOwnerToken) return;
+    if (
+      !window.confirm(
+        "Disconnect every approved non-owner device and clear pending requests?",
+      )
+    ) {
+      return;
+    }
+    setReferenceDeviceBusy("all");
+    try {
+      const response = await fetch(
+        calendarServiceUrl("/api/references/owner/devices/revoke-all"),
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${referenceOwnerToken}` },
+        },
+      );
+      if (!response.ok) throw new Error("Could not reset reference access");
+      await Promise.all([
+        refreshApprovedReferenceDevices(referenceOwnerToken),
+        refreshOwnerRequests(referenceOwnerToken),
+      ]);
+      setToast("All approved devices disconnected");
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Could not reset reference access",
+      );
+    } finally {
+      setReferenceDeviceBusy("");
+    }
+  };
+
+  const disconnectReferenceOwner = async () => {
+    if (!referenceOwnerToken) return;
+    if (
+      !window.confirm(
+        "Disconnect owner controls from this device? You can restore them later with the owner code.",
+      )
+    ) {
+      return;
+    }
+    setReferenceDeviceBusy("owner");
+    try {
+      const response = await fetch(
+        calendarServiceUrl("/api/references/owner/logout"),
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${referenceOwnerToken}` },
+        },
+      );
+      if (!response.ok) throw new Error("Could not disconnect owner access");
+      localStorage.removeItem(REFERENCE_OWNER_KEY);
+      setReferenceOwnerToken("");
+      setPendingReferenceRequests([]);
+      setApprovedReferenceDevices([]);
+      setReferenceOwnerMessage("");
+      setReferenceVault(null);
+      setReferenceAccessState("idle");
+      setToast("Owner controls disconnected from this device");
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Could not disconnect owner access",
+      );
+    } finally {
+      setReferenceDeviceBusy("");
+    }
   };
 
   const retryReferenceAccess = () => {
@@ -3392,6 +3582,17 @@ export default function HomePage() {
         <div className="page-stack references-page">
           <header className="page-title">
             <div><h1>References</h1></div>
+            {referenceOwnerToken && (
+              <span className="reference-owner-status">
+                <ShieldCheck />
+                <b>Owner</b>
+                <span>
+                  {pendingReferenceRequests.length
+                    ? `${pendingReferenceRequests.length} waiting`
+                    : "No requests"}
+                </span>
+              </span>
+            )}
           </header>
           <section className="panel reference-access-gate">
             <span
@@ -3424,37 +3625,12 @@ export default function HomePage() {
               </button>
             )}
             <button
-              className="reference-owner-toggle"
-              onClick={() => setReferenceOwnerOpen((open) => !open)}
+              className="button soft reference-settings-button"
+              onClick={() => setSettingsOpen(true)}
             >
-              <KeyRound />
-              Owner access
+              <Settings />
+              Manage access in Settings
             </button>
-            {referenceOwnerOpen && (
-              <div className="reference-owner-login">
-                <label>
-                  Owner code
-                  <input
-                    type="password"
-                    value={referenceOwnerCode}
-                    onChange={(event) =>
-                      setReferenceOwnerCode(event.target.value)
-                    }
-                    autoComplete="one-time-code"
-                    inputMode="text"
-                    placeholder="Enter your private owner code"
-                  />
-                </label>
-                <button
-                  className="button primary"
-                  disabled={referenceOwnerBusy || !referenceOwnerCode.trim()}
-                  onClick={() => void signInReferenceOwner()}
-                >
-                  <ShieldCheck />
-                  {referenceOwnerBusy ? "Checking…" : "Unlock owner access"}
-                </button>
-              </div>
-            )}
           </section>
         </div>
       );
@@ -3474,54 +3650,63 @@ export default function HomePage() {
           <div>
             <h1>References</h1>
           </div>
+          {referenceOwnerToken && (
+            <span
+              className={`reference-owner-status ${
+                pendingReferenceRequests.length ? "waiting" : ""
+              }`}
+            >
+              <ShieldCheck />
+              <b>Owner</b>
+              <span>
+                {pendingReferenceRequests.length
+                  ? `${pendingReferenceRequests.length} waiting`
+                  : "No requests"}
+              </span>
+            </span>
+          )}
         </header>
 
-        {referenceOwnerToken && (
+        {referenceOwnerToken && pendingReferenceRequests.length > 0 && (
           <section className="panel reference-approval-panel">
             <div className="reference-approval-heading">
               <span><ShieldCheck /></span>
               <div>
                 <h2>Device approvals</h2>
-                <p>
-                  {pendingReferenceRequests.length
-                    ? `${pendingReferenceRequests.length} waiting`
-                    : "No requests waiting"}
-                </p>
+                <p>{`${pendingReferenceRequests.length} waiting`}</p>
               </div>
             </div>
-            {pendingReferenceRequests.length > 0 && (
-              <div className="reference-request-list">
-                {pendingReferenceRequests.map((request) => (
-                  <article key={request.id}>
-                    <div>
-                      <strong>{request.deviceName}</strong>
-                      <small>
-                        {new Date(request.createdAt).toLocaleString([], {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </small>
-                    </div>
-                    <button
-                      className="reference-deny"
-                      onClick={() =>
-                        void resolveReferenceRequest(request.id, "deny")
-                      }
-                    >
-                      Deny
-                    </button>
-                    <button
-                      className="reference-approve"
-                      onClick={() =>
-                        void resolveReferenceRequest(request.id, "approve")
-                      }
-                    >
-                      Approve
-                    </button>
-                  </article>
-                ))}
-              </div>
-            )}
+            <div className="reference-request-list">
+              {pendingReferenceRequests.map((request) => (
+                <article key={request.id}>
+                  <div>
+                    <strong>{request.deviceName}</strong>
+                    <small>
+                      {new Date(request.createdAt).toLocaleString([], {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </small>
+                  </div>
+                  <button
+                    className="reference-deny"
+                    onClick={() =>
+                      void resolveReferenceRequest(request.id, "deny")
+                    }
+                  >
+                    Deny
+                  </button>
+                  <button
+                    className="reference-approve"
+                    onClick={() =>
+                      void resolveReferenceRequest(request.id, "approve")
+                    }
+                  >
+                    Approve
+                  </button>
+                </article>
+              ))}
+            </div>
           </section>
         )}
 
@@ -4188,6 +4373,119 @@ export default function HomePage() {
                 </button>
               )}
             </div>
+            <section className="reference-settings">
+              <div className="reference-settings-heading">
+                <span>
+                  {referenceOwnerToken ? <ShieldCheck /> : <KeyRound />}
+                </span>
+                <div>
+                  <small>Reference access</small>
+                  <b>
+                    {referenceOwnerToken
+                      ? "Owner controls active on this device"
+                      : "Owner controls are disconnected"}
+                  </b>
+                </div>
+              </div>
+
+              {referenceOwnerToken ? (
+                <>
+                  <div className="reference-device-summary">
+                    <span>Approved non-owner devices</span>
+                    <b>{approvedReferenceDevices.length}</b>
+                  </div>
+                  {approvedReferenceDevices.length ? (
+                    <div className="reference-device-list">
+                      {approvedReferenceDevices.map((device) => (
+                        <article key={device.id}>
+                          <div>
+                            <b>{device.deviceName}</b>
+                            <small>
+                              Approved{" "}
+                              {new Date(device.createdAt).toLocaleDateString()}
+                            </small>
+                          </div>
+                          <button
+                            className="button danger subtle"
+                            disabled={Boolean(referenceDeviceBusy)}
+                            onClick={() =>
+                              void revokeApprovedReferenceDevice(device.id)
+                            }
+                          >
+                            {referenceDeviceBusy === device.id
+                              ? "Disconnecting…"
+                              : "Disconnect"}
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="reference-device-empty">
+                      No other devices currently have reference access.
+                    </p>
+                  )}
+                  {approvedReferenceDevices.length > 0 && (
+                    <button
+                      className="button danger subtle"
+                      disabled={Boolean(referenceDeviceBusy)}
+                      onClick={() =>
+                        void revokeAllApprovedReferenceDevices()
+                      }
+                    >
+                      <UsersRound />
+                      {referenceDeviceBusy === "all"
+                        ? "Disconnecting all…"
+                        : "Disconnect all approved devices"}
+                    </button>
+                  )}
+                  <button
+                    className="button soft"
+                    disabled={Boolean(referenceDeviceBusy)}
+                    onClick={() => void disconnectReferenceOwner()}
+                  >
+                    <KeyRound />
+                    {referenceDeviceBusy === "owner"
+                      ? "Disconnecting owner controls…"
+                      : "Disconnect owner controls on this device"}
+                  </button>
+                </>
+              ) : (
+                <div className="reference-owner-login">
+                  <p>
+                    Enter the private owner code to approve requests and manage
+                    connected devices here.
+                  </p>
+                  <label>
+                    Owner code
+                    <input
+                      type="password"
+                      value={referenceOwnerCode}
+                      onChange={(event) =>
+                        setReferenceOwnerCode(event.target.value)
+                      }
+                      autoComplete="one-time-code"
+                      inputMode="text"
+                      placeholder="Enter your private owner code"
+                    />
+                  </label>
+                  <button
+                    className="button primary"
+                    disabled={referenceOwnerBusy || !referenceOwnerCode.trim()}
+                    onClick={() => void signInReferenceOwner()}
+                  >
+                    <ShieldCheck />
+                    {referenceOwnerBusy
+                      ? "Checking…"
+                      : "Enable owner controls"}
+                  </button>
+                  {referenceOwnerMessage && (
+                    <small className="reference-owner-error">
+                      {referenceOwnerMessage}
+                    </small>
+                  )}
+                </div>
+              )}
+            </section>
             <div className="theme-setting">
               <span>Appearance</span>
               <div>
