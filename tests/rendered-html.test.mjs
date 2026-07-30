@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { isPlausibleWorkerName } from "../app/schedule-parser.ts";
+import { matchFlightAwareResult } from "../worker/flightaware.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -239,4 +240,30 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_events/);
   assert.match(structuredMigration, /ADD COLUMN location_lat REAL/);
   assert.match(structuredMigration, /ADD COLUMN location_lon REAL/);
+});
+
+test("matches a FlightAware route result by weekday and arrival time", () => {
+  const flightAwareResults = String.raw`
+    {"flightArrivalDay":" <span title=\"EDT\">Thu</span>","flightArrivalTime":"12:27PM&nbsp;<span class=\"tz\">EDT</span>","flightDepartureDay":"<span title=\"EDT\">Thu</span>","flightDepartureTime":"09:54AM&nbsp;<span class=\"tz\">EDT</span>","flightIdent":" <a href=\"/live/flight/id/AAY1821-1785215549-airline-51p%3a0\">AAY1821</a>","flightStatus":"Taxiing"}
+    {"flightArrivalDay":" <span title=\"EDT\">Wed</span>","flightArrivalTime":"07:27PM&nbsp;<span class=\"tz\">EDT</span>","flightDepartureDay":"<span title=\"EDT\">Wed</span>","flightDepartureTime":"04:54PM&nbsp;<span class=\"tz\">EDT</span>","flightIdent":" <a href=\"/live/flight/id/AAY178-1785130155-airline-982p%3a0\">AAY178</a>","flightStatus":"Arrived"}
+  `;
+
+  assert.equal(
+    matchFlightAwareResult(
+      flightAwareResults,
+      "2026-07-29",
+      "19:27",
+      "arrival",
+    ),
+    "https://www.flightaware.com/live/flight/id/AAY178-1785130155-airline-982p%3a0",
+  );
+  assert.equal(
+    matchFlightAwareResult(
+      flightAwareResults,
+      "2026-07-29",
+      "16:54",
+      "departure",
+    ),
+    "https://www.flightaware.com/live/flight/id/AAY178-1785130155-airline-982p%3a0",
+  );
 });

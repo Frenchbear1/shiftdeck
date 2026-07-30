@@ -684,8 +684,18 @@ function flightAwareRouteUrl(flight: Flight, homeAirport: string) {
     flight.kind === "departure"
       ? cleanAirportCode(flight.outboundAirport ?? flight.destination ?? "")
       : home;
-
-  return `https://www.flightaware.com/live/findflight?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
+  const matchField = flight.kind === "departure" ? "departure" : "arrival";
+  const expectedTime =
+    matchField === "departure"
+      ? flight.departure ?? flight.start
+      : flight.arrival ?? flight.start;
+  const resolver = new URL(calendarServiceUrl("/api/flights/resolve"));
+  resolver.searchParams.set("origin", origin);
+  resolver.searchParams.set("destination", destination);
+  resolver.searchParams.set("date", flight.date);
+  resolver.searchParams.set("time", expectedTime);
+  resolver.searchParams.set("match", matchField);
+  return resolver.toString();
 }
 
 type PhotonFeature = {
@@ -3049,7 +3059,7 @@ export default function HomePage() {
                       href={flightAwareRouteUrl(flight, prefs.homeAirport)}
                       target="_blank"
                       rel="noreferrer"
-                      aria-label="Find this flight route in FlightAware"
+                      aria-label="Open this exact flight in FlightAware"
                       key={flight.id}
                     >
                       <div className="flight-time">

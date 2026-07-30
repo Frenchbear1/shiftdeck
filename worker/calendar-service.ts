@@ -1,4 +1,8 @@
 import { calendarSchemaStatements } from "../db/schema";
+import {
+  FLIGHTAWARE_ORIGIN,
+  matchFlightAwareResult,
+} from "./flightaware";
 
 type D1Result<T = unknown> = {
   results?: T[];
@@ -184,6 +188,66 @@ async function searchPlaces(request: Request) {
   } catch {
     return json(request, { error: "Place search failed" }, 502);
   }
+}
+
+function validAirport(value: string) {
+  return /^[A-Z]{3,4}$/.test(value);
+}
+
+async function resolveFlightAwareFlight(request: Request) {
+  const url = new URL(request.url);
+  const origin = cleanText(url.searchParams.get("origin"), 4).toUpperCase();
+  const destination = cleanText(
+    url.searchParams.get("destination"),
+    4,
+  ).toUpperCase();
+  const date = cleanText(url.searchParams.get("date"), 10);
+  const time = cleanText(url.searchParams.get("time"), 5);
+  const matchField =
+    url.searchParams.get("match") === "departure" ? "departure" : "arrival";
+  const fallback = new URL("/live/findflight", FLIGHTAWARE_ORIGIN);
+  fallback.searchParams.set("origin", origin);
+  fallback.searchParams.set("destination", destination);
+
+  if (
+    !validAirport(origin) ||
+    !validAirport(destination) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+    !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)
+  ) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: fallback.toString(), "Cache-Control": "no-store" },
+    });
+  }
+
+  let destinationUrl = fallback.toString();
+  try {
+    const response = await fetch(fallback, {
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": "Mozilla/5.0 (compatible; Shiftdeck/1.0)",
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (response.ok) {
+      destinationUrl =
+        matchFlightAwareResult(
+          await response.text(),
+          date,
+          time,
+          matchField,
+        ) ?? destinationUrl;
+    }
+  } catch {
+    // FlightAware can change or temporarily block its result page. The route
+    // list remains a safe fallback so the card never becomes a dead link.
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: destinationUrl, "Cache-Control": "no-store" },
+  });
 }
 
 function validDate(value: string) {
@@ -649,6 +713,7 @@ export async function handleCalendarRequest(
   const url = new URL(request.url);
   const isCalendarRoute =
     url.pathname.startsWith("/api/calendar-feeds") ||
+    url.pathname === "/api/flights/resolve" ||
     url.pathname === "/api/places" ||
     url.pathname.startsWith("/calendar/");
   if (!isCalendarRoute) return null;
@@ -657,6 +722,9 @@ export async function handleCalendarRequest(
   }
   if (request.method === "GET" && url.pathname === "/api/places") {
     return searchPlaces(request);
+  }
+  if (request.method === "GET" && url.pathname === "/api/flights/resolve") {
+    return resolveFlightAwareFlight(request);
   }
   if (!db) {
     return json(
