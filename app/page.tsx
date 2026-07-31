@@ -1522,6 +1522,22 @@ export default function HomePage() {
     [clockNow, importedShifts, prefs.person],
   );
 
+  const centerHomeDate = useCallback((date: string) => {
+    const rail = homeDateRail.current;
+    const dateCard = rail?.querySelector<HTMLElement>(
+      `[data-schedule-date="${date}"]`,
+    );
+
+    if (!rail || !dateCard) return;
+
+    const centeredLeft =
+      dateCard.offsetLeft - (rail.clientWidth - dateCard.offsetWidth) / 2;
+    rail.scrollTo({
+      left: Math.max(0, centeredLeft),
+      behavior: "smooth",
+    });
+  }, []);
+
   useEffect(() => {
     if (!hydrated || tab !== "home") return;
     let cancelled = false;
@@ -1532,6 +1548,20 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [hydrated, tab, todayDate]);
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      tab !== "home" ||
+      selectedDate !== todayDate ||
+      !scheduleDates.includes(todayDate)
+    ) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => centerHomeDate(todayDate));
+    return () => window.cancelAnimationFrame(frame);
+  }, [centerHomeDate, hydrated, scheduleDates, selectedDate, tab, todayDate]);
 
   const importedFlights = useMemo(
     () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)),
@@ -1849,20 +1879,6 @@ export default function HomePage() {
   };
 
   const returnToToday = () => {
-    const rail = homeDateRail.current;
-    const todayCard = rail?.querySelector<HTMLElement>(
-      `[data-schedule-date="${todayDate}"]`,
-    );
-
-    if (rail && todayCard) {
-      const centeredLeft =
-        todayCard.offsetLeft - (rail.clientWidth - todayCard.offsetWidth) / 2;
-      rail.scrollTo({
-        left: Math.max(0, centeredLeft),
-        behavior: "smooth",
-      });
-    }
-
     selectDate(todayDate);
   };
 
