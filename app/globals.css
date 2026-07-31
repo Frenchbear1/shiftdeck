@@ -938,6 +938,221 @@ main {
   background: var(--amber-soft);
 }
 
+.reference-card.websites .reference-card-icon,
+.reference-detail-icon.websites {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.reference-title-actions {
+  gap: 9px;
+}
+
+.reference-search-toggle {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.reference-search-toggle.active {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.reference-search-toggle svg {
+  width: 19px;
+}
+
+.reference-search {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 0 14px;
+  color: var(--blue);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line));
+  border-radius: 16px;
+  box-shadow: 0 13px 30px rgba(49, 83, 176, .09);
+}
+
+.reference-search > svg {
+  width: 20px;
+}
+
+.reference-search input {
+  min-width: 0;
+  height: 52px;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 15px;
+}
+
+.reference-search input::placeholder {
+  color: var(--muted);
+}
+
+.reference-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.reference-search button {
+  width: 33px;
+  height: 33px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.reference-search button svg {
+  width: 16px;
+}
+
+.reference-search-results {
+  display: grid;
+  gap: 13px;
+}
+
+.reference-search-list {
+  display: grid;
+  gap: 9px;
+}
+
+.reference-search-result {
+  min-width: 0;
+  position: relative;
+  display: grid;
+  gap: 11px;
+  padding: 16px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  box-shadow: var(--shadow);
+}
+
+.reference-search-result-copy,
+.reference-search-reference {
+  font: inherit;
+  cursor: pointer;
+}
+
+.reference-search-result-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.reference-search-result-copy > span,
+.reference-search-reference > span {
+  color: var(--blue);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.reference-search-result strong {
+  font-size: 15px;
+}
+
+.reference-search-result small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.reference-search-reference {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.reference-search-reference > svg {
+  width: 18px;
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.reference-search-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.reference-search-methods a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  color: var(--blue);
+  text-decoration: none;
+  background: var(--blue-soft);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.reference-search-methods svg {
+  width: 14px;
+}
+
+.reference-search-highlight {
+  margin: 0 -1px;
+  padding: 1px 2px;
+  color: inherit;
+  background: color-mix(in srgb, var(--blue) 25%, transparent);
+  border-radius: 4px;
+}
+
+.reference-search-empty {
+  min-height: 170px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+}
+
+.reference-search-empty > svg {
+  width: 27px;
+  color: var(--blue);
+}
+
+.reference-search-empty strong {
+  color: var(--text);
+}
+
 .reference-detail-heading {
   min-height: 72px;
   display: grid;
@@ -1007,8 +1222,8 @@ main {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
-  padding: 18px 0;
+  gap: 11px;
+  padding: 13px 0;
   border-top: 1px solid var(--line);
 }
 
@@ -1022,8 +1237,8 @@ main {
 }
 
 .contact-avatar {
-  width: 43px;
-  height: 43px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   color: var(--blue);
@@ -1036,7 +1251,7 @@ main {
 .contact-copy {
   min-width: 0;
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .contact-copy > div:first-child {
@@ -1049,27 +1264,32 @@ main {
   font-size: 15px;
 }
 
-.contact-copy > div:first-child span,
-.contact-copy > div:first-child small {
+.contact-copy > div:first-child > span,
+.contact-copy > div:first-child > small {
   color: var(--muted);
 }
 
 .contact-methods {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 .contact-methods a {
+  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   color: var(--blue);
   text-decoration: none;
   background: var(--blue-soft);
   border-radius: 13px;
+}
+
+.contact-methods .contact-method-email {
+  grid-column: 1 / -1;
 }
 
 .contact-methods a > svg {
@@ -1550,6 +1770,50 @@ main {
   border-radius: 13px;
   font-size: 11px;
   font-weight: 850;
+}
+
+.person-name-with-tag,
+.reference-search-result-name {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  vertical-align: middle;
+}
+
+.person-name-with-tag > span:first-child,
+.reference-search-result-name > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gsc-tag {
+  min-height: 17px;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0 5px;
+  color: #2857b5 !important;
+  background: #dce8ff !important;
+  border: 1px solid #c3d6ff;
+  border-radius: 999px;
+  font-size: 8px !important;
+  font-weight: 900;
+  letter-spacing: .04em;
+  line-height: 1;
+}
+
+:root[data-theme="dark"] .gsc-tag {
+  color: #b9ceff !important;
+  background: #293d6c !important;
+  border-color: #3b568e;
+}
+
+.mobile-worker-names > span {
+  display: inline;
 }
 
 .tone-0 { color: #3b63be; background: #e8efff; }
@@ -3639,6 +3903,11 @@ main {
     border-radius: 12px;
   }
 
+  .mobile-header > div button.active {
+    color: white;
+    background: var(--blue);
+  }
+
   .mobile-header svg {
     width: 18px;
   }
@@ -4365,6 +4634,36 @@ main {
     max-width: 100%;
   }
 
+  .reference-title-actions .reference-search-toggle {
+    display: none;
+  }
+
+  .reference-search {
+    min-height: 49px;
+    padding: 0 11px;
+    border-radius: 14px;
+  }
+
+  .reference-search input {
+    height: 47px;
+    font-size: 16px;
+  }
+
+  .reference-search-result {
+    padding: 14px;
+    border-radius: 15px;
+  }
+
+  .reference-search-methods {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reference-search-methods a {
+    min-width: 0;
+    justify-content: center;
+  }
+
   .reference-contacts-card {
     min-height: 100px;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -4474,7 +4773,7 @@ main {
 
   .contact-card {
     gap: 11px;
-    padding: 15px 0;
+    padding: 11px 0;
   }
 
   .contact-avatar {
@@ -4485,13 +4784,17 @@ main {
 
   .contact-methods {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 7px;
   }
 
   .contact-methods a {
     width: 100%;
     padding: 9px 11px;
+  }
+
+  .contact-methods .contact-method-email {
+    grid-column: 1 / -1;
   }
 
   .contact-methods b {

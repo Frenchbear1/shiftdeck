@@ -145,6 +145,27 @@ test("protects work references behind owner-approved device access", async () =>
   assert.doesNotMatch(page, /CONTACT_GROUPS|QUICK_REFERENCES/);
 });
 
+test("searches all references, condenses contacts, and marks GSC workers", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /referenceSearchQuery/);
+  assert.match(page, /Search contacts and references/);
+  assert.match(page, /referenceSearchResults/);
+  assert.match(page, /contact\.methods && contact\.methods\.length > 0/);
+  assert.match(page, /tab === "references"[\s\S]{0,450}?<Search \/>/);
+  assert.match(page, /case "websites"/);
+  assert.match(page, /GSC_NAME_KEYS/);
+  assert.match(page, /Chris Williams/);
+  assert.match(page, /<PersonName name=\{candidate\.worker\}/);
+  assert.match(page, /<PersonName name=\{shift\.worker\}/);
+  assert.match(css, /\.contact-methods\s*\{[\s\S]{0,120}?repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.reference-search-highlight/);
+  assert.match(css, /\.gsc-tag/);
+});
+
 test("caches the PWA shell and restores Today before background data", async () => {
   const [serviceWorker, page, layout, pagesShell] = await Promise.all([
     readFile(new URL("../public/sw.js", import.meta.url), "utf8"),

@@ -15,6 +15,7 @@ import {
   ExternalLink,
   FileImage,
   FileText,
+  Globe2,
   Home,
   KeyRound,
   LockKeyhole,
@@ -25,6 +26,7 @@ import {
   Plane,
   Phone,
   Plus,
+  Search,
   Settings,
   ShieldCheck,
   ShieldAlert,
@@ -218,6 +220,26 @@ type SwapCandidate = {
   sameShiftBand: boolean;
   availability: "Off that day" | "Not scheduled";
 };
+
+type ReferenceSearchResult =
+  | {
+      id: string;
+      kind: "contact";
+      title: string;
+      category: string;
+      detail: string;
+      methods: NonNullable<
+        ReferenceVault["contactGroups"][number]["contacts"][number]["methods"]
+      >;
+    }
+  | {
+      id: string;
+      kind: "reference";
+      title: string;
+      category: string;
+      detail: string;
+      referenceId: string;
+    };
 
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
@@ -514,6 +536,64 @@ const calendarKeyFor = (person: string, date: string) =>
 const personKey = (person: string) =>
   person.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
+const GSC_NAME_KEYS = new Set(
+  [
+    "Allison Osborne",
+    "Alyssa Dugan",
+    "Chris Williams",
+    "Christopher Williams",
+    "Connie Phillip",
+    "Devin Bauer",
+    "Dwight Gardner",
+    "Earl Peiffer",
+    "Jacob Hoffert",
+    "Jakisha Gonzalez",
+    "Jason Hudak",
+    "Joan Zandarski",
+    "Josephine Dutsch",
+    "Katrina Jackson",
+    "Kim Rawhouser",
+    "Kody Hermany",
+    "Steven Keiser",
+    "Suzete Campos",
+    "Tasha Peterson",
+    "Tyler Bastian",
+  ].map(personKey),
+);
+
+const isGroundSecurityCoordinator = (name: string) =>
+  GSC_NAME_KEYS.has(personKey(name));
+
+function PersonName({ name, label }: { name: string; label?: string }) {
+  return (
+    <span className="person-name-with-tag">
+      <span>{label ?? name}</span>
+      {isGroundSecurityCoordinator(name) && <span className="gsc-tag">GSC</span>}
+    </span>
+  );
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return <>{text}</>;
+  const lower = text.toLocaleLowerCase();
+  const parts = [];
+  let cursor = 0;
+  let match = lower.indexOf(needle, cursor);
+  while (match >= 0) {
+    if (match > cursor) parts.push(text.slice(cursor, match));
+    parts.push(
+      <mark className="reference-search-highlight" key={`${match}-${cursor}`}>
+        {text.slice(match, match + needle.length)}
+      </mark>,
+    );
+    cursor = match + needle.length;
+    match = lower.indexOf(needle, cursor);
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
+
 const eventsFor = (shifts: Shift[], person: string, title: string) =>
   shifts
     .filter(
@@ -764,6 +844,8 @@ function quickReferenceIcon(id: string) {
       return <FileText />;
     case "trafficking":
       return <Phone />;
+    case "websites":
+      return <Globe2 />;
     default:
       return <BookOpenText />;
   }
@@ -788,6 +870,8 @@ export default function HomePage() {
   const [referenceRequest, setReferenceRequest] =
     useState<StoredReferenceRequest | null>(null);
   const [referenceAccessMessage, setReferenceAccessMessage] = useState("");
+  const [referenceSearchOpen, setReferenceSearchOpen] = useState(false);
+  const [referenceSearchQuery, setReferenceSearchQuery] = useState("");
   const [referenceOwnerToken, setReferenceOwnerToken] = useState("");
   const [referencePreloadReady, setReferencePreloadReady] = useState(false);
   const [referenceOwnerCode, setReferenceOwnerCode] = useState("");
@@ -857,9 +941,83 @@ export default function HomePage() {
   const [backgroundHydrated, setBackgroundHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const fileInput = useRef<HTMLInputElement>(null);
+  const referenceSearchInput = useRef<HTMLInputElement>(null);
   const homeDateRail = useRef<HTMLDivElement>(null);
   const workersDateRail = useRef<HTMLDivElement>(null);
   const flightsDateRail = useRef<HTMLDivElement>(null);
+
+  const referenceSearchResults = useMemo<ReferenceSearchResult[]>(() => {
+    const query = referenceSearchQuery.trim().toLocaleLowerCase();
+    if (!referenceVault || !query) return [];
+    const compactQuery = query.replace(/[^a-z0-9]/g, "");
+    const matchesQuery = (value: string) => {
+      const lower = value.toLocaleLowerCase();
+      return (
+        lower.includes(query) ||
+        (compactQuery.length > 2 &&
+          lower.replace(/[^a-z0-9]/g, "").includes(compactQuery))
+      );
+    };
+    const results: ReferenceSearchResult[] = [];
+
+    referenceVault.contactGroups.forEach((group) => {
+      group.contacts.forEach((contact) => {
+        const methods = contact.methods ?? [];
+        const detail = [
+          contact.role,
+          contact.note,
+          ...methods.flatMap((method) => [method.label, method.value]),
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const searchable = [
+          contact.name,
+          group.title,
+          detail,
+          isGroundSecurityCoordinator(contact.name) ? "GSC" : "",
+        ].join(" ");
+        if (matchesQuery(searchable)) {
+          results.push({
+            id: `contact-${contact.id}`,
+            kind: "contact",
+            title: contact.name,
+            category: `Contacts · ${group.title}`,
+            detail,
+            methods,
+          });
+        }
+      });
+    });
+
+    referenceVault.quickReferences.forEach((reference) => {
+      const searchableParts = [reference.title, reference.summary];
+      reference.sections.forEach((section) => {
+        searchableParts.push(section.title, section.copy ?? "", section.callout ?? "");
+        searchableParts.push(...(section.bullets ?? []));
+        section.links?.forEach((link) => {
+          searchableParts.push(link.label, link.note ?? "");
+        });
+      });
+      const matchingPart = searchableParts.find((part) =>
+        matchesQuery(part),
+      );
+      if (matchingPart) {
+        results.push({
+          id: `reference-${reference.id}`,
+          kind: "reference",
+          title: reference.title,
+          category: "Quick reference",
+          detail:
+            matchingPart === reference.title
+              ? reference.summary
+              : matchingPart,
+          referenceId: reference.id,
+        });
+      }
+    });
+
+    return results;
+  }, [referenceSearchQuery, referenceVault]);
 
   const loadReferenceVault = useCallback(async (token: string) => {
     const response = await fetch(calendarServiceUrl("/api/references"), {
@@ -870,6 +1028,12 @@ export default function HomePage() {
     const vault = (await response.json()) as ReferenceVault;
     setReferenceVault({
       ...vault,
+      contactGroups: vault.contactGroups.map((group) => ({
+        ...group,
+        contacts: group.contacts.filter(
+          (contact) => contact.methods && contact.methods.length > 0,
+        ),
+      })),
       quickReferences: vault.quickReferences.filter(
         (reference) => reference.id !== "manuals",
       ),
@@ -1911,6 +2075,17 @@ export default function HomePage() {
     setTab("references");
   };
 
+  const toggleReferenceSearch = () => {
+    const nextOpen = !referenceSearchOpen;
+    setReferenceSearchOpen(nextOpen);
+    setReferenceDetail(null);
+    if (!nextOpen) {
+      setReferenceSearchQuery("");
+      return;
+    }
+    window.setTimeout(() => referenceSearchInput.current?.focus(), 0);
+  };
+
   const jumpDate = (amount: number) => {
     if (!scheduleDates.length) return;
     const current = Math.max(0, scheduleDates.indexOf(selectedDate));
@@ -2822,7 +2997,7 @@ export default function HomePage() {
                   {initials(shift.worker)}
                 </span>
                 <div>
-                  <b>{shift.worker}</b>
+                  <b><PersonName name={shift.worker} /></b>
                   <small>
                     {formatTime(shift.start)} – {formatTime(shift.end)}
                   </small>
@@ -2896,7 +3071,10 @@ export default function HomePage() {
                     <div className="timeline-names">
                       {group.shifts.map((shift) => (
                         <span key={shift.id}>
-                          {shift.worker === prefs.person ? "You" : shift.worker}
+                          <PersonName
+                            name={shift.worker}
+                            label={shift.worker === prefs.person ? "You" : shift.worker}
+                          />
                         </span>
                       ))}
                     </div>
@@ -2922,10 +3100,20 @@ export default function HomePage() {
                     {group.shifts.length > 1 ? group.shifts.length : initials(group.shifts[0].worker)}
                   </span>
                   <div>
-                    <b>
-                      {group.shifts
-                        .map((shift) => shift.worker === prefs.person ? "You" : shift.worker.split(" ")[0])
-                        .join(", ")}
+                    <b className="mobile-worker-names">
+                      {group.shifts.map((shift, index) => (
+                        <span key={shift.id}>
+                          {index > 0 && ", "}
+                          <PersonName
+                            name={shift.worker}
+                            label={
+                              shift.worker === prefs.person
+                                ? "You"
+                                : shift.worker.split(" ")[0]
+                            }
+                          />
+                        </span>
+                      ))}
                     </b>
                     <small>
                       {group.relation === "mine"
@@ -2987,7 +3175,16 @@ export default function HomePage() {
               <div className={`roster-card ${shift.worker === prefs.person ? "is-me" : ""}`} key={shift.id}>
                 <span className={`person-avatar tone-${index % 4}`}>{initials(shift.worker)}</span>
                 <div>
-                  <b>{shift.worker === prefs.person ? `${shift.worker} · You` : shift.worker}</b>
+                  <b>
+                    <PersonName
+                      name={shift.worker}
+                      label={
+                        shift.worker === prefs.person
+                          ? `${shift.worker} · You`
+                          : shift.worker
+                      }
+                    />
+                  </b>
                   <small>
                     {shift.status === "working"
                       ? `${formatTime(shift.start)} – ${formatTime(shift.end)}`
@@ -3128,7 +3325,7 @@ export default function HomePage() {
       </span>
       <div className="swap-candidate-copy">
         <div>
-          <b>{candidate.worker}</b>
+          <b><PersonName name={candidate.worker} /></b>
           <span>{candidate.availability}</span>
         </div>
         <small>
@@ -3544,14 +3741,18 @@ export default function HomePage() {
                 <span className="contact-avatar">{initials(contact.name)}</span>
                 <div className="contact-copy">
                   <div>
-                    <strong>{contact.name}</strong>
+                    <strong><PersonName name={contact.name} /></strong>
                     {contact.role && <span>{contact.role}</span>}
                     {contact.note && <small>{contact.note}</small>}
                   </div>
                   {contact.methods && contact.methods.length > 0 && (
                     <div className="contact-methods">
                       {contact.methods.map((method) => (
-                        <a href={method.href} key={`${contact.id}-${method.value}`}>
+                        <a
+                          className={method.kind === "email" ? "contact-method-email" : undefined}
+                          href={method.href}
+                          key={`${contact.id}-${method.value}`}
+                        >
                           {method.kind === "phone" ? <Phone /> : <Mail />}
                           <span>
                             <small>{method.label}</small>
@@ -3635,6 +3836,117 @@ export default function HomePage() {
     </div>
   );
 
+  const renderReferenceSearch = () => (
+    <>
+      <div className="reference-search" role="search">
+        <Search aria-hidden="true" />
+        <input
+          ref={referenceSearchInput}
+          type="search"
+          value={referenceSearchQuery}
+          onChange={(event) => setReferenceSearchQuery(event.target.value)}
+          placeholder="Search contacts and references"
+          aria-label="Search contacts and references"
+          autoComplete="off"
+        />
+        {referenceSearchQuery && (
+          <button
+            type="button"
+            onClick={() => {
+              setReferenceSearchQuery("");
+              referenceSearchInput.current?.focus();
+            }}
+            aria-label="Clear reference search"
+          >
+            <X />
+          </button>
+        )}
+      </div>
+
+      {referenceSearchQuery.trim() && (
+        <section className="reference-search-results" aria-live="polite">
+          <div className="reference-library-heading">
+            <h2>Search results</h2>
+            <span>{referenceSearchResults.length}</span>
+          </div>
+          {referenceSearchResults.length ? (
+            <div className="reference-search-list">
+              {referenceSearchResults.map((result) =>
+                result.kind === "contact" ? (
+                  <article className="reference-search-result" key={result.id}>
+                    <button
+                      className="reference-search-result-copy"
+                      type="button"
+                      onClick={() => openReferenceDetail("contacts")}
+                    >
+                      <span>{result.category}</span>
+                      <strong className="reference-search-result-name">
+                        <span>
+                          <HighlightedText
+                            text={result.title}
+                            query={referenceSearchQuery}
+                          />
+                        </span>
+                        {isGroundSecurityCoordinator(result.title) && (
+                          <span className="gsc-tag">GSC</span>
+                        )}
+                      </strong>
+                      <small>
+                        <HighlightedText
+                          text={result.detail}
+                          query={referenceSearchQuery}
+                        />
+                      </small>
+                    </button>
+                    <div className="reference-search-methods">
+                      {result.methods.map((method) => (
+                        <a href={method.href} key={`${result.id}-${method.value}`}>
+                          {method.kind === "phone" ? <Phone /> : <Mail />}
+                          <HighlightedText
+                            text={method.value}
+                            query={referenceSearchQuery}
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  </article>
+                ) : (
+                  <button
+                    className="reference-search-result reference-search-reference"
+                    type="button"
+                    onClick={() => openReferenceDetail(result.referenceId)}
+                    key={result.id}
+                  >
+                    <span>{result.category}</span>
+                    <strong>
+                      <HighlightedText
+                        text={result.title}
+                        query={referenceSearchQuery}
+                      />
+                    </strong>
+                    <small>
+                      <HighlightedText
+                        text={result.detail}
+                        query={referenceSearchQuery}
+                      />
+                    </small>
+                    <ChevronRight />
+                  </button>
+                ),
+              )}
+            </div>
+          ) : (
+            <div className="reference-search-empty">
+              <Search />
+              <strong>No matches</strong>
+              <small>Try a name, phone number, policy, topic, or website.</small>
+            </div>
+          )}
+        </section>
+      )}
+    </>
+  );
+
   const renderReferences = () => {
     if (!referenceVault) {
       return (
@@ -3709,24 +4021,37 @@ export default function HomePage() {
           <div>
             <h1>References</h1>
           </div>
-          {referenceOwnerToken && (
-            <span
-              className={`reference-owner-status ${
-                pendingReferenceRequests.length ? "waiting" : ""
-              }`}
+          <div className="page-title-actions reference-title-actions">
+            <button
+              className={`reference-search-toggle ${referenceSearchOpen ? "active" : ""}`}
+              type="button"
+              onClick={toggleReferenceSearch}
+              aria-label={referenceSearchOpen ? "Close reference search" : "Search references"}
+              aria-expanded={referenceSearchOpen}
             >
-              <ShieldCheck />
-              <b>Owner</b>
-              <span>
-                {pendingReferenceRequests.length
-                  ? `${pendingReferenceRequests.length} waiting`
-                  : "No requests"}
+              {referenceSearchOpen ? <X /> : <Search />}
+            </button>
+            {referenceOwnerToken && (
+              <span
+                className={`reference-owner-status ${
+                  pendingReferenceRequests.length ? "waiting" : ""
+                }`}
+              >
+                <ShieldCheck />
+                <b>Owner</b>
+                <span>
+                  {pendingReferenceRequests.length
+                    ? `${pendingReferenceRequests.length} waiting`
+                    : "No requests"}
+                </span>
               </span>
-            </span>
-          )}
+            )}
+          </div>
         </header>
 
-        {referenceOwnerToken && pendingReferenceRequests.length > 0 && (
+        {referenceSearchOpen && renderReferenceSearch()}
+
+        {!referenceSearchQuery.trim() && referenceOwnerToken && pendingReferenceRequests.length > 0 && (
           <section className="panel reference-approval-panel">
             <div className="reference-approval-heading">
               <span><ShieldCheck /></span>
@@ -3769,49 +4094,53 @@ export default function HomePage() {
           </section>
         )}
 
-        <button
-          className="reference-contacts-card"
-          onClick={() => openReferenceDetail("contacts")}
-        >
-          <span className="reference-contacts-icon"><ContactRound /></span>
-          <span>
-            <strong>Contacts</strong>
-            <small>People, HR, AOC, and duty phone</small>
-          </span>
-          <span className="reference-card-count">
-            {referenceVault.contactGroups.reduce(
-              (total, group) => total + group.contacts.length,
-              0,
-            )}
-          </span>
-          <ChevronRight />
-        </button>
+        {!referenceSearchQuery.trim() && (
+          <>
+            <button
+              className="reference-contacts-card"
+              onClick={() => openReferenceDetail("contacts")}
+            >
+              <span className="reference-contacts-icon"><ContactRound /></span>
+              <span>
+                <strong>Contacts</strong>
+                <small>People, airline leadership, and the LNAA directory</small>
+              </span>
+              <span className="reference-card-count">
+                {referenceVault.contactGroups.reduce(
+                  (total, group) => total + group.contacts.length,
+                  0,
+                )}
+              </span>
+              <ChevronRight />
+            </button>
 
-        <section className="reference-library">
-          <div className="reference-library-heading">
-            <h2>Quick references</h2>
-            <span>{referenceVault.quickReferences.length}</span>
-          </div>
-          <div className="reference-card-grid">
-            {referenceVault.quickReferences.map((reference) => (
-              <button
-                className={`reference-card ${reference.id}`}
-                onClick={() => openReferenceDetail(reference.id)}
-                key={reference.id}
-              >
-                <span className="reference-card-icon">
-                  {quickReferenceIcon(reference.id)}
-                </span>
-                <span className="reference-card-copy">
-                  <strong>{reference.title}</strong>
-                  <small>{reference.summary}</small>
-                </span>
-                <span className="reference-card-badge">{reference.badge}</span>
-                <ChevronRight />
-              </button>
-            ))}
-          </div>
-        </section>
+            <section className="reference-library">
+              <div className="reference-library-heading">
+                <h2>Quick references</h2>
+                <span>{referenceVault.quickReferences.length}</span>
+              </div>
+              <div className="reference-card-grid">
+                {referenceVault.quickReferences.map((reference) => (
+                  <button
+                    className={`reference-card ${reference.id}`}
+                    onClick={() => openReferenceDetail(reference.id)}
+                    key={reference.id}
+                  >
+                    <span className="reference-card-icon">
+                      {quickReferenceIcon(reference.id)}
+                    </span>
+                    <span className="reference-card-copy">
+                      <strong>{reference.title}</strong>
+                      <small>{reference.summary}</small>
+                    </span>
+                    <span className="reference-card-badge">{reference.badge}</span>
+                    <ChevronRight />
+                  </button>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
       </div>
     );
   };
@@ -3972,7 +4301,7 @@ export default function HomePage() {
           <button onClick={() => setSettingsOpen(true)}><Settings /><span>Settings</span></button>
           <div className="profile-mini">
             <span>{initials(prefs.person)}</span>
-            <div><b>{prefs.person}</b><small>Schedule owner</small></div>
+            <div><b><PersonName name={prefs.person} /></b><small>Schedule owner</small></div>
           </div>
         </div>
       </aside>
@@ -3981,6 +4310,16 @@ export default function HomePage() {
         <header className="mobile-header">
           <button className="brand" onClick={openTodayTab}><span><img src="./apple-touch-icon.png" alt="" /></span><b>Shiftdeck</b></button>
           <div>
+            {tab === "references" && (
+              <button
+                className={referenceSearchOpen ? "active" : ""}
+                onClick={toggleReferenceSearch}
+                aria-label={referenceSearchOpen ? "Close reference search" : "Search references"}
+                aria-expanded={referenceSearchOpen}
+              >
+                {referenceSearchOpen ? <X /> : <Search />}
+              </button>
+            )}
             <button onClick={openAddShift} aria-label="Add a shift"><Plus /></button>
             <button onClick={() => setSettingsOpen(true)} aria-label="Open settings"><Settings /></button>
           </div>
@@ -4326,7 +4665,11 @@ export default function HomePage() {
             <label>
               <span>Your name on the schedule</span>
               <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
-                {availableWorkers.map((worker) => <option key={worker}>{worker}</option>)}
+                {availableWorkers.map((worker) => (
+                  <option value={worker} key={worker}>
+                    {isGroundSecurityCoordinator(worker) ? `${worker} · GSC` : worker}
+                  </option>
+                ))}
               </select>
               <ChevronDown />
             </label>
