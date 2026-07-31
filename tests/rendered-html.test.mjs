@@ -64,11 +64,15 @@ test("keeps Workers and Flights date navigation compact", async () => {
   assert.match(css, /\.page-title-actions/);
   assert.match(page, /const workersDateRail = useRef<HTMLDivElement>\(null\)/);
   assert.match(page, /const flightsDateRail = useRef<HTMLDivElement>\(null\)/);
-  assert.match(page, /tab === "workers"\s*\? workersDateRail\.current/);
-  assert.match(page, /tab === "flights"\s*\? flightsDateRail\.current/);
+  assert.match(page, /activeTab === "workers"\s*\? workersDateRail\.current/);
+  assert.match(page, /:\s*flightsDateRail\.current/);
   assert.match(page, /renderDateRail\(false, true, "workers"\)/);
   assert.match(page, /renderDateRail\(false, true, "flights"\)/);
-  assert.match(page, /centerDateInRail\(rail, selectedDate\)/);
+  assert.match(page, /useLayoutEffect\(\(\) =>/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate, "auto"\)/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
+  assert.match(page, /pendingDateCenter\.current = \{ tab, date \}/);
+  assert.match(page, /hasCenteredHomeOnLaunch/);
   assert.doesNotMatch(page, /<span>Showing<\/span>/);
   assert.doesNotMatch(page, /<span>During your shift<\/span>/);
   assert.doesNotMatch(css, /\.flight-summary/);
@@ -356,7 +360,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /weekly-pay-toggle/);
   assert.match(page, /returnToToday/);
   assert.match(page, /today-text-button/);
-  assert.match(page, /behavior: "smooth"/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
   assert.match(page, /data-schedule-date/);
   assert.match(css, /\.today-text-button/);
   assert.match(page, /customTitle/);

@@ -42,6 +42,7 @@ import {
   ChangeEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -75,6 +76,8 @@ type Tab =
   | "timeoff"
   | "import"
   | "references";
+
+type ScheduleTab = Extract<Tab, "home" | "workers" | "flights">;
 
 type CalendarEvent = {
   id: string;
@@ -945,6 +948,8 @@ export default function HomePage() {
   const homeDateRail = useRef<HTMLDivElement>(null);
   const workersDateRail = useRef<HTMLDivElement>(null);
   const flightsDateRail = useRef<HTMLDivElement>(null);
+  const pendingDateCenter = useRef<{ tab: ScheduleTab; date: string } | null>(null);
+  const hasCenteredHomeOnLaunch = useRef(false);
 
   const referenceSearchResults = useMemo<ReferenceSearchResult[]>(() => {
     const query = referenceSearchQuery.trim().toLocaleLowerCase();
@@ -1683,20 +1688,23 @@ export default function HomePage() {
     [clockNow, importedShifts, prefs.person],
   );
 
-  const centerDateInRail = useCallback((rail: HTMLDivElement | null, date: string) => {
-    const dateCard = rail?.querySelector<HTMLElement>(
-      `[data-schedule-date="${date}"]`,
-    );
+  const centerDateInRail = useCallback(
+    (rail: HTMLDivElement | null, date: string, behavior: ScrollBehavior) => {
+      const dateCard = rail?.querySelector<HTMLElement>(
+        `[data-schedule-date="${date}"]`,
+      );
 
-    if (!rail || !dateCard) return;
+      if (!rail || !dateCard) return;
 
-    const centeredLeft =
-      dateCard.offsetLeft - (rail.clientWidth - dateCard.offsetWidth) / 2;
-    rail.scrollTo({
-      left: Math.max(0, centeredLeft),
-      behavior: "smooth",
-    });
-  }, []);
+      const centeredLeft =
+        dateCard.offsetLeft - (rail.clientWidth - dateCard.offsetWidth) / 2;
+      rail.scrollTo({
+        left: Math.max(0, centeredLeft),
+        behavior,
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!hydrated || tab !== "home") return;
@@ -1709,7 +1717,7 @@ export default function HomePage() {
     };
   }, [hydrated, tab, todayDate]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       !hydrated ||
       !scheduleDates.includes(selectedDate) ||
@@ -1718,19 +1726,38 @@ export default function HomePage() {
       return;
     }
 
+    const activeTab: ScheduleTab | null =
+      tab === "home" || tab === "workers" || tab === "flights" ? tab : null;
+    if (!activeTab) return;
+
     const rail =
-      tab === "home"
+      activeTab === "home"
         ? homeDateRail.current
-        : tab === "workers"
+        : activeTab === "workers"
           ? workersDateRail.current
-          : tab === "flights"
-            ? flightsDateRail.current
-            : null;
+          : flightsDateRail.current;
     if (!rail) return;
 
-    const frame = window.requestAnimationFrame(() =>
-      centerDateInRail(rail, selectedDate),
-    );
+    const centerRequest = pendingDateCenter.current;
+    const isInitialHomeCenter =
+      activeTab === "home" && !hasCenteredHomeOnLaunch.current;
+    const shouldAnimate =
+      isInitialHomeCenter ||
+      (centerRequest?.tab === activeTab && centerRequest.date === selectedDate);
+
+    if (!shouldAnimate) {
+      if (centerRequest?.tab !== activeTab) pendingDateCenter.current = null;
+      centerDateInRail(rail, selectedDate, "auto");
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      centerDateInRail(rail, selectedDate, "smooth");
+      if (isInitialHomeCenter) hasCenteredHomeOnLaunch.current = true;
+      if (pendingDateCenter.current === centerRequest) {
+        pendingDateCenter.current = null;
+      }
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [centerDateInRail, hydrated, scheduleDates, selectedDate, tab, todayDate]);
 
@@ -2039,11 +2066,15 @@ export default function HomePage() {
   ]);
 
   const selectDate = (date: string) => {
+    if (tab === "home" || tab === "workers" || tab === "flights") {
+      pendingDateCenter.current = { tab, date };
+    }
     setSelectedDate(date);
     setShowAllFlights(false);
   };
 
   const openTodayTab = () => {
+    pendingDateCenter.current = { tab: "home", date: todayDate };
     setSelectedDate(todayDate);
     setShowAllFlights(false);
     setTab("home");
