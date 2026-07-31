@@ -1,4 +1,5 @@
 import { calendarSchemaStatements } from "../db/schema";
+import { renderAppleTimedAlarm } from "./calendar-alarms";
 import {
   FLIGHTAWARE_ORIGIN,
   matchFlightAwareResult,
@@ -73,6 +74,8 @@ const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
+
+const CALENDAR_FORMAT_VERSION = 2;
 
 const ALLOWED_ORIGINS = new Set([
   "https://shiftdeck-schedule.frenchbear.chatgpt.site",
@@ -381,8 +384,8 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${safeIcsText(feed.name)}`,
     "X-WR-TIMEZONE:America/New_York",
-    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
-    "X-PUBLISHED-TTL:PT1H",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT15M",
+    "X-PUBLISHED-TTL:PT15M",
   ];
 
   events.forEach((event) => {
@@ -415,11 +418,7 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
       if (feed.notes) lines.push(`DESCRIPTION:${safeIcsText(feed.notes)}`);
       timedReminders.forEach((reminder) => {
         lines.push(
-          "BEGIN:VALARM",
-          `TRIGGER;RELATED=START:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
-          "ACTION:DISPLAY",
-          `DESCRIPTION:${safeIcsText(title)}`,
-          "END:VALARM",
+          ...renderAppleTimedAlarm(feed.id, event.event_key, reminder),
         );
       });
     }
@@ -691,9 +690,17 @@ async function serveFeed(request: Request, db: CalendarDatabase, id: string) {
     )
     .bind(id)
     .all<CalendarEventRow>();
-  const etag = `"shiftdeck-${Date.parse(feed.updated_at)}"`;
+  const etag = `"shiftdeck-v${CALENDAR_FORMAT_VERSION}-${Date.parse(feed.updated_at)}"`;
+  const lastModified = new Date(feed.updated_at).toUTCString();
   if (request.headers.get("If-None-Match") === etag) {
-    return new Response(null, { status: 304, headers: { ETag: etag } });
+    return new Response(null, {
+      status: 304,
+      headers: {
+        "Cache-Control": "public, no-cache, must-revalidate",
+        ETag: etag,
+        "Last-Modified": lastModified,
+      },
+    });
   }
   return new Response(renderCalendar(feed, eventsResult.results ?? []), {
     headers: {
@@ -701,6 +708,7 @@ async function serveFeed(request: Request, db: CalendarDatabase, id: string) {
       "Content-Disposition": 'inline; filename="Shiftdeck.ics"',
       "Cache-Control": "public, no-cache, must-revalidate",
       ETag: etag,
+      "Last-Modified": lastModified,
       "X-Robots-Tag": "noindex, nofollow, noarchive",
     },
   });

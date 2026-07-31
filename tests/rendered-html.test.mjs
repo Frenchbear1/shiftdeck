@@ -5,6 +5,7 @@ import {
   isPlausibleWorkerName,
   isScheduleRevision,
 } from "../app/schedule-parser.ts";
+import { renderAppleTimedAlarm } from "../worker/calendar-alarms.ts";
 import { matchFlightAwareResult } from "../worker/flightaware.ts";
 
 async function render() {
@@ -205,13 +206,36 @@ test("only replaces an imported schedule when most of its week matches", () => {
   assert.equal(isScheduleRevision(firstWeek, correctedVersion), true);
 });
 
+test("renders stable Apple-compatible timed calendar alarms", () => {
+  const calendar = [
+    ...renderAppleTimedAlarm(
+      "calendar-test-id",
+      "david-2026-08-01",
+      "PT1H",
+    ),
+    ...renderAppleTimedAlarm(
+      "calendar-test-id",
+      "david-2026-08-01",
+      "PT2H",
+    ),
+  ].join("\r\n");
+
+  assert.equal((calendar.match(/BEGIN:VALARM/g) ?? []).length, 2);
+  assert.match(calendar, /TRIGGER;RELATED=START:-PT1H/);
+  assert.match(calendar, /TRIGGER;RELATED=START:-PT2H/);
+  assert.equal((calendar.match(/ACTION:AUDIO/g) ?? []).length, 2);
+  assert.equal((calendar.match(/X-WR-ALARMUID:/g) ?? []).length, 2);
+  assert.equal((calendar.match(/ATTACH;VALUE=URI:Chord/g) ?? []).length, 2);
+});
+
 test("uses a durable Apple Calendar subscription with revision-aware events", async () => {
-  const [page, css, hosting, service, migration, structuredMigration, parser] =
+  const [page, css, hosting, service, alarms, migration, structuredMigration, parser] =
     await Promise.all([
       readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
       readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
       readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
       readFile(new URL("../worker/calendar-service.ts", import.meta.url), "utf8"),
+      readFile(new URL("../worker/calendar-alarms.ts", import.meta.url), "utf8"),
       readFile(
         new URL("../drizzle/0000_shiftdeck_calendar.sql", import.meta.url),
         "utf8",
@@ -240,7 +264,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /"CANCELLED" : "CONFIRMED"/);
   assert.doesNotMatch(service, /Revised \$\{sequence\}|— Revised/);
   assert.match(service, /const title = event\.base_title/);
-  assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT1H/);
+  assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT15M/);
   assert.match(service, /write_token_hash/);
   assert.match(page, /Subscribe in Apple Calendar/);
   assert.match(page, /You’re already subscribed/);
@@ -275,7 +299,12 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /limit=10/);
   assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
   assert.match(service, /\.filter\(Boolean\)/);
-  assert.match(service, /TRIGGER;RELATED=START/);
+  assert.match(alarms, /TRIGGER;RELATED=START/);
+  assert.match(alarms, /X-WR-ALARMUID/);
+  assert.match(alarms, /ACTION:AUDIO/);
+  assert.match(alarms, /ATTACH;VALUE=URI:Chord/);
+  assert.match(service, /CALENDAR_FORMAT_VERSION/);
+  assert.match(service, /"Last-Modified": lastModified/);
   assert.match(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
   assert.match(service, /X-APPLE-STRUCTURED-LOCATION/);
   assert.match(service, /const hasStructuredLocation/);
