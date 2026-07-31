@@ -179,10 +179,14 @@ test("caches the PWA shell and restores Today before background data", async () 
   ]);
 
   assert.match(serviceWorker, /shiftdeck-shell/);
-  assert.match(serviceWorker, /shiftdeck-shell.*v2|CACHE_PREFIX.*v2/s);
+  assert.match(serviceWorker, /shiftdeck-shell.*v3|CACHE_PREFIX.*v3/s);
   assert.match(serviceWorker, /request\.mode === "navigate"/);
   assert.match(serviceWorker, /warmDocumentAssets/);
   assert.match(serviceWorker, /cache\.match\(scopeRoot\)/);
+  assert.match(
+    serviceWorker,
+    /request\.mode === "navigate"[\s\S]*?await fetch\(request\)[\s\S]*?if \(cached\) return cached/,
+  );
   assert.match(page, /backgroundHydrated/);
   assert.match(page, /setHydrated\(true\)[\s\S]*?window\.setTimeout/);
   assert.doesNotMatch(layout, /next\/font/);

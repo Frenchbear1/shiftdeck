@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "shiftdeck-shell";
-const CACHE_NAME = `${CACHE_PREFIX}-v2`;
+const CACHE_NAME = `${CACHE_PREFIX}-v3`;
 const scopeRoot = new URL("./", self.registration.scope);
 
 async function cacheResponse(cache, request, response) {
@@ -83,20 +83,22 @@ self.addEventListener("fetch", (event) => {
         const cached =
           (await cache.match(scopeRoot)) ||
           (await cache.match(request, { ignoreSearch: true }));
-        const network = fetch(request);
-        const refreshCache = network.then(async (response) => {
+        try {
+          const response = await fetch(request);
+          if (!response.ok && cached) return cached;
           if (response.ok) {
-            await cache.put(scopeRoot, response.clone());
-            await warmDocumentAssets(cache, response);
+            event.waitUntil(
+              (async () => {
+                await cache.put(scopeRoot, response.clone());
+                await warmDocumentAssets(cache, response);
+              })(),
+            );
           }
-        });
-        event.waitUntil(refreshCache.catch(() => undefined));
-
-        if (cached) {
-          return cached;
+          return response;
+        } catch (error) {
+          if (cached) return cached;
+          throw error;
         }
-
-        return network;
       })(),
     );
     return;
