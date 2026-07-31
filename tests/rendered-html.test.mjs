@@ -254,7 +254,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /syncCalendarFeed/);
   assert.match(page, /saveCalendarSettings/);
   assert.match(page, /shiftdeck\.calendarSubscription/);
-  assert.match(page, /window\.location\.href = syncedSubscription\.feedUrl/);
+  assert.match(page, /window\.location\.href = feedUrl\.replace/);
   assert.equal((page.match(/window\.location\.href/g) ?? []).length, 1);
   assert.match(page, /"webcal:"/);
   assert.doesNotMatch(page, /anchor\.download|Shiftdeck_Schedule\.ics/);
@@ -270,6 +270,8 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /You’re already subscribed/);
   assert.doesNotMatch(page, /Sync now|syncCalendarNow|calendar-sync-button/);
   assert.match(page, /pull down to refresh/);
+  assert.match(page, /Open subscription in Apple Calendar/);
+  assert.match(page, /openAppleCalendarFeed\(calendarSubscription\.feedUrl\)/);
   assert.match(page, /Reset calendar connection/);
   assert.match(page, /calendarSubscription\s*\?\s*saveCalendarSettings/);
   assert.match(page, /aria-label=\{\s*calendarSubscription/);

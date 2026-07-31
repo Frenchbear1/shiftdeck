@@ -2409,6 +2409,12 @@ export default function HomePage() {
     return false;
   };
 
+  const openAppleCalendarFeed = (feedUrl: string) => {
+    setExportOpen(false);
+    setToast("Opening your Shiftdeck subscription in Apple Calendar");
+    window.location.href = feedUrl.replace(/^https:/i, "webcal:");
+  };
+
   const subscribeToCalendar = async () => {
     if (!prefs.title.trim()) {
       setToast("Add an event title first");
@@ -2450,12 +2456,7 @@ export default function HomePage() {
       );
       setCalendarSyncState("synced");
       setImportState("done");
-      setExportOpen(false);
-      setToast("Opening your Shiftdeck subscription in Apple Calendar");
-      window.location.href = syncedSubscription.feedUrl.replace(
-        /^https:/i,
-        "webcal:",
-      );
+      openAppleCalendarFeed(syncedSubscription.feedUrl);
     } catch {
       setCalendarSyncState("error");
       setToast("Calendar setup couldn’t connect. Try again.");
@@ -4327,12 +4328,23 @@ export default function HomePage() {
                   : "Subscribe in Apple Calendar"}
             </button>
             {calendarSubscription && (
-              <button
-                className="button danger subtle"
-                onClick={() => void resetCalendarSubscription()}
-              >
-                Reset calendar connection
-              </button>
+              <>
+                <button
+                  className="button soft"
+                  onClick={() =>
+                    openAppleCalendarFeed(calendarSubscription.feedUrl)
+                  }
+                >
+                  <ExternalLink />
+                  Open subscription in Apple Calendar
+                </button>
+                <button
+                  className="button danger subtle"
+                  onClick={() => void resetCalendarSubscription()}
+                >
+                  Reset calendar connection
+                </button>
+              </>
             )}
           </section>
         </div>
