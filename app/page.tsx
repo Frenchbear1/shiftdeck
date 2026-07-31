@@ -859,6 +859,8 @@ export default function HomePage() {
   const [clockNow, setClockNow] = useState(() => new Date());
   const fileInput = useRef<HTMLInputElement>(null);
   const homeDateRail = useRef<HTMLDivElement>(null);
+  const workersDateRail = useRef<HTMLDivElement>(null);
+  const flightsDateRail = useRef<HTMLDivElement>(null);
 
   const loadReferenceVault = useCallback(async (token: string) => {
     const response = await fetch(calendarServiceUrl("/api/references"), {
@@ -1533,8 +1535,7 @@ export default function HomePage() {
     [clockNow, importedShifts, prefs.person],
   );
 
-  const centerHomeDate = useCallback((date: string) => {
-    const rail = homeDateRail.current;
+  const centerDateInRail = useCallback((rail: HTMLDivElement | null, date: string) => {
     const dateCard = rail?.querySelector<HTMLElement>(
       `[data-schedule-date="${date}"]`,
     );
@@ -1563,16 +1564,27 @@ export default function HomePage() {
   useEffect(() => {
     if (
       !hydrated ||
-      tab !== "home" ||
-      selectedDate !== todayDate ||
-      !scheduleDates.includes(todayDate)
+      !scheduleDates.includes(selectedDate) ||
+      (tab === "home" && selectedDate !== todayDate)
     ) {
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => centerHomeDate(todayDate));
+    const rail =
+      tab === "home"
+        ? homeDateRail.current
+        : tab === "workers"
+          ? workersDateRail.current
+          : tab === "flights"
+            ? flightsDateRail.current
+            : null;
+    if (!rail) return;
+
+    const frame = window.requestAnimationFrame(() =>
+      centerDateInRail(rail, selectedDate),
+    );
     return () => window.cancelAnimationFrame(frame);
-  }, [centerHomeDate, hydrated, scheduleDates, selectedDate, tab, todayDate]);
+  }, [centerDateInRail, hydrated, scheduleDates, selectedDate, tab, todayDate]);
 
   const importedFlights = useMemo(
     () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)),
@@ -2645,11 +2657,17 @@ export default function HomePage() {
   const renderDateRail = (
     compact = false,
     mobileTape = false,
-    isHomeRail = false,
+    rail: "home" | "workers" | "flights" = "home",
   ) => (
     <div
       className={`date-rail ${compact ? "compact" : ""} ${mobileTape ? "mobile-tape" : ""}`}
-      ref={isHomeRail ? homeDateRail : undefined}
+      ref={
+        rail === "home"
+          ? homeDateRail
+          : rail === "workers"
+            ? workersDateRail
+            : flightsDateRail
+      }
     >
       {scheduleDates.map((date) => {
         const day = compactDay(date);
@@ -2749,7 +2767,7 @@ export default function HomePage() {
         </div>
         {hasSchedule ? (
           <>
-            {renderDateRail(false, true, true)}
+            {renderDateRail(false, true, "home")}
             <div className={`weekly-pay-card${weekTotalOpen ? " expanded" : ""}`}>
               <button
                 className="weekly-pay-toggle"
@@ -2888,7 +2906,7 @@ export default function HomePage() {
           </div>
         </div>
       </header>
-      {renderDateRail(false, true)}
+      {renderDateRail(false, true, "workers")}
       {myShift && timeline ? (
         <section className="panel timeline-panel">
           <div className="desktop-timeline">
@@ -3053,7 +3071,7 @@ export default function HomePage() {
             </div>
           </div>
         </header>
-        {renderDateRail(false, true)}
+        {renderDateRail(false, true, "flights")}
       <section className="panel flight-panel">
         <div className="section-heading flight-panel-heading">
           <div>

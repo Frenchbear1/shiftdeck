@@ -62,6 +62,13 @@ test("keeps Workers and Flights date navigation compact", async () => {
     /<h1>Flights<\/h1>[\s\S]{0,900}?selectedDate !== todayDate[\s\S]{0,500}?onClick=\{returnToToday\}[\s\S]{0,100}?>\s*Today/,
   );
   assert.match(css, /\.page-title-actions/);
+  assert.match(page, /const workersDateRail = useRef<HTMLDivElement>\(null\)/);
+  assert.match(page, /const flightsDateRail = useRef<HTMLDivElement>\(null\)/);
+  assert.match(page, /tab === "workers"\s*\? workersDateRail\.current/);
+  assert.match(page, /tab === "flights"\s*\? flightsDateRail\.current/);
+  assert.match(page, /renderDateRail\(false, true, "workers"\)/);
+  assert.match(page, /renderDateRail\(false, true, "flights"\)/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate\)/);
   assert.doesNotMatch(page, /<span>Showing<\/span>/);
   assert.doesNotMatch(page, /<span>During your shift<\/span>/);
   assert.doesNotMatch(css, /\.flight-summary/);
