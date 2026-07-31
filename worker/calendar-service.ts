@@ -75,7 +75,7 @@ const JSON_HEADERS = {
   "Cache-Control": "no-store",
 };
 
-const CALENDAR_FORMAT_VERSION = 2;
+const CALENDAR_FORMAT_VERSION = 3;
 
 const ALLOWED_ORIGINS = new Set([
   "https://shiftdeck-schedule.frenchbear.chatgpt.site",
@@ -292,7 +292,6 @@ function normalizePayload(payload: SyncPayload) {
     "P1D",
     "P2D",
     "P1W",
-    "TIME_TO_LEAVE",
   ]);
   const seen = new Set<string>();
   const events = (Array.isArray(payload.events) ? payload.events : [])
@@ -336,10 +335,6 @@ function safeIcsText(value: string) {
     .replace(/;/g, "\\;");
 }
 
-function safeIcsParameter(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, "\\n");
-}
-
 function icsDateTime(date: string, time: string, nextDay = false) {
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
@@ -365,16 +360,11 @@ function uidFor(calendarId: string, eventKey: string) {
 
 function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
   const reminders = Array.from(
-    new Set([feed.reminder1, feed.reminder2].filter(Boolean)),
-  );
-  const hasStructuredLocation =
-    feed.location &&
-    feed.location_lat !== null &&
-    feed.location_lon !== null;
-  const timeToLeave =
-    reminders.includes("TIME_TO_LEAVE") && hasStructuredLocation;
-  const timedReminders = reminders.filter(
-    (reminder) => reminder !== "TIME_TO_LEAVE",
+    new Set(
+      [feed.reminder1, feed.reminder2].filter(
+        (reminder) => reminder && reminder !== "TIME_TO_LEAVE",
+      ),
+    ),
   );
   const lines = [
     "BEGIN:VCALENDAR",
@@ -384,8 +374,8 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${safeIcsText(feed.name)}`,
     "X-WR-TIMEZONE:America/New_York",
-    "REFRESH-INTERVAL;VALUE=DURATION:PT15M",
-    "X-PUBLISHED-TTL:PT15M",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+    "X-PUBLISHED-TTL:PT1H",
   ];
 
   events.forEach((event) => {
@@ -405,18 +395,8 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
     );
     if (event.status === "confirmed") {
       if (feed.location) lines.push(`LOCATION:${safeIcsText(feed.location)}`);
-      if (hasStructuredLocation) {
-        const address = safeIcsParameter(feed.location);
-        lines.push(
-          `GEO:${feed.location_lat};${feed.location_lon}`,
-          `X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-ADDRESS="${address}";X-APPLE-RADIUS=75;X-TITLE="${address}":geo:${feed.location_lat},${feed.location_lon}`,
-        );
-        if (timeToLeave) {
-          lines.push("X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC");
-        }
-      }
       if (feed.notes) lines.push(`DESCRIPTION:${safeIcsText(feed.notes)}`);
-      timedReminders.forEach((reminder) => {
+      reminders.forEach((reminder) => {
         lines.push(
           ...renderAppleTimedAlarm(feed.id, event.event_key, reminder),
         );

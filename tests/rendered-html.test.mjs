@@ -261,7 +261,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /syncCalendarFeed/);
   assert.match(page, /saveCalendarSettings/);
   assert.match(page, /shiftdeck\.calendarSubscription/);
-  assert.match(page, /window\.location\.href = feedUrl\.replace/);
+  assert.match(page, /window\.location\.href = syncedSubscription\.feedUrl\.replace/);
   assert.equal((page.match(/window\.location\.href/g) ?? []).length, 1);
   assert.match(page, /"webcal:"/);
   assert.doesNotMatch(page, /anchor\.download|Shiftdeck_Schedule\.ics/);
@@ -271,14 +271,13 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /"CANCELLED" : "CONFIRMED"/);
   assert.doesNotMatch(service, /Revised \$\{sequence\}|— Revised/);
   assert.match(service, /const title = event\.base_title/);
-  assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT15M/);
+  assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT1H/);
   assert.match(service, /write_token_hash/);
   assert.match(page, /Subscribe in Apple Calendar/);
   assert.match(page, /You’re already subscribed/);
   assert.doesNotMatch(page, /Sync now|syncCalendarNow|calendar-sync-button/);
   assert.match(page, /pull down to refresh/);
-  assert.match(page, /Open subscription in Apple Calendar/);
-  assert.match(page, /openAppleCalendarFeed\(calendarSubscription\.feedUrl\)/);
+  assert.doesNotMatch(page, /Open subscription in Apple Calendar|openAppleCalendarFeed/);
   assert.match(page, /Reset calendar connection/);
   assert.match(page, /calendarSubscription\s*\?\s*saveCalendarSettings/);
   assert.match(page, /aria-label=\{\s*calendarSubscription/);
@@ -287,13 +286,8 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, />Reminder 1</);
   assert.match(page, />Reminder 2</);
   assert.match(page, /value: "P1W", label: "1 week before"/);
-  assert.match(page, /value: "TIME_TO_LEAVE", label: "Time to Leave"/);
-  assert.match(
-    page,
-    /value: "TIME_TO_LEAVE", label: "Time to Leave"[\s\S]*?value: "PT15M", label: "15 minutes before"/,
-  );
-  assert.match(page, /visibleReminderOptions/);
-  assert.match(page, /option\.value !== "TIME_TO_LEAVE"/);
+  assert.doesNotMatch(page, /value: "TIME_TO_LEAVE", label: "Time to Leave"/);
+  assert.doesNotMatch(page, /visibleReminderOptions|validateTravelReminder/);
   assert.doesNotMatch(page, /One reminder is enough|calendar-alert-help/);
   assert.match(page, /calendarServiceUrl\(`\/api\/places/);
   assert.match(page, /Enter coordinates/);
@@ -306,17 +300,17 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /https:\/\/photon\.komoot\.io\/api/);
   assert.match(service, /countrycode=US/);
   assert.match(service, /limit=10/);
-  assert.match(service, /new Set\(\[feed\.reminder1, feed\.reminder2\]/);
-  assert.match(service, /\.filter\(Boolean\)/);
+  assert.match(service, /new Set\(/);
+  assert.match(service, /reminder !== "TIME_TO_LEAVE"/);
   assert.match(alarms, /TRIGGER;RELATED=START/);
   assert.match(alarms, /X-WR-ALARMUID/);
   assert.match(alarms, /ACTION:AUDIO/);
   assert.match(alarms, /ATTACH;VALUE=URI:Chord/);
   assert.match(service, /CALENDAR_FORMAT_VERSION/);
   assert.match(service, /"Last-Modified": lastModified/);
-  assert.match(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
-  assert.match(service, /X-APPLE-STRUCTURED-LOCATION/);
-  assert.match(service, /const hasStructuredLocation/);
+  assert.doesNotMatch(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
+  assert.doesNotMatch(service, /X-APPLE-STRUCTURED-LOCATION|`GEO:/);
+  assert.match(service, /LOCATION:\$\{safeIcsText\(feed\.location\)\}/);
   assert.match(service, /public, no-cache, must-revalidate/);
   assert.match(
     page,

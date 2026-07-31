@@ -297,7 +297,6 @@ const LEGACY_DEFAULT_LOCATION = "St. Pete–Clearwater International Airport";
 const REMINDER_OPTIONS = [
   { value: "", label: "No reminder" },
   { value: "PT0M", label: "At event time" },
-  { value: "TIME_TO_LEAVE", label: "Time to Leave" },
   { value: "PT15M", label: "15 minutes before" },
   { value: "PT30M", label: "30 minutes before" },
   { value: "PT1H", label: "1 hour before" },
@@ -1161,8 +1160,10 @@ export default function HomePage() {
               saved.title === LEGACY_DEFAULT_TITLE
                 ? ""
                 : saved.title ?? DEFAULT_PREFS.title,
-            reminder1: saved.reminder1 ?? "",
-            reminder2: saved.reminder2 ?? "",
+            reminder1:
+              saved.reminder1 === "TIME_TO_LEAVE" ? "" : saved.reminder1 ?? "",
+            reminder2:
+              saved.reminder2 === "TIME_TO_LEAVE" ? "" : saved.reminder2 ?? "",
             location:
               saved.location === LEGACY_DEFAULT_LOCATION
                 ? ""
@@ -1190,23 +1191,6 @@ export default function HomePage() {
                 ? saved.filingStatus
                 : DEFAULT_PREFS.filingStatus,
           };
-          const restoredHasMappedPlace =
-            Boolean(parsedPrefs.location.trim()) &&
-            Number.isFinite(parsedPrefs.locationLat) &&
-            Number.isFinite(parsedPrefs.locationLon);
-          if (!restoredHasMappedPlace) {
-            parsedPrefs = {
-              ...parsedPrefs,
-              reminder1:
-                parsedPrefs.reminder1 === "TIME_TO_LEAVE"
-                  ? ""
-                  : parsedPrefs.reminder1,
-              reminder2:
-                parsedPrefs.reminder2 === "TIME_TO_LEAVE"
-                  ? ""
-                  : parsedPrefs.reminder2,
-            };
-          }
           setPrefs(parsedPrefs);
         } catch {
           // A malformed local preference should never block the schedule.
@@ -1954,14 +1938,6 @@ export default function HomePage() {
         coordinate && !prefs.location.trim() ? "Pinned location" : prefs.location,
       locationLat: coordinate?.latitude ?? null,
       locationLon: coordinate?.longitude ?? null,
-      ...(coordinate
-        ? {}
-        : {
-            reminder1:
-              prefs.reminder1 === "TIME_TO_LEAVE" ? "" : prefs.reminder1,
-            reminder2:
-              prefs.reminder2 === "TIME_TO_LEAVE" ? "" : prefs.reminder2,
-          }),
     });
   };
 
@@ -2421,34 +2397,16 @@ export default function HomePage() {
     setToast("All Shiftdeck data cleared from this device");
   };
 
-  const timeToLeaveSelected =
-    prefs.reminder1 === "TIME_TO_LEAVE" ||
-    prefs.reminder2 === "TIME_TO_LEAVE";
   const hasStructuredCalendarPlace =
     Boolean(prefs.location.trim()) &&
     Number.isFinite(prefs.locationLat) &&
     Number.isFinite(prefs.locationLon);
-  const visibleReminderOptions = hasStructuredCalendarPlace
-    ? REMINDER_OPTIONS
-    : REMINDER_OPTIONS.filter((option) => option.value !== "TIME_TO_LEAVE");
-  const validateTravelReminder = () => {
-    if (!timeToLeaveSelected || hasStructuredCalendarPlace) return true;
-    setToast("Choose an address suggestion to use Time to Leave");
-    return false;
-  };
-
-  const openAppleCalendarFeed = (feedUrl: string) => {
-    setExportOpen(false);
-    setToast("Opening your Shiftdeck subscription in Apple Calendar");
-    window.location.href = feedUrl.replace(/^https:/i, "webcal:");
-  };
 
   const subscribeToCalendar = async () => {
     if (!prefs.title.trim()) {
       setToast("Add an event title first");
       return;
     }
-    if (!validateTravelReminder()) return;
     if (!events.length) {
       setToast("Add a shift before subscribing");
       return;
@@ -2484,7 +2442,12 @@ export default function HomePage() {
       );
       setCalendarSyncState("synced");
       setImportState("done");
-      openAppleCalendarFeed(syncedSubscription.feedUrl);
+      setExportOpen(false);
+      setToast("Opening your Shiftdeck subscription in Apple Calendar");
+      window.location.href = syncedSubscription.feedUrl.replace(
+        /^https:/i,
+        "webcal:",
+      );
     } catch {
       setCalendarSyncState("error");
       setToast("Calendar setup couldn’t connect. Try again.");
@@ -2500,7 +2463,6 @@ export default function HomePage() {
       setToast("Add an event title first");
       return;
     }
-    if (!validateTravelReminder()) return;
     if (!events.length) {
       setToast("Add a shift before saving calendar settings");
       return;
@@ -4164,14 +4126,6 @@ export default function HomePage() {
                       location: event.target.value,
                       locationLat: null,
                       locationLon: null,
-                      reminder1:
-                        prefs.reminder1 === "TIME_TO_LEAVE"
-                          ? ""
-                          : prefs.reminder1,
-                      reminder2:
-                        prefs.reminder2 === "TIME_TO_LEAVE"
-                          ? ""
-                          : prefs.reminder2,
                     });
                     setPlaceSuggestions([]);
                     setPlaceLookupState("idle");
@@ -4298,14 +4252,6 @@ export default function HomePage() {
                           savePrefs({
                             locationLat: null,
                             locationLon: null,
-                            reminder1:
-                              prefs.reminder1 === "TIME_TO_LEAVE"
-                                ? ""
-                                : prefs.reminder1,
-                            reminder2:
-                              prefs.reminder2 === "TIME_TO_LEAVE"
-                                ? ""
-                                : prefs.reminder2,
                           });
                         }}
                       >
@@ -4330,14 +4276,14 @@ export default function HomePage() {
                 <label>
                   <span>Reminder 1</span>
                   <select value={prefs.reminder1} onChange={(event) => savePrefs({ reminder1: event.target.value })}>
-                    {visibleReminderOptions.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
+                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
                   </select>
                   <ChevronDown />
                 </label>
                 <label>
                   <span>Reminder 2</span>
                   <select value={prefs.reminder2} onChange={(event) => savePrefs({ reminder2: event.target.value })}>
-                    {visibleReminderOptions.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
+                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
                   </select>
                   <ChevronDown />
                 </label>
@@ -4362,23 +4308,12 @@ export default function HomePage() {
                   : "Subscribe in Apple Calendar"}
             </button>
             {calendarSubscription && (
-              <>
-                <button
-                  className="button soft"
-                  onClick={() =>
-                    openAppleCalendarFeed(calendarSubscription.feedUrl)
-                  }
-                >
-                  <ExternalLink />
-                  Open subscription in Apple Calendar
-                </button>
-                <button
-                  className="button danger subtle"
-                  onClick={() => void resetCalendarSubscription()}
-                >
-                  Reset calendar connection
-                </button>
-              </>
+              <button
+                className="button danger subtle"
+                onClick={() => void resetCalendarSubscription()}
+              >
+                Reset calendar connection
+              </button>
             )}
           </section>
         </div>
