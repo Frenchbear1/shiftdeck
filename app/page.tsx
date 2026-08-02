@@ -145,13 +145,7 @@ type ReferenceAccessState =
 
 type CalendarSyncPayload = {
   name: string;
-  title: string;
-  location: string;
-  locationLat: number | null;
-  locationLon: number | null;
-  notes: string;
   reminder1: string;
-  reminder2: string;
   events: Array<{
     key: string;
     date: string;
@@ -244,15 +238,18 @@ type ReferenceSearchResult =
       referenceId: string;
     };
 
+const DEFAULT_SHIFT_TITLE = "Work";
+const DEFAULT_CALENDAR_ALERT = "PT2H";
+
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
-  title: "",
-  reminder1: "",
+  title: DEFAULT_SHIFT_TITLE,
+  reminder1: DEFAULT_CALENDAR_ALERT,
   reminder2: "",
   location: "",
   locationLat: null,
   locationLon: null,
-  notes: "Imported from Shiftdeck",
+  notes: "",
   homeAirport: "ABE",
   airline: "Allegiant",
   hourlyPay: "",
@@ -316,11 +313,7 @@ function estimateFederalWithholding(
   return bracket.base + Math.max(0, weeklyGross - bracket.from) * bracket.rate;
 }
 
-const LEGACY_DEFAULT_TITLE = "PIE • Work";
-const LEGACY_DEFAULT_LOCATION = "St. Pete–Clearwater International Airport";
-
 const REMINDER_OPTIONS = [
-  { value: "", label: "No reminder" },
   { value: "PT0M", label: "At event time" },
   { value: "PT15M", label: "15 minutes before" },
   { value: "PT30M", label: "30 minutes before" },
@@ -597,7 +590,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
   return <>{parts}</>;
 }
 
-const eventsFor = (shifts: Shift[], person: string, title: string) =>
+const eventsFor = (shifts: Shift[], person: string) =>
   shifts
     .filter(
       (shift) =>
@@ -609,7 +602,7 @@ const eventsFor = (shifts: Shift[], person: string, title: string) =>
       date: shift.date,
       start: shift.start,
       end: shift.end,
-      title: title.trim() || "Work",
+      title: DEFAULT_SHIFT_TITLE,
       customTitle: false,
     }));
 
@@ -1324,29 +1317,16 @@ export default function HomePage() {
           const saved = JSON.parse(savedPrefs) as Partial<Preferences>;
           parsedPrefs = {
             person: saved.person ?? DEFAULT_PREFS.person,
-            title:
-              saved.title === LEGACY_DEFAULT_TITLE
-                ? ""
-                : saved.title ?? DEFAULT_PREFS.title,
+            title: DEFAULT_SHIFT_TITLE,
             reminder1:
-              saved.reminder1 === "TIME_TO_LEAVE" ? "" : saved.reminder1 ?? "",
-            reminder2:
-              saved.reminder2 === "TIME_TO_LEAVE" ? "" : saved.reminder2 ?? "",
-            location:
-              saved.location === LEGACY_DEFAULT_LOCATION
-                ? ""
-                : saved.location ?? DEFAULT_PREFS.location,
-            locationLat:
-              typeof saved.locationLat === "number" &&
-              Number.isFinite(saved.locationLat)
-                ? saved.locationLat
-                : null,
-            locationLon:
-              typeof saved.locationLon === "number" &&
-              Number.isFinite(saved.locationLon)
-                ? saved.locationLon
-                : null,
-            notes: saved.notes ?? DEFAULT_PREFS.notes,
+              saved.reminder1 && saved.reminder1 !== "TIME_TO_LEAVE"
+                ? saved.reminder1
+                : DEFAULT_PREFS.reminder1,
+            reminder2: "",
+            location: "",
+            locationLat: null,
+            locationLon: null,
+            notes: "",
             homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
             airline: saved.airline ?? DEFAULT_PREFS.airline,
             hourlyPay:
@@ -1395,18 +1375,25 @@ export default function HomePage() {
       const fallbackEvents = eventsFor(
         restoredShifts,
         parsedPrefs.person,
-        parsedPrefs.title,
       );
       if (savedEvents) {
         try {
-          const parsedEvents = (JSON.parse(savedEvents) as CalendarEvent[]).filter(
-            (event) =>
-              event &&
-              typeof event.id === "string" &&
-              typeof event.date === "string" &&
-              typeof event.start === "string" &&
-              typeof event.end === "string",
-          );
+          const parsedEvents = (JSON.parse(savedEvents) as CalendarEvent[])
+            .filter(
+              (event) =>
+                event &&
+                typeof event.id === "string" &&
+                typeof event.date === "string" &&
+                typeof event.start === "string" &&
+                typeof event.end === "string",
+            )
+            .map((event) => ({
+              ...event,
+              title: event.customTitle
+                ? event.title.trim() || DEFAULT_SHIFT_TITLE
+                : DEFAULT_SHIFT_TITLE,
+              customTitle: Boolean(event.customTitle),
+            }));
           setEvents(parsedEvents);
         } catch {
           localStorage.removeItem("shiftdeck.events");
@@ -1988,13 +1975,7 @@ export default function HomePage() {
   const calendarSyncPayload = useMemo<CalendarSyncPayload>(
     () => ({
       name: "Shiftdeck",
-      title: prefs.title.trim() || "Work",
-      location: prefs.location.trim(),
-      locationLat: prefs.locationLat,
-      locationLon: prefs.locationLon,
-      notes: prefs.notes.trim(),
-      reminder1: prefs.reminder1,
-      reminder2: prefs.reminder2,
+      reminder1: prefs.reminder1 || DEFAULT_CALENDAR_ALERT,
       events: events
         .map((event) => ({
           key: event.calendarKey,
@@ -2002,8 +1983,8 @@ export default function HomePage() {
           start: event.start,
           end: event.end,
           title: event.customTitle
-            ? event.title.trim() || "Work"
-            : prefs.title.trim() || event.title.trim() || "Work",
+            ? event.title.trim() || DEFAULT_SHIFT_TITLE
+            : DEFAULT_SHIFT_TITLE,
         }))
         .sort((first, second) =>
           `${first.date}-${first.start}-${first.key}`.localeCompare(
@@ -2013,13 +1994,7 @@ export default function HomePage() {
     }),
     [
       events,
-      prefs.location,
-      prefs.locationLat,
-      prefs.locationLon,
-      prefs.notes,
       prefs.reminder1,
-      prefs.reminder2,
-      prefs.title,
     ],
   );
   const canExportCalendar = events.length > 0;
@@ -2125,7 +2100,7 @@ export default function HomePage() {
     const updated = { ...prefs, ...next };
     setPrefs(updated);
     if (next.person) {
-      setEvents(eventsFor(importedShifts, next.person, updated.title));
+      setEvents(eventsFor(importedShifts, next.person));
       setShowAllFlights(false);
     }
   };
@@ -2153,7 +2128,7 @@ export default function HomePage() {
       date: selectedDate,
       start: "09:00",
       end: "17:00",
-      title: prefs.title.trim() || "Work",
+      title: DEFAULT_SHIFT_TITLE,
     });
     setShiftEditor({ mode: "add" });
   };
@@ -2166,7 +2141,7 @@ export default function HomePage() {
       end: myEvent.end,
       title: myEvent.customTitle
         ? myEvent.title
-        : prefs.title.trim() || myEvent.title || "Work",
+        : DEFAULT_SHIFT_TITLE,
     });
     setShiftEditor({ mode: "edit", eventId: myEvent.id });
   };
@@ -2208,7 +2183,7 @@ export default function HomePage() {
         date: shift.date,
         start: shift.start,
         end: shift.end,
-        title: prefs.title.trim() || "Work",
+        title: DEFAULT_SHIFT_TITLE,
         customTitle: false,
       }));
     if (matching.length) {
@@ -2603,10 +2578,6 @@ export default function HomePage() {
     Number.isFinite(prefs.locationLon);
 
   const subscribeToCalendar = async () => {
-    if (!prefs.title.trim()) {
-      setToast("Add an event title first");
-      return;
-    }
     if (!events.length) {
       setToast("Add a shift before subscribing");
       return;
@@ -2657,10 +2628,6 @@ export default function HomePage() {
   const saveCalendarSettings = async () => {
     if (!calendarSubscription) {
       await subscribeToCalendar();
-      return;
-    }
-    if (!prefs.title.trim()) {
-      setToast("Add an event title first");
       return;
     }
     if (!events.length) {
@@ -2856,9 +2823,9 @@ export default function HomePage() {
     const isLoadedDate = importedDateSet.has(selectedDate);
     const shiftTitle = myEvent
       ? myEvent.customTitle
-        ? myEvent.title.trim() || "Work"
-        : prefs.title.trim() || myEvent.title.trim() || "Work"
-      : prefs.title.trim() || "Work";
+        ? myEvent.title.trim() || DEFAULT_SHIFT_TITLE
+        : DEFAULT_SHIFT_TITLE
+      : DEFAULT_SHIFT_TITLE;
     const heroTitle = myEvent
       ? `${formatTime(myEvent.start)} – ${formatTime(myEvent.end)}`
       : isLoadedDate
@@ -4459,11 +4426,11 @@ export default function HomePage() {
                 : "Subscribe once for automatic updates. After subscribing, open Calendars, tap ⓘ next to Shiftdeck, and turn on Event Alerts."}
             </p>
             <div className="export-fields">
-              <label>
+              <label hidden>
                 <span>Title</span>
                 <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} placeholder="Work" />
               </label>
-              <label className="place-field">
+              <label className="place-field" hidden>
                 <span>Place</span>
                 <input
                   value={prefs.location}
@@ -4569,7 +4536,7 @@ export default function HomePage() {
                     </small>
                   )}
               </label>
-              <div className="coordinate-tools">
+              <div className="coordinate-tools" hidden>
                 <button
                   type="button"
                   className="coordinate-toggle"
@@ -4604,7 +4571,7 @@ export default function HomePage() {
                   </a>
                 )}
               </div>
-              {coordinatesOpen && (
+              {false && coordinatesOpen && (
                 <div className="coordinate-fields">
                   <label>
                     <span className="coordinate-field-heading">
@@ -4638,13 +4605,25 @@ export default function HomePage() {
               )}
               <div className="reminder-grid">
                 <label>
-                  <span>Reminder 1</span>
-                  <select value={prefs.reminder1} onChange={(event) => savePrefs({ reminder1: event.target.value })}>
-                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
+                  <span>Alert</span>
+                  <select
+                    value={prefs.reminder1 || DEFAULT_CALENDAR_ALERT}
+                    onChange={(event) =>
+                      savePrefs({
+                        reminder1: event.target.value,
+                        reminder2: "",
+                      })
+                    }
+                  >
+                    {REMINDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                   <ChevronDown />
+                  <small>
+                    Shiftdeck sends one simple alert for each shift. Imported
+                    shifts are titled Work unless you edit the shift on Today.
+                  </small>
                 </label>
-                <label>
+                <label hidden>
                   <span>Reminder 2</span>
                   <select value={prefs.reminder2} onChange={(event) => savePrefs({ reminder2: event.target.value })}>
                     {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}

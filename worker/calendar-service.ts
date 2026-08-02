@@ -1,4 +1,5 @@
 import { calendarSchemaStatements } from "../db/schema";
+import { stableCalendarUuid } from "./calendar-ids.ts";
 import { renderAppleTimedAlarm } from "./calendar-alarms";
 import {
   CALENDAR_FORMAT_VERSION,
@@ -83,6 +84,9 @@ const ALLOWED_ORIGINS = new Set([
   "https://shiftdeck-schedule.frenchbear.chatgpt.site",
   "https://frenchbear1.github.io",
 ]);
+
+const DEFAULT_EVENT_TITLE = "Work";
+const DEFAULT_REMINDER = "PT2H";
 
 let schemaReady = false;
 
@@ -264,28 +268,9 @@ function validTime(value: string) {
 }
 
 function normalizePayload(payload: SyncPayload) {
-  const title = cleanText(payload.title, 160) || "Work";
   const name = cleanText(payload.name, 100) || "Shiftdeck";
-  const location = cleanText(payload.location, 300);
-  const locationLat =
-    typeof payload.locationLat === "number" &&
-    Number.isFinite(payload.locationLat) &&
-    payload.locationLat >= -90 &&
-    payload.locationLat <= 90
-      ? payload.locationLat
-      : null;
-  const locationLon =
-    typeof payload.locationLon === "number" &&
-    Number.isFinite(payload.locationLon) &&
-    payload.locationLon >= -180 &&
-    payload.locationLon <= 180
-      ? payload.locationLon
-      : null;
-  const notes = cleanText(payload.notes, 1000);
   const reminder1 = cleanText(payload.reminder1, 20);
-  const reminder2 = cleanText(payload.reminder2, 20);
   const allowedReminders = new Set([
-    "",
     "PT0M",
     "PT15M",
     "PT30M",
@@ -303,7 +288,7 @@ function normalizePayload(payload: SyncPayload) {
       const date = cleanText(event?.date, 10);
       const start = cleanText(event?.start, 5);
       const end = cleanText(event?.end, 5);
-      const eventTitle = cleanText(event?.title, 160) || title;
+      const eventTitle = cleanText(event?.title, 160) || DEFAULT_EVENT_TITLE;
       if (
         !key ||
         seen.has(key) ||
@@ -318,13 +303,13 @@ function normalizePayload(payload: SyncPayload) {
     });
   return {
     name,
-    title,
-    location,
-    locationLat,
-    locationLon,
-    notes,
-    reminder1: allowedReminders.has(reminder1) ? reminder1 : "",
-    reminder2: allowedReminders.has(reminder2) ? reminder2 : "",
+    title: DEFAULT_EVENT_TITLE,
+    location: "",
+    locationLat: null,
+    locationLon: null,
+    notes: "",
+    reminder1: allowedReminders.has(reminder1) ? reminder1 : DEFAULT_REMINDER,
+    reminder2: "",
     events,
   };
 }
@@ -356,18 +341,14 @@ function icsStamp(value: string) {
 }
 
 function uidFor(calendarId: string, eventKey: string) {
-  const cleanKey = eventKey.toLowerCase().replace(/[^a-z0-9:-]+/g, "-");
-  return `${cleanKey}.${calendarId.slice(0, 12)}@shiftdeck.app`;
+  return stableCalendarUuid(`event|${calendarId}|${eventKey}`);
 }
 
 function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
-  const reminders = Array.from(
-    new Set(
-      [feed.reminder1, feed.reminder2].filter(
-        (reminder) => reminder && reminder !== "TIME_TO_LEAVE",
-      ),
-    ),
-  );
+  const reminder =
+    feed.reminder1 && feed.reminder1 !== "TIME_TO_LEAVE"
+      ? feed.reminder1
+      : DEFAULT_REMINDER;
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -394,16 +375,11 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
       `DTEND:${icsDateTime(event.date, event.end_time, overnight)}`,
       `SUMMARY:${safeIcsText(title)}`,
       `STATUS:${event.status === "cancelled" ? "CANCELLED" : "CONFIRMED"}`,
+      `X-SHIFTDECK-KEY:${safeIcsText(event.event_key)}`,
       `X-SHIFTDECK-REVISION:${calendarSequence}`,
     );
     if (event.status === "confirmed") {
-      if (feed.location) lines.push(`LOCATION:${safeIcsText(feed.location)}`);
-      if (feed.notes) lines.push(`DESCRIPTION:${safeIcsText(feed.notes)}`);
-      reminders.forEach((reminder) => {
-        lines.push(
-          ...renderAppleTimedAlarm(feed.id, event.event_key, reminder),
-        );
-      });
+      lines.push(...renderAppleTimedAlarm(feed.id, event.event_key, reminder));
     }
     lines.push("END:VEVENT");
   });

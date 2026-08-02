@@ -347,7 +347,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(page, /aria-label=\{\s*calendarSubscription/);
   assert.match(page, />Title</);
   assert.match(page, />Place</);
-  assert.match(page, />Reminder 1</);
+  assert.match(page, />Alert</);
   assert.match(page, />Reminder 2</);
   assert.match(page, /value: "P1W", label: "1 week before"/);
   assert.doesNotMatch(page, /value: "TIME_TO_LEAVE", label: "Time to Leave"/);
@@ -365,7 +365,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /countrycode=US/);
   assert.match(service, /limit=10/);
   assert.match(service, /new Set\(/);
-  assert.match(service, /reminder !== "TIME_TO_LEAVE"/);
+  assert.match(service, /feed\.reminder1 !== "TIME_TO_LEAVE"/);
   assert.match(alarms, /TRIGGER:/);
   assert.doesNotMatch(alarms, /RELATED=START/);
   assert.match(alarms, /X-WR-ALARMUID/);
@@ -378,11 +378,12 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /"Last-Modified": lastModified/);
   assert.doesNotMatch(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
   assert.doesNotMatch(service, /X-APPLE-STRUCTURED-LOCATION|`GEO:/);
-  assert.match(service, /LOCATION:\$\{safeIcsText\(feed\.location\)\}/);
+  assert.doesNotMatch(service, /LOCATION:\$\{safeIcsText\(feed\.location\)\}/);
+  assert.doesNotMatch(service, /DESCRIPTION:\$\{safeIcsText\(feed\.notes\)\}/);
   assert.match(service, /public, no-cache, must-revalidate/);
   assert.match(
     page,
-    /const DEFAULT_PREFS:[\s\S]*?title: "",[\s\S]*?location: "",/,
+    /const DEFAULT_PREFS:[\s\S]*?title: DEFAULT_SHIFT_TITLE,[\s\S]*?reminder1: DEFAULT_CALENDAR_ALERT,/,
   );
   assert.match(parser, /isPlausibleWorkerName/);
   assert.match(parser, /NON_NAME_WORDS/);
