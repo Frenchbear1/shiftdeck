@@ -949,7 +949,6 @@ export default function HomePage() {
   const workersDateRail = useRef<HTMLDivElement>(null);
   const flightsDateRail = useRef<HTMLDivElement>(null);
   const pendingDateCenter = useRef<{ tab: ScheduleTab; date: string } | null>(null);
-  const hasCenteredHomeOnLaunch = useRef(false);
 
   const referenceSearchResults = useMemo<ReferenceSearchResult[]>(() => {
     const query = referenceSearchQuery.trim().toLocaleLowerCase();
@@ -1720,8 +1719,7 @@ export default function HomePage() {
   useLayoutEffect(() => {
     if (
       !hydrated ||
-      !scheduleDates.includes(selectedDate) ||
-      (tab === "home" && selectedDate !== todayDate)
+      !scheduleDates.includes(selectedDate)
     ) {
       return;
     }
@@ -1738,12 +1736,15 @@ export default function HomePage() {
           : flightsDateRail.current;
     if (!rail) return;
 
+    if (activeTab === "home") {
+      pendingDateCenter.current = null;
+      centerDateInRail(rail, selectedDate, "auto");
+      return;
+    }
+
     const centerRequest = pendingDateCenter.current;
-    const isInitialHomeCenter =
-      activeTab === "home" && !hasCenteredHomeOnLaunch.current;
     const shouldAnimate =
-      isInitialHomeCenter ||
-      (centerRequest?.tab === activeTab && centerRequest.date === selectedDate);
+      centerRequest?.tab === activeTab && centerRequest.date === selectedDate;
 
     if (!shouldAnimate) {
       if (centerRequest?.tab !== activeTab) pendingDateCenter.current = null;
@@ -1753,13 +1754,12 @@ export default function HomePage() {
 
     const frame = window.requestAnimationFrame(() => {
       centerDateInRail(rail, selectedDate, "smooth");
-      if (isInitialHomeCenter) hasCenteredHomeOnLaunch.current = true;
       if (pendingDateCenter.current === centerRequest) {
         pendingDateCenter.current = null;
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [centerDateInRail, hydrated, scheduleDates, selectedDate, tab, todayDate]);
+  }, [centerDateInRail, hydrated, scheduleDates, selectedDate, tab]);
 
   const importedFlights = useMemo(
     () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)),
@@ -2066,7 +2066,7 @@ export default function HomePage() {
   ]);
 
   const selectDate = (date: string) => {
-    if (tab === "home" || tab === "workers" || tab === "flights") {
+    if (tab === "workers" || tab === "flights") {
       pendingDateCenter.current = { tab, date };
     }
     setSelectedDate(date);
@@ -2074,7 +2074,7 @@ export default function HomePage() {
   };
 
   const openTodayTab = () => {
-    pendingDateCenter.current = { tab: "home", date: todayDate };
+    pendingDateCenter.current = null;
     setSelectedDate(todayDate);
     setShowAllFlights(false);
     setTab("home");
@@ -4461,8 +4461,8 @@ export default function HomePage() {
             </header>
             <p className="subscription-copy">
               {calendarSubscription
-                ? "You’re already subscribed. Changes here update your existing calendar automatically."
-                : "Subscribe once. New imports and revised shifts will update this calendar automatically."}
+                ? "You’re already subscribed. Changes update automatically. In Apple Calendar, open Calendars, tap ⓘ next to Shiftdeck, and make sure Event Alerts is on."
+                : "Subscribe once for automatic updates. After subscribing, open Calendars, tap ⓘ next to Shiftdeck, and turn on Event Alerts."}
             </p>
             <div className="export-fields">
               <label>

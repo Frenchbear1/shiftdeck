@@ -19,7 +19,7 @@ export function renderAppleTimedAlarm(
     "BEGIN:VALARM",
     `UID:${alarmUid}`,
     `X-WR-ALARMUID:${alarmUid}`,
-    `TRIGGER;RELATED=START:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
+    `TRIGGER:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
     "ACTION:AUDIO",
     "ATTACH;VALUE=URI:Chord",
     "END:VALARM",

@@ -1,6 +1,10 @@
 import { calendarSchemaStatements } from "../db/schema";
 import { renderAppleTimedAlarm } from "./calendar-alarms";
 import {
+  CALENDAR_FORMAT_VERSION,
+  calendarSequenceFor,
+} from "./calendar-revisions";
+import {
   FLIGHTAWARE_ORIGIN,
   matchFlightAwareResult,
 } from "./flightaware";
@@ -74,8 +78,6 @@ const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
-
-const CALENDAR_FORMAT_VERSION = 3;
 
 const ALLOWED_ORIGINS = new Set([
   "https://shiftdeck-schedule.frenchbear.chatgpt.site",
@@ -381,17 +383,18 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
   events.forEach((event) => {
     const overnight = event.end_time <= event.start_time;
     const title = event.base_title;
+    const calendarSequence = calendarSequenceFor(event.sequence);
     lines.push(
       "BEGIN:VEVENT",
       `UID:${uidFor(feed.id, event.event_key)}`,
       `DTSTAMP:${icsStamp(event.updated_at)}`,
       `LAST-MODIFIED:${icsStamp(event.updated_at)}`,
-      `SEQUENCE:${event.sequence}`,
+      `SEQUENCE:${calendarSequence}`,
       `DTSTART:${icsDateTime(event.date, event.start_time)}`,
       `DTEND:${icsDateTime(event.date, event.end_time, overnight)}`,
       `SUMMARY:${safeIcsText(title)}`,
       `STATUS:${event.status === "cancelled" ? "CANCELLED" : "CONFIRMED"}`,
-      `X-SHIFTDECK-REVISION:${event.sequence}`,
+      `X-SHIFTDECK-REVISION:${calendarSequence}`,
     );
     if (event.status === "confirmed") {
       if (feed.location) lines.push(`LOCATION:${safeIcsText(feed.location)}`);

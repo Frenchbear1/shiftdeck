@@ -6,6 +6,10 @@ import {
   isScheduleRevision,
 } from "../app/schedule-parser.ts";
 import { renderAppleTimedAlarm } from "../worker/calendar-alarms.ts";
+import {
+  CALENDAR_FORMAT_VERSION,
+  calendarSequenceFor,
+} from "../worker/calendar-revisions.ts";
 import { matchFlightAwareResult } from "../worker/flightaware.ts";
 
 async function render() {
@@ -72,7 +76,16 @@ test("keeps Workers and Flights date navigation compact", async () => {
   assert.match(page, /centerDateInRail\(rail, selectedDate, "auto"\)/);
   assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
   assert.match(page, /pendingDateCenter\.current = \{ tab, date \}/);
-  assert.match(page, /hasCenteredHomeOnLaunch/);
+  assert.match(
+    page,
+    /if \(activeTab === "home"\)[\s\S]{0,180}?pendingDateCenter\.current = null;[\s\S]{0,180}?centerDateInRail\(rail, selectedDate, "auto"\)/,
+  );
+  assert.match(page, /if \(tab === "workers" \|\| tab === "flights"\)/);
+  assert.doesNotMatch(page, /hasCenteredHomeOnLaunch/);
+  assert.doesNotMatch(
+    page,
+    /tab === "home" && selectedDate !== todayDate/,
+  );
   assert.doesNotMatch(page, /<span>Showing<\/span>/);
   assert.doesNotMatch(page, /<span>During your shift<\/span>/);
   assert.doesNotMatch(css, /\.flight-summary/);
@@ -257,11 +270,21 @@ test("renders stable Apple-compatible timed calendar alarms", () => {
   ].join("\r\n");
 
   assert.equal((calendar.match(/BEGIN:VALARM/g) ?? []).length, 2);
-  assert.match(calendar, /TRIGGER;RELATED=START:-PT1H/);
-  assert.match(calendar, /TRIGGER;RELATED=START:-PT2H/);
+  assert.match(calendar, /TRIGGER:-PT1H/);
+  assert.match(calendar, /TRIGGER:-PT2H/);
+  assert.doesNotMatch(calendar, /RELATED=START/);
   assert.equal((calendar.match(/ACTION:AUDIO/g) ?? []).length, 2);
   assert.equal((calendar.match(/X-WR-ALARMUID:/g) ?? []).length, 2);
   assert.equal((calendar.match(/ATTACH;VALUE=URI:Chord/g) ?? []).length, 2);
+});
+
+test("advances existing events when the calendar format changes", () => {
+  assert.equal(calendarSequenceFor(0), CALENDAR_FORMAT_VERSION);
+  assert.equal(
+    calendarSequenceFor(1),
+    1_000 + CALENDAR_FORMAT_VERSION,
+  );
+  assert.ok(calendarSequenceFor(12) > 12);
 });
 
 test("uses a durable Apple Calendar subscription with revision-aware events", async () => {
@@ -296,13 +319,15 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.doesNotMatch(page, /anchor\.download|Shiftdeck_Schedule\.ics/);
 
   assert.match(service, /UID:\$\{uidFor\(feed\.id, event\.event_key\)\}/);
-  assert.match(service, /SEQUENCE:\$\{event\.sequence\}/);
+  assert.match(service, /SEQUENCE:\$\{calendarSequence\}/);
   assert.match(service, /"CANCELLED" : "CONFIRMED"/);
   assert.doesNotMatch(service, /Revised \$\{sequence\}|— Revised/);
   assert.match(service, /const title = event\.base_title/);
   assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT1H/);
   assert.match(service, /write_token_hash/);
   assert.match(page, /Subscribe in Apple Calendar/);
+  assert.match(page, /turn on Event Alerts/);
+  assert.match(page, /make sure Event Alerts is on/);
   assert.match(page, /You’re already subscribed/);
   assert.doesNotMatch(page, /Sync now|syncCalendarNow|calendar-sync-button/);
   assert.match(page, /pull down to refresh/);
@@ -331,11 +356,13 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(service, /limit=10/);
   assert.match(service, /new Set\(/);
   assert.match(service, /reminder !== "TIME_TO_LEAVE"/);
-  assert.match(alarms, /TRIGGER;RELATED=START/);
+  assert.match(alarms, /TRIGGER:/);
+  assert.doesNotMatch(alarms, /RELATED=START/);
   assert.match(alarms, /X-WR-ALARMUID/);
   assert.match(alarms, /ACTION:AUDIO/);
   assert.match(alarms, /ATTACH;VALUE=URI:Chord/);
   assert.match(service, /CALENDAR_FORMAT_VERSION/);
+  assert.match(service, /calendarSequenceFor\(event\.sequence\)/);
   assert.match(service, /"Last-Modified": lastModified/);
   assert.doesNotMatch(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
   assert.doesNotMatch(service, /X-APPLE-STRUCTURED-LOCATION|`GEO:/);
