@@ -279,8 +279,13 @@ test("renders stable Apple-compatible timed calendar alarms", () => {
   assert.equal((calendar.match(/ACTION:DISPLAY/g) ?? []).length, 2);
   assert.equal((calendar.match(/DESCRIPTION:Shiftdeck reminder/g) ?? []).length, 2);
   assert.equal((calendar.match(/X-WR-ALARMUID:/g) ?? []).length, 2);
+  assert.equal((calendar.match(/^UID:[0-9A-F-]{36}$/gm) ?? []).length, 2);
+  assert.equal(
+    (calendar.match(/^X-WR-ALARMUID:[0-9A-F-]{36}$/gm) ?? []).length,
+    2,
+  );
   assert.equal((calendar.match(/ATTACH/g) ?? []).length, 0);
-  assert.equal((calendar.match(/^UID:/gm) ?? []).length, 0);
+  assert.doesNotMatch(calendar, /@shiftdeck\.app/);
 });
 
 test("advances existing events when the calendar format changes", () => {
@@ -364,6 +369,7 @@ test("uses a durable Apple Calendar subscription with revision-aware events", as
   assert.match(alarms, /TRIGGER:/);
   assert.doesNotMatch(alarms, /RELATED=START/);
   assert.match(alarms, /X-WR-ALARMUID/);
+  assert.match(alarms, /UID:\$\{alarmUid\}/);
   assert.match(alarms, /ACTION:DISPLAY/);
   assert.match(alarms, /DESCRIPTION:Shiftdeck reminder/);
   assert.doesNotMatch(alarms, /ATTACH/);
