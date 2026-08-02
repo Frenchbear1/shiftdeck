@@ -78,9 +78,12 @@ test("keeps Workers and Flights date navigation compact", async () => {
   assert.match(page, /pendingDateCenter\.current = \{ tab, date \}/);
   assert.match(
     page,
-    /if \(activeTab === "home"\)[\s\S]{0,180}?pendingDateCenter\.current = null;[\s\S]{0,180}?centerDateInRail\(rail, selectedDate, "auto"\)/,
+    /const selectDate = \(date: string\)[\s\S]{0,180}?tab === "home" \|\| tab === "workers" \|\| tab === "flights"[\s\S]{0,120}?pendingDateCenter\.current = \{ tab, date \}/,
   );
-  assert.match(page, /if \(tab === "workers" \|\| tab === "flights"\)/);
+  assert.match(
+    page,
+    /const openTodayTab = \(\)[\s\S]{0,100}?pendingDateCenter\.current = null/,
+  );
   assert.doesNotMatch(page, /hasCenteredHomeOnLaunch/);
   assert.doesNotMatch(
     page,

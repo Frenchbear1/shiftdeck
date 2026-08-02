@@ -1736,12 +1736,6 @@ export default function HomePage() {
           : flightsDateRail.current;
     if (!rail) return;
 
-    if (activeTab === "home") {
-      pendingDateCenter.current = null;
-      centerDateInRail(rail, selectedDate, "auto");
-      return;
-    }
-
     const centerRequest = pendingDateCenter.current;
     const shouldAnimate =
       centerRequest?.tab === activeTab && centerRequest.date === selectedDate;
@@ -2066,7 +2060,7 @@ export default function HomePage() {
   ]);
 
   const selectDate = (date: string) => {
-    if (tab === "workers" || tab === "flights") {
+    if (tab === "home" || tab === "workers" || tab === "flights") {
       pendingDateCenter.current = { tab, date };
     }
     setSelectedDate(date);
