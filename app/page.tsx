@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Bell,
   BookOpenText,
   BriefcaseBusiness,
   CalendarDays,
@@ -94,8 +95,7 @@ type FilingStatus = "single" | "married" | "head";
 type Preferences = {
   person: string;
   title: string;
-  reminder1: string;
-  reminder2: string;
+  alerts: number[];
   location: string;
   locationLat: number | null;
   locationLon: number | null;
@@ -106,11 +106,11 @@ type Preferences = {
   filingStatus: FilingStatus;
 };
 
-type CalendarSubscription = {
+type NotificationProfile = {
   id: string;
   writeToken: string;
-  feedUrl: string;
   createdAt: string;
+  subscriptionId?: string;
   lastSyncedAt?: string;
 };
 
@@ -143,14 +143,17 @@ type ReferenceAccessState =
   | "denied"
   | "error";
 
-type CalendarSyncPayload = {
-  name: string;
-  reminder1: string;
+type NotificationSyncPayload = {
+  title: string;
+  location: string;
+  timezone: string;
+  alerts: number[];
   events: Array<{
     key: string;
     date: string;
     start: string;
     end: string;
+    startAt: string;
     title: string;
   }>;
 };
@@ -239,13 +242,12 @@ type ReferenceSearchResult =
     };
 
 const DEFAULT_SHIFT_TITLE = "Work";
-const DEFAULT_CALENDAR_ALERT = "PT2H";
+const DEFAULT_ALERT_MINUTES = 120;
 
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
   title: DEFAULT_SHIFT_TITLE,
-  reminder1: DEFAULT_CALENDAR_ALERT,
-  reminder2: "",
+  alerts: [DEFAULT_ALERT_MINUTES],
   location: "",
   locationLat: null,
   locationLon: null,
@@ -313,16 +315,20 @@ function estimateFederalWithholding(
   return bracket.base + Math.max(0, weeklyGross - bracket.from) * bracket.rate;
 }
 
-const REMINDER_OPTIONS = [
-  { value: "PT0M", label: "At event time" },
-  { value: "PT15M", label: "15 minutes before" },
-  { value: "PT30M", label: "30 minutes before" },
-  { value: "PT1H", label: "1 hour before" },
-  { value: "PT2H", label: "2 hours before" },
-  { value: "P1D", label: "1 day before" },
-  { value: "P2D", label: "2 days before" },
-  { value: "P1W", label: "1 week before" },
+const ALERT_UNIT_OPTIONS = [
+  { value: 1, label: "minutes" },
+  { value: 60, label: "hours" },
+  { value: 1440, label: "days" },
 ] as const;
+
+const alertUnitFor = (minutes: number) =>
+  minutes > 0 && minutes % 1440 === 0
+    ? 1440
+    : minutes > 0 && minutes % 60 === 0
+      ? 60
+      : 1;
+
+const alertAmountFor = (minutes: number) => minutes / alertUnitFor(minutes);
 
 const toMinutes = (time: string) => {
   if (!time) return 0;
@@ -618,17 +624,6 @@ function initials(name: string) {
 const CALENDAR_SERVICE_ORIGIN =
   "https://shiftdeck-calendar.frenchbear1.workers.dev";
 
-function isCurrentCalendarSubscription(
-  subscription: CalendarSubscription | null,
-) {
-  if (!subscription) return false;
-  try {
-    return new URL(subscription.feedUrl).origin === CALENDAR_SERVICE_ORIGIN;
-  } catch {
-    return false;
-  }
-}
-
 function calendarServiceUrl(path: string) {
   if (typeof window === "undefined") return `${CALENDAR_SERVICE_ORIGIN}${path}`;
   const host = window.location.hostname;
@@ -661,32 +656,32 @@ function referenceDeviceName() {
   return "Shiftdeck device";
 }
 
-async function createCalendarFeed() {
-  const response = await fetch(calendarServiceUrl("/api/calendar-feeds"), {
+async function createNotificationProfile() {
+  const response = await fetch(calendarServiceUrl("/api/notifications/profiles"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
-  if (!response.ok) throw new Error("Calendar setup failed");
-  return (await response.json()) as CalendarSubscription;
+  if (!response.ok) throw new Error("Notification setup failed");
+  return (await response.json()) as NotificationProfile;
 }
 
-async function syncCalendarFeed(
-  subscription: Pick<CalendarSubscription, "id" | "writeToken">,
-  payload: CalendarSyncPayload,
+async function syncNotificationProfile(
+  profile: Pick<NotificationProfile, "id" | "writeToken">,
+  payload: NotificationSyncPayload,
 ) {
   const response = await fetch(
-    calendarServiceUrl(`/api/calendar-feeds/${subscription.id}`),
+    calendarServiceUrl(`/api/notifications/profiles/${profile.id}`),
     {
       method: "PUT",
       headers: {
-        Authorization: `Bearer ${subscription.writeToken}`,
+        Authorization: `Bearer ${profile.writeToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
     },
   );
   if (!response.ok) {
-    const error = new Error("Calendar sync failed") as Error & {
+    const error = new Error("Notification sync failed") as Error & {
       status: number;
     };
     error.status = response.status;
@@ -695,14 +690,67 @@ async function syncCalendarFeed(
   return (await response.json()) as { syncedAt: string };
 }
 
-async function revokeCalendarFeed(subscription: CalendarSubscription) {
-  await fetch(
-    calendarServiceUrl(`/api/calendar-feeds/${subscription.id}`),
+async function registerPushSubscription(
+  profile: Pick<NotificationProfile, "id" | "writeToken">,
+  subscription: PushSubscription,
+) {
+  const response = await fetch(
+    calendarServiceUrl(`/api/notifications/profiles/${profile.id}/subscriptions`),
     {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${subscription.writeToken}` },
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${profile.writeToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...subscription.toJSON(),
+        deviceName: referenceDeviceName(),
+      }),
     },
   );
+  if (!response.ok) throw new Error("Push registration failed");
+  return (await response.json()) as { id: string; subscribedAt: string };
+}
+
+async function removePushSubscription(profile: NotificationProfile) {
+  if (!profile.subscriptionId) return;
+  await fetch(
+    calendarServiceUrl(
+      `/api/notifications/profiles/${profile.id}/subscriptions/${profile.subscriptionId}`,
+    ),
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${profile.writeToken}` },
+    },
+  );
+}
+
+async function revokeNotificationProfile(profile: NotificationProfile) {
+  await fetch(calendarServiceUrl(`/api/notifications/profiles/${profile.id}`), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${profile.writeToken}` },
+  });
+}
+
+async function requestTestNotification(profile: NotificationProfile) {
+  const response = await fetch(
+    calendarServiceUrl(`/api/notifications/profiles/${profile.id}/test`),
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${profile.writeToken}` },
+    },
+  );
+  if (!response.ok) throw new Error("Test notification failed");
+}
+
+function base64UrlToUint8Array(value: string) {
+  const padded = value + "=".repeat((4 - (value.length % 4)) % 4);
+  const binary = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function eventStartAt(date: string, time: string) {
+  return new Date(`${date}T${time}:00`).toISOString();
 }
 
 function localDateKey(date = new Date()) {
@@ -894,7 +942,7 @@ export default function HomePage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [referenceSettingsOpen, setReferenceSettingsOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [shiftEditor, setShiftEditor] = useState<{
     mode: "add" | "edit";
     eventId?: string;
@@ -920,11 +968,14 @@ export default function HomePage() {
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [duplicateNotice, setDuplicateNotice] = useState("");
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [calendarSubscription, setCalendarSubscription] =
-    useState<CalendarSubscription | null>(null);
-  const [calendarSyncState, setCalendarSyncState] = useState<
+  const [notificationProfile, setNotificationProfile] =
+    useState<NotificationProfile | null>(null);
+  const [notificationSyncState, setNotificationSyncState] = useState<
     "idle" | "syncing" | "synced" | "error"
   >("idle");
+  const [notificationPermission, setNotificationPermission] = useState<
+    NotificationPermission | "unsupported"
+  >("default");
   const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
   const [placeLookupState, setPlaceLookupState] = useState<
     "idle" | "loading" | "error"
@@ -1317,15 +1368,33 @@ export default function HomePage() {
           const saved = JSON.parse(savedPrefs) as Partial<Preferences>;
           parsedPrefs = {
             person: saved.person ?? DEFAULT_PREFS.person,
-            title: DEFAULT_SHIFT_TITLE,
-            reminder1:
-              saved.reminder1 && saved.reminder1 !== "TIME_TO_LEAVE"
-                ? saved.reminder1
-                : DEFAULT_PREFS.reminder1,
-            reminder2: "",
-            location: "",
-            locationLat: null,
-            locationLon: null,
+            title:
+              typeof saved.title === "string" && saved.title.trim()
+                ? saved.title.trim()
+                : DEFAULT_SHIFT_TITLE,
+            alerts:
+              Array.isArray(saved.alerts) &&
+              saved.alerts.some(
+                (minutes) =>
+                  Number.isInteger(minutes) && minutes >= 0 && minutes <= 10080,
+              )
+                ? [
+                    ...new Set(
+                      saved.alerts.filter(
+                        (minutes) =>
+                          Number.isInteger(minutes) &&
+                          minutes >= 0 &&
+                          minutes <= 10080,
+                      ),
+                    ),
+                  ].slice(0, 12)
+                : DEFAULT_PREFS.alerts,
+            location:
+              typeof saved.location === "string" ? saved.location : "",
+            locationLat:
+              typeof saved.locationLat === "number" ? saved.locationLat : null,
+            locationLon:
+              typeof saved.locationLon === "number" ? saved.locationLon : null,
             notes: "",
             homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
             airline: saved.airline ?? DEFAULT_PREFS.airline,
@@ -1412,8 +1481,8 @@ export default function HomePage() {
         const savedDocuments = localStorage.getItem(
           "shiftdeck.scheduleDocuments",
         );
-        const savedCalendarSubscription = localStorage.getItem(
-          "shiftdeck.calendarSubscription",
+        const savedNotificationProfile = localStorage.getItem(
+          "shiftdeck.notificationProfile",
         );
 
         if (savedParsedFlights) {
@@ -1451,27 +1520,26 @@ export default function HomePage() {
           }
         }
 
-        if (savedCalendarSubscription) {
+        if (savedNotificationProfile) {
           try {
-            const subscription = JSON.parse(
-              savedCalendarSubscription,
-            ) as CalendarSubscription;
+            const profile = JSON.parse(
+              savedNotificationProfile,
+            ) as NotificationProfile;
             if (
-              subscription &&
-              typeof subscription.id === "string" &&
-              typeof subscription.writeToken === "string" &&
-              typeof subscription.feedUrl === "string"
+              profile &&
+              typeof profile.id === "string" &&
+              typeof profile.writeToken === "string"
             ) {
-              if (isCurrentCalendarSubscription(subscription)) {
-                setCalendarSubscription(subscription);
-              } else {
-                localStorage.removeItem("shiftdeck.calendarSubscription");
-                setToast("Calendar service upgraded — subscribe once more.");
-              }
+              setNotificationProfile(profile);
             }
           } catch {
-            localStorage.removeItem("shiftdeck.calendarSubscription");
+            localStorage.removeItem("shiftdeck.notificationProfile");
           }
+        }
+        if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+          setNotificationPermission("unsupported");
+        } else {
+          setNotificationPermission(Notification.permission);
         }
         setBackgroundHydrated(true);
       }, 0);
@@ -1513,7 +1581,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const query = prefs.location.trim();
-    if (!exportOpen || !placeMenuOpen || query.length < 3) {
+    if (!notificationsOpen || !placeMenuOpen || query.length < 3) {
       return;
     }
     const controller = new AbortController();
@@ -1553,7 +1621,7 @@ export default function HomePage() {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [exportOpen, placeMenuOpen, prefs.location]);
+  }, [notificationsOpen, placeMenuOpen, prefs.location]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1585,15 +1653,15 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!backgroundHydrated) return;
-    if (calendarSubscription) {
+    if (notificationProfile) {
       localStorage.setItem(
-        "shiftdeck.calendarSubscription",
-        JSON.stringify(calendarSubscription),
+        "shiftdeck.notificationProfile",
+        JSON.stringify(notificationProfile),
       );
     } else {
-      localStorage.removeItem("shiftdeck.calendarSubscription");
+      localStorage.removeItem("shiftdeck.notificationProfile");
     }
-  }, [backgroundHydrated, calendarSubscription]);
+  }, [backgroundHydrated, notificationProfile]);
 
   useEffect(() => {
     if (!settingsOpen || (airportOptions.length && airlineOptions.length)) return;
@@ -1972,19 +2040,23 @@ export default function HomePage() {
     });
   }, [dayFlights, myShift]);
 
-  const calendarSyncPayload = useMemo<CalendarSyncPayload>(
+  const notificationSyncPayload = useMemo<NotificationSyncPayload>(
     () => ({
-      name: "Shiftdeck",
-      reminder1: prefs.reminder1 || DEFAULT_CALENDAR_ALERT,
+      title: prefs.title.trim() || DEFAULT_SHIFT_TITLE,
+      location: prefs.location.trim(),
+      timezone:
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
+      alerts: prefs.alerts,
       events: events
         .map((event) => ({
           key: event.calendarKey,
           date: event.date,
           start: event.start,
           end: event.end,
+          startAt: eventStartAt(event.date, event.start),
           title: event.customTitle
             ? event.title.trim() || DEFAULT_SHIFT_TITLE
-            : DEFAULT_SHIFT_TITLE,
+            : prefs.title.trim() || DEFAULT_SHIFT_TITLE,
         }))
         .sort((first, second) =>
           `${first.date}-${first.start}-${first.key}`.localeCompare(
@@ -1994,43 +2066,45 @@ export default function HomePage() {
     }),
     [
       events,
-      prefs.reminder1,
+      prefs.alerts,
+      prefs.location,
+      prefs.title,
     ],
   );
-  const canExportCalendar = events.length > 0;
-  const calendarSubscriptionId = calendarSubscription?.id;
-  const calendarSubscriptionWriteToken = calendarSubscription?.writeToken;
+  const canEnableNotifications = events.length > 0;
+  const notificationProfileId = notificationProfile?.id;
+  const notificationProfileWriteToken = notificationProfile?.writeToken;
 
   useEffect(() => {
     if (
       !hydrated ||
-      !calendarSubscriptionId ||
-      !calendarSubscriptionWriteToken
+      !notificationProfileId ||
+      !notificationProfileWriteToken
     ) {
       return;
     }
-    const subscription = {
-      id: calendarSubscriptionId,
-      writeToken: calendarSubscriptionWriteToken,
+    const profile = {
+      id: notificationProfileId,
+      writeToken: notificationProfileWriteToken,
     };
     const timeout = window.setTimeout(() => {
-      setCalendarSyncState("syncing");
-      void syncCalendarFeed(subscription, calendarSyncPayload)
+      setNotificationSyncState("syncing");
+      void syncNotificationProfile(profile, notificationSyncPayload)
         .then(({ syncedAt }) => {
-          setCalendarSubscription((current) =>
-            current?.id === subscription.id
+          setNotificationProfile((current) =>
+            current?.id === profile.id
               ? { ...current, lastSyncedAt: syncedAt }
               : current,
           );
-          setCalendarSyncState("synced");
+          setNotificationSyncState("synced");
         })
-        .catch(() => setCalendarSyncState("error"));
+        .catch(() => setNotificationSyncState("error"));
     }, 900);
     return () => window.clearTimeout(timeout);
   }, [
-    calendarSubscriptionId,
-    calendarSubscriptionWriteToken,
-    calendarSyncPayload,
+    notificationProfileId,
+    notificationProfileWriteToken,
+    notificationSyncPayload,
     hydrated,
   ]);
 
@@ -2103,6 +2177,37 @@ export default function HomePage() {
       setEvents(eventsFor(importedShifts, next.person));
       setShowAllFlights(false);
     }
+  };
+
+  const updateNotificationAlert = (
+    index: number,
+    amount: number,
+    unit: number,
+  ) => {
+    const minutes = Math.max(0, Math.min(10080, Math.round(amount * unit)));
+    savePrefs({
+      alerts: prefs.alerts.map((current, alertIndex) =>
+        alertIndex === index ? minutes : current,
+      ),
+    });
+  };
+
+  const addNotificationAlert = () => {
+    if (prefs.alerts.length >= 12) {
+      setToast("You can add up to 12 alerts per shift");
+      return;
+    }
+    const next = [30, 60, 120, 1440, 15, 0].find(
+      (minutes) => !prefs.alerts.includes(minutes),
+    );
+    savePrefs({ alerts: [...prefs.alerts, next ?? 30] });
+  };
+
+  const removeNotificationAlert = (index: number) => {
+    if (prefs.alerts.length === 1) return;
+    savePrefs({
+      alerts: prefs.alerts.filter((_, alertIndex) => alertIndex !== index),
+    });
   };
 
   const updateCoordinateDraft = (value: string) => {
@@ -2510,7 +2615,7 @@ export default function HomePage() {
   };
 
   const clearAllData = () => {
-    const subscriptionToRevoke = calendarSubscription;
+    const profileToRevoke = notificationProfile;
     [
       "shiftdeck.preferences",
       "shiftdeck.theme",
@@ -2519,6 +2624,7 @@ export default function HomePage() {
       "shiftdeck.calendarFeed",
       "shiftdeck.calendarHistory",
       "shiftdeck.calendarSubscription",
+      "shiftdeck.notificationProfile",
       "shiftdeck.activeDates",
       "shiftdeck.parsedShifts",
       "shiftdeck.parsedFlights",
@@ -2546,14 +2652,14 @@ export default function HomePage() {
     setImportMessage("");
     setLoadedFiles([]);
     setDuplicateNotice("");
-    setCalendarSubscription(null);
-    setCalendarSyncState("idle");
+    setNotificationProfile(null);
+    setNotificationSyncState("idle");
     setCoordinatesOpen(false);
     setCoordinateDraft("");
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setReferenceSettingsOpen(false);
-    setExportOpen(false);
+    setNotificationsOpen(false);
     setShiftEditor(null);
     setReferenceVault(null);
     setReferenceAccessState("idle");
@@ -2566,8 +2672,18 @@ export default function HomePage() {
     setReferenceDeviceBusy("");
     setPendingReferenceRequests([]);
     setApprovedReferenceDevices([]);
-    if (subscriptionToRevoke) {
-      void revokeCalendarFeed(subscriptionToRevoke).catch(() => undefined);
+    if (profileToRevoke) {
+      void (async () => {
+        await removePushSubscription(profileToRevoke).catch(() => undefined);
+        const registration = await navigator.serviceWorker?.ready.catch(
+          () => undefined,
+        );
+        const subscription = await registration?.pushManager
+          .getSubscription()
+          .catch(() => null);
+        await subscription?.unsubscribe().catch(() => undefined);
+        await revokeNotificationProfile(profileToRevoke).catch(() => undefined);
+      })();
     }
     setToast("All Shiftdeck data cleared from this device");
   };
@@ -2577,106 +2693,169 @@ export default function HomePage() {
     Number.isFinite(prefs.locationLat) &&
     Number.isFinite(prefs.locationLon);
 
-  const subscribeToCalendar = async () => {
+  const enableNotifications = async () => {
     if (!events.length) {
-      setToast("Add a shift before subscribing");
+      setToast("Add a shift before turning on notifications");
       return;
     }
-    setCalendarSyncState("syncing");
+    if (
+      !("Notification" in window) ||
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window)
+    ) {
+      setNotificationPermission("unsupported");
+      setToast("Push notifications aren’t supported on this device");
+      return;
+    }
+    const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      ("standalone" in navigator &&
+        Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
+    if (isAppleMobile && !isStandalone) {
+      setToast("Add Shiftdeck to your Home Screen, then open it from the icon");
+      return;
+    }
+    setNotificationSyncState("syncing");
     try {
-      let subscription = isCurrentCalendarSubscription(calendarSubscription)
-        ? calendarSubscription!
-        : await createCalendarFeed();
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission !== "granted") {
+        setNotificationSyncState("idle");
+        setToast("Notifications weren’t allowed. You can enable them in Settings.");
+        return;
+      }
+      const keyResponse = await fetch(
+        calendarServiceUrl("/api/notifications/vapid-key"),
+      );
+      if (!keyResponse.ok) throw new Error("Notification key unavailable");
+      const { publicKey } = (await keyResponse.json()) as { publicKey: string };
+      const registration = await navigator.serviceWorker.ready;
+      let pushSubscription = await registration.pushManager.getSubscription();
+      if (!pushSubscription) {
+        pushSubscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: base64UrlToUint8Array(publicKey),
+        });
+      }
+      let profile = notificationProfile ?? (await createNotificationProfile());
       let syncedAt: string;
       try {
-        ({ syncedAt } = await syncCalendarFeed(
-          subscription,
-          calendarSyncPayload,
+        ({ syncedAt } = await syncNotificationProfile(
+          profile,
+          notificationSyncPayload,
         ));
       } catch (error) {
         const status = (error as Error & { status?: number }).status;
         if (status !== 404 && status !== 410) throw error;
-        subscription = await createCalendarFeed();
-        ({ syncedAt } = await syncCalendarFeed(
-          subscription,
-          calendarSyncPayload,
+        profile = await createNotificationProfile();
+        ({ syncedAt } = await syncNotificationProfile(
+          profile,
+          notificationSyncPayload,
         ));
       }
-      const syncedSubscription = {
-        ...subscription,
+      const registered = await registerPushSubscription(
+        profile,
+        pushSubscription,
+      );
+      const syncedProfile = {
+        ...profile,
+        subscriptionId: registered.id,
         lastSyncedAt: syncedAt,
       };
-      setCalendarSubscription(syncedSubscription);
+      setNotificationProfile(syncedProfile);
       localStorage.setItem(
-        "shiftdeck.calendarSubscription",
-        JSON.stringify(syncedSubscription),
+        "shiftdeck.notificationProfile",
+        JSON.stringify(syncedProfile),
       );
-      setCalendarSyncState("synced");
+      setNotificationSyncState("synced");
       setImportState("done");
-      setExportOpen(false);
-      setToast("Opening your Shiftdeck subscription in Apple Calendar");
-      window.location.href = syncedSubscription.feedUrl.replace(
-        /^https:/i,
-        "webcal:",
+      setToast("Notifications are on — sending a test now");
+      void requestTestNotification(syncedProfile).catch(() =>
+        setToast("Notifications are on. Use Send test to check this device."),
       );
     } catch {
-      setCalendarSyncState("error");
-      setToast("Calendar setup couldn’t connect. Try again.");
+      setNotificationSyncState("error");
+      setToast("Notifications couldn’t connect. Try again.");
     }
   };
 
-  const saveCalendarSettings = async () => {
-    if (!calendarSubscription) {
-      await subscribeToCalendar();
+  const saveNotificationSettings = async () => {
+    if (!notificationProfile || notificationPermission !== "granted") {
+      await enableNotifications();
+      return;
+    }
+    const registration = await navigator.serviceWorker.ready;
+    const activeSubscription = await registration.pushManager.getSubscription();
+    if (!activeSubscription || !notificationProfile.subscriptionId) {
+      await enableNotifications();
       return;
     }
     if (!events.length) {
-      setToast("Add a shift before saving calendar settings");
+      setToast("Add a shift before saving notification settings");
       return;
     }
-    setCalendarSyncState("syncing");
+    setNotificationSyncState("syncing");
     try {
-      const { syncedAt } = await syncCalendarFeed(
-        calendarSubscription,
-        calendarSyncPayload,
+      const { syncedAt } = await syncNotificationProfile(
+        notificationProfile,
+        notificationSyncPayload,
       );
-      setCalendarSubscription((current) =>
+      setNotificationProfile((current) =>
         current ? { ...current, lastSyncedAt: syncedAt } : current,
       );
-      setCalendarSyncState("synced");
-      setExportOpen(false);
-      setToast(
-        "Saved to Shiftdeck. In Apple Calendar, open Calendars and pull down to refresh.",
-      );
+      setNotificationSyncState("synced");
+      setNotificationsOpen(false);
+      setToast("Notification settings saved");
     } catch (error) {
       const status = (error as Error & { status?: number }).status;
       if (status === 404 || status === 410) {
-        setCalendarSubscription(null);
-        setCalendarSyncState("idle");
-        setToast("Calendar connection expired — subscribe again.");
+        setNotificationProfile(null);
+        setNotificationSyncState("idle");
+        setToast("Notification connection expired — turn it on again");
         return;
       }
-      setCalendarSyncState("error");
-      setToast("Calendar settings couldn’t be saved. Try again.");
+      setNotificationSyncState("error");
+      setToast("Notification settings couldn’t be saved. Try again.");
     }
   };
 
-  const resetCalendarSubscription = async () => {
-    if (!calendarSubscription) return;
+  const disconnectNotifications = async () => {
+    if (!notificationProfile) return;
     const confirmed = window.confirm(
-      "Reset the private calendar link? Your current Apple Calendar subscription will stop updating and you’ll need to subscribe again.",
+      "Turn off Shiftdeck notifications on this device?",
     );
     if (!confirmed) return;
-    const subscription = calendarSubscription;
-    setCalendarSyncState("syncing");
+    const profile = notificationProfile;
+    setNotificationSyncState("syncing");
     try {
-      await revokeCalendarFeed(subscription);
-      setCalendarSubscription(null);
-      setCalendarSyncState("idle");
-      setToast("Private calendar link reset");
+      await removePushSubscription(profile);
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      await subscription?.unsubscribe();
+      await revokeNotificationProfile(profile);
+      setNotificationProfile(null);
+      setNotificationSyncState("idle");
+      setToast("Notifications turned off on this device");
     } catch {
-      setCalendarSyncState("error");
-      setToast("The calendar link couldn’t be reset");
+      setNotificationSyncState("error");
+      setToast("Notifications couldn’t be turned off. Try again.");
+    }
+  };
+
+  const sendTestNotification = async () => {
+    if (!notificationProfile) {
+      await enableNotifications();
+      return;
+    }
+    setNotificationSyncState("syncing");
+    try {
+      await requestTestNotification(notificationProfile);
+      setNotificationSyncState("synced");
+      setToast("Test notification sent");
+    } catch {
+      setNotificationSyncState("error");
+      setToast("The test couldn’t be delivered. Reconnect notifications.");
     }
   };
 
@@ -4247,23 +4426,23 @@ export default function HomePage() {
             <div>
               <b>
                 {importState === "done"
-                  ? "Calendar connected"
+                  ? "Notifications connected"
                   : importState === "error"
                     ? "Schedule not recognized"
                     : "Schedule found"}
               </b>
               <p>{importMessage}</p>
               {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
-              {importState !== "error" && canExportCalendar ? (
+              {importState !== "error" && canEnableNotifications ? (
                 <button
                   className="button primary calendar-export-button"
-                  onClick={() => setExportOpen(true)}
+                  onClick={() => setNotificationsOpen(true)}
                 >
-                  <CalendarDays />
-                  {calendarSubscription ? "Calendar settings" : "Apple Calendar"}
+                  <Bell />
+                  {notificationProfile ? "Notification settings" : "Turn on notifications"}
                 </button>
               ) : importState !== "error" ? (
-                <small>Add a shift to connect Apple Calendar.</small>
+                <small>Add a shift to turn on notifications.</small>
               ) : null}
             </div>
           </section>
@@ -4396,42 +4575,35 @@ export default function HomePage() {
         </div>
       )}
 
-      {exportOpen && (
-        <div className="modal-layer" role="presentation" onMouseDown={() => setExportOpen(false)}>
+      {notificationsOpen && (
+        <div className="modal-layer" role="presentation" onMouseDown={() => setNotificationsOpen(false)}>
           <section
             className="export-sheet"
             role="dialog"
             aria-modal="true"
-            aria-label={
-              calendarSubscription
-                ? "Apple Calendar settings"
-                : "Subscribe in Apple Calendar"
-            }
+            aria-label="Notification settings"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
               <div>
-                <span className="eyebrow neutral">Apple Calendar</span>
-                <h2>
-                  {calendarSubscription
-                    ? "Calendar settings"
-                    : "Subscribe to shifts"}
-                </h2>
+                <span className="eyebrow neutral">Notifications</span>
+                <h2>Shift alerts</h2>
               </div>
-              <button onClick={() => setExportOpen(false)} aria-label="Close calendar export"><X /></button>
+              <button onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><X /></button>
             </header>
             <p className="subscription-copy">
-              {calendarSubscription
-                ? "You’re already subscribed. Changes update automatically. In Apple Calendar, open Calendars, tap ⓘ next to Shiftdeck, and make sure Event Alerts is on."
-                : "Subscribe once for automatic updates. After subscribing, open Calendars, tap ⓘ next to Shiftdeck, and turn on Event Alerts."}
+              {notificationPermission === "granted" && notificationProfile
+                ? "Notifications are on. Shift changes and alert times update automatically."
+                : "On iPhone, add Shiftdeck to your Home Screen and open it from the icon. Then tap Turn on notifications below."}
             </p>
             <div className="export-fields">
-              <label hidden>
-                <span>Title</span>
+              <label>
+                <span>Default job title</span>
                 <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} placeholder="Work" />
+                <small>Imported shifts use this unless you edit the shift on Today.</small>
               </label>
-              <label className="place-field" hidden>
-                <span>Place</span>
+              <label className="place-field">
+                <span>Location</span>
                 <input
                   value={prefs.location}
                   onChange={(event) => {
@@ -4603,60 +4775,106 @@ export default function HomePage() {
                   <small>Paste from Apple Maps</small>
                 </div>
               )}
-              <div className="reminder-grid">
-                <label>
-                  <span>Alert</span>
-                  <select
-                    value={prefs.reminder1 || DEFAULT_CALENDAR_ALERT}
-                    onChange={(event) =>
-                      savePrefs({
-                        reminder1: event.target.value,
-                        reminder2: "",
-                      })
-                    }
+              <div className="notification-alerts">
+                <div className="notification-alerts-heading">
+                  <div>
+                    <span>Alerts</span>
+                    <small>Choose exactly when each alert arrives.</small>
+                  </div>
+                  <button
+                    type="button"
+                    className="button soft"
+                    onClick={addNotificationAlert}
                   >
-                    {REMINDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                  <ChevronDown />
-                  <small>
-                    Shiftdeck sends one simple alert for each shift. Imported
-                    shifts are titled Work unless you edit the shift on Today.
-                  </small>
-                </label>
-                <label hidden>
-                  <span>Reminder 2</span>
-                  <select value={prefs.reminder2} onChange={(event) => savePrefs({ reminder2: event.target.value })}>
-                    {REMINDER_OPTIONS.map((option) => <option key={option.value || "none"} value={option.value}>{option.label}</option>)}
-                  </select>
-                  <ChevronDown />
-                </label>
+                    <Plus /> Add alert
+                  </button>
+                </div>
+                <div className="notification-alert-list">
+                  {prefs.alerts.map((minutes, index) => {
+                    const unit = alertUnitFor(minutes);
+                    return (
+                      <div className="notification-alert-row" key={`alert-${index}`}>
+                        <input
+                          type="number"
+                          min="0"
+                          max={Math.floor(10080 / unit)}
+                          step="1"
+                          inputMode="numeric"
+                          aria-label={`Alert ${index + 1} amount`}
+                          value={alertAmountFor(minutes)}
+                          onChange={(event) =>
+                            updateNotificationAlert(
+                              index,
+                              Number(event.target.value),
+                              unit,
+                            )
+                          }
+                        />
+                        <label>
+                          <span className="sr-only">Alert {index + 1} unit</span>
+                          <select
+                            value={unit}
+                            onChange={(event) =>
+                              updateNotificationAlert(
+                                index,
+                                alertAmountFor(minutes),
+                                Number(event.target.value),
+                              )
+                            }
+                          >
+                            {ALERT_UNIT_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown />
+                        </label>
+                        <span>before</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove alert ${index + 1}`}
+                          disabled={prefs.alerts.length === 1}
+                          onClick={() => removeNotificationAlert(index)}
+                        >
+                          <Trash2 />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <button
               className="button primary"
-              onClick={() =>
-                void (calendarSubscription
-                  ? saveCalendarSettings()
-                  : subscribeToCalendar())
-              }
-              disabled={calendarSyncState === "syncing"}
+              onClick={() => void saveNotificationSettings()}
+              disabled={notificationSyncState === "syncing"}
             >
-              {calendarSubscription ? <Check /> : <CalendarDays />}
-              {calendarSyncState === "syncing"
-                ? calendarSubscription
+              {notificationProfile ? <Check /> : <Bell />}
+              {notificationSyncState === "syncing"
+                ? notificationProfile
                   ? "Saving…"
                   : "Connecting…"
-                : calendarSubscription
+                : notificationProfile
                   ? "Save changes"
-                  : "Subscribe in Apple Calendar"}
+                  : "Turn on notifications"}
             </button>
-            {calendarSubscription && (
-              <button
-                className="button danger subtle"
-                onClick={() => void resetCalendarSubscription()}
-              >
-                Reset calendar connection
-              </button>
+            {notificationProfile && (
+              <div className="notification-actions">
+                <button
+                  className="button soft"
+                  onClick={() => void sendTestNotification()}
+                  disabled={notificationSyncState === "syncing"}
+                >
+                  <Bell /> Send test
+                </button>
+                <button
+                  className="button danger subtle"
+                  onClick={() => void disconnectNotifications()}
+                >
+                  Turn off
+                </button>
+              </div>
             )}
           </section>
         </div>
@@ -4730,38 +4948,30 @@ export default function HomePage() {
             </div>
             <div className="calendar-subscription-setting">
               <div>
-                <span>Apple Calendar</span>
+                <span>Notifications</span>
                 <b>
-                  {calendarSubscription
-                    ? calendarSyncState === "syncing"
+                  {notificationPermission === "unsupported"
+                    ? "Not supported on this device"
+                    : notificationPermission === "denied"
+                      ? "Blocked in device settings"
+                      : notificationProfile
+                        ? notificationSyncState === "syncing"
                       ? "Updating…"
-                      : calendarSyncState === "error"
+                      : notificationSyncState === "error"
                         ? "Needs attention"
-                        : "Automatic updates on"
-                    : "Not connected"}
+                        : `${prefs.alerts.length} alert${prefs.alerts.length === 1 ? "" : "s"} per shift`
+                        : "Off"}
                 </b>
               </div>
-              {calendarSubscription ? (
-                <button
-                  className="button soft"
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    setExportOpen(true);
-                  }}
-                >
-                  Edit
-                </button>
-              ) : (
-                <button
-                  className="button soft"
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    setExportOpen(true);
-                  }}
-                >
-                  Connect
-                </button>
-              )}
+              <button
+                className="button soft"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setNotificationsOpen(true);
+                }}
+              >
+                {notificationProfile ? "Manage" : "Set up"}
+              </button>
             </div>
             <div className="reference-access-setting">
               <div>
@@ -4944,7 +5154,7 @@ export default function HomePage() {
           <section className="confirm-card" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <span className="confirm-icon danger"><Trash2 /></span>
             <h2>Clear all app data?</h2>
-            <p>This resets saved settings and uploads on this device. It also stops the private Shiftdeck subscription feed; remove that calendar from Apple Calendar if you no longer want to see it.</p>
+            <p>This resets saved settings and uploads on this device. It also turns off this device’s Shiftdeck notifications.</p>
             <div>
               <button className="button soft" onClick={() => setClearConfirmOpen(false)}>Cancel</button>
               <button className="button danger" onClick={clearAllData}>Clear everything</button>

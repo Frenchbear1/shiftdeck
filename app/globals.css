@@ -3065,6 +3065,144 @@ main {
   gap: 10px;
 }
 
+.sr-only {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  overflow: hidden;
+  margin: -1px;
+  padding: 0;
+  white-space: nowrap;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.export-fields label > small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.notification-alerts {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.notification-alerts-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notification-alerts-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.notification-alerts-heading span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.notification-alerts-heading small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.notification-alerts-heading .button {
+  width: auto;
+  min-height: 34px;
+  padding-inline: 11px;
+  font-size: 11px;
+}
+
+.notification-alerts-heading .button svg {
+  width: 14px;
+}
+
+.notification-alert-list {
+  display: grid;
+  gap: 8px;
+}
+
+.notification-alert-row {
+  display: grid;
+  grid-template-columns: 76px minmax(105px, 1fr) auto 34px;
+  align-items: center;
+  gap: 7px;
+}
+
+.notification-alert-row > input,
+.notification-alert-row label select {
+  height: 40px;
+}
+
+.notification-alert-row label {
+  position: relative;
+}
+
+.notification-alert-row label select {
+  width: 100%;
+  padding: 0 30px 0 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  appearance: none;
+}
+
+.notification-alert-row label svg {
+  width: 14px;
+  position: absolute;
+  top: 13px;
+  right: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.notification-alert-row > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.notification-alert-row > button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.notification-alert-row > button:disabled {
+  cursor: default;
+  opacity: .3;
+}
+
+.notification-alert-row > button svg {
+  width: 15px;
+}
+
+.notification-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.export-sheet > .notification-actions .button {
+  width: 100%;
+  min-height: 46px;
+  margin: 0;
+}
+
 .place-field {
   z-index: 4;
 }

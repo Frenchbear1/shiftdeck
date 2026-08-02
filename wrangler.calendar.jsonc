@@ -3,6 +3,14 @@
   "name": "shiftdeck-calendar",
   "main": "worker/calendar-only.ts",
   "compatibility_date": "2026-07-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "VAPID_SUBJECT": "mailto:notifications@frenchbear.chatgpt.site",
+    "SHIFTDECK_APP_URL": "https://frenchbear1.github.io/shiftdeck/"
+  },
   "d1_databases": [
     {
       "binding": "DB",

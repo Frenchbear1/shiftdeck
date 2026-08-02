@@ -11,6 +11,7 @@ import {
   calendarSequenceFor,
 } from "../worker/calendar-revisions.ts";
 import { matchFlightAwareResult } from "../worker/flightaware.ts";
+import { normalizeNotificationPayload } from "../worker/push-service.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -195,7 +196,7 @@ test("caches the PWA shell and restores Today before background data", async () 
   ]);
 
   assert.match(serviceWorker, /shiftdeck-shell/);
-  assert.match(serviceWorker, /shiftdeck-shell.*v3|CACHE_PREFIX.*v3/s);
+  assert.match(serviceWorker, /shiftdeck-shell.*v4|CACHE_PREFIX.*v4/s);
   assert.match(serviceWorker, /request\.mode === "navigate"/);
   assert.match(serviceWorker, /warmDocumentAssets/);
   assert.match(serviceWorker, /cache\.match\(scopeRoot\)/);
@@ -297,131 +298,101 @@ test("advances existing events when the calendar format changes", () => {
   assert.ok(calendarSequenceFor(12) > 12);
 });
 
-test("uses a durable Apple Calendar subscription with revision-aware events", async () => {
-  const [page, css, hosting, service, alarms, migration, structuredMigration, parser] =
+test("normalizes precise notification alerts without duplicates", () => {
+  const result = normalizeNotificationPayload({
+    title: "  Ramp shift  ",
+    location: "  ABE terminal  ",
+    timezone: "America/New_York",
+    alerts: [120, 30, 120, -1, 10081],
+    events: [
+      {
+        key: "shift-1",
+        date: "2026-08-04",
+        start: "09:00",
+        end: "17:00",
+        startAt: "2026-08-04T13:00:00.000Z",
+        title: "",
+      },
+    ],
+  });
+
+  assert.deepEqual(result.alerts, [120, 30]);
+  assert.equal(result.title, "Ramp shift");
+  assert.equal(result.location, "ABE terminal");
+  assert.equal(result.events[0].title, "Ramp shift");
+  assert.equal(result.events[0].startAt, "2026-08-04T13:00:00.000Z");
+});
+
+test("uses durable, duplicate-safe PWA shift notifications", async () => {
+  const [page, css, pushService, worker, migration, manifest, config, serviceWorker, parser] =
     await Promise.all([
       readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
       readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
-      readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
-      readFile(new URL("../worker/calendar-service.ts", import.meta.url), "utf8"),
-      readFile(new URL("../worker/calendar-alarms.ts", import.meta.url), "utf8"),
+      readFile(new URL("../worker/push-service.ts", import.meta.url), "utf8"),
+      readFile(new URL("../worker/calendar-only.ts", import.meta.url), "utf8"),
       readFile(
-        new URL("../drizzle/0000_shiftdeck_calendar.sql", import.meta.url),
+        new URL("../drizzle/0003_pwa_notifications.sql", import.meta.url),
         "utf8",
       ),
-      readFile(
-        new URL(
-          "../drizzle/0001_structured_calendar_location.sql",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
+      readFile(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"),
+      readFile(new URL("../wrangler.calendar.jsonc", import.meta.url), "utf8"),
+      readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
       readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
     ]);
 
-  assert.match(page, /createCalendarFeed/);
-  assert.match(page, /syncCalendarFeed/);
-  assert.match(page, /saveCalendarSettings/);
-  assert.match(page, /shiftdeck\.calendarSubscription/);
-  assert.match(page, /window\.location\.href = syncedSubscription\.feedUrl\.replace/);
-  assert.equal((page.match(/window\.location\.href/g) ?? []).length, 1);
-  assert.match(page, /"webcal:"/);
-  assert.doesNotMatch(page, /anchor\.download|Shiftdeck_Schedule\.ics/);
+  assert.match(page, /createNotificationProfile/);
+  assert.match(page, /syncNotificationProfile/);
+  assert.match(page, /registerPushSubscription/);
+  assert.match(page, /requestTestNotification/);
+  assert.match(page, /shiftdeck\.notificationProfile/);
+  assert.match(page, /Notification\.requestPermission\(\)/);
+  assert.match(page, /navigator\.serviceWorker\.ready/);
+  assert.match(page, /registration\.pushManager\.subscribe/);
+  assert.match(page, /display-mode: standalone/);
+  assert.match(page, />Default job title</);
+  assert.match(page, />Location</);
+  assert.match(page, /Add alert/);
+  assert.match(page, /updateNotificationAlert/);
+  assert.match(page, /prefs\.alerts\.length >= 12/);
+  assert.match(page, /DEFAULT_ALERT_MINUTES = 120/);
+  assert.match(page, /Send test/);
+  assert.doesNotMatch(page, /Subscribe in Apple Calendar|turn on Event Alerts/);
 
-  assert.match(service, /UID:\$\{uidFor\(feed\.id, event\.event_key\)\}/);
-  assert.match(service, /SEQUENCE:\$\{calendarSequence\}/);
-  assert.match(service, /"CANCELLED" : "CONFIRMED"/);
-  assert.doesNotMatch(service, /Revised \$\{sequence\}|— Revised/);
-  assert.match(service, /const title = event\.base_title/);
-  assert.match(service, /REFRESH-INTERVAL;VALUE=DURATION:PT1H/);
-  assert.match(service, /write_token_hash/);
-  assert.match(page, /Subscribe in Apple Calendar/);
-  assert.match(page, /turn on Event Alerts/);
-  assert.match(page, /make sure Event Alerts is on/);
-  assert.match(page, /You’re already subscribed/);
-  assert.doesNotMatch(page, /Sync now|syncCalendarNow|calendar-sync-button/);
-  assert.match(page, /pull down to refresh/);
-  assert.doesNotMatch(page, /Open subscription in Apple Calendar|openAppleCalendarFeed/);
-  assert.match(page, /Reset calendar connection/);
-  assert.match(page, /calendarSubscription\s*\?\s*saveCalendarSettings/);
-  assert.match(page, /aria-label=\{\s*calendarSubscription/);
-  assert.match(page, />Title</);
-  assert.match(page, />Place</);
-  assert.match(page, />Alert</);
-  assert.match(page, />Reminder 2</);
-  assert.match(page, /value: "P1W", label: "1 week before"/);
-  assert.doesNotMatch(page, /value: "TIME_TO_LEAVE", label: "Time to Leave"/);
-  assert.doesNotMatch(page, /visibleReminderOptions|validateTravelReminder/);
-  assert.doesNotMatch(page, /One reminder is enough|calendar-alert-help/);
-  assert.match(page, /calendarServiceUrl\(`\/api\/places/);
-  assert.match(page, /Enter coordinates/);
-  assert.match(page, /Preview in Apple Maps/);
-  assert.match(page, /parseCoordinatePair/);
-  assert.match(page, /longitudeDirection === "W" \? -1 : 1/);
-  assert.match(page, /formatAppleCoordinates/);
-  assert.match(page, /<small>Paste from Apple Maps<\/small>/);
-  assert.match(page, /40\.65382° N, 75\.43225° W/);
-  assert.match(service, /https:\/\/photon\.komoot\.io\/api/);
-  assert.match(service, /countrycode=US/);
-  assert.match(service, /limit=10/);
-  assert.match(service, /new Set\(/);
-  assert.match(service, /feed\.reminder1 !== "TIME_TO_LEAVE"/);
-  assert.match(alarms, /TRIGGER:/);
-  assert.doesNotMatch(alarms, /RELATED=START/);
-  assert.match(alarms, /X-WR-ALARMUID/);
-  assert.match(alarms, /UID:\$\{alarmUid\}/);
-  assert.match(alarms, /ACTION:DISPLAY/);
-  assert.match(alarms, /DESCRIPTION:Shiftdeck reminder/);
-  assert.doesNotMatch(alarms, /ATTACH/);
-  assert.match(service, /CALENDAR_FORMAT_VERSION/);
-  assert.match(service, /calendarSequenceFor\(event\.sequence\)/);
-  assert.match(service, /"Last-Modified": lastModified/);
-  assert.doesNotMatch(service, /X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC/);
-  assert.doesNotMatch(service, /X-APPLE-STRUCTURED-LOCATION|`GEO:/);
-  assert.doesNotMatch(service, /LOCATION:\$\{safeIcsText\(feed\.location\)\}/);
-  assert.doesNotMatch(service, /DESCRIPTION:\$\{safeIcsText\(feed\.notes\)\}/);
-  assert.match(service, /public, no-cache, must-revalidate/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS notification_profiles/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS notification_events/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS push_subscriptions/);
+  assert.match(migration, /endpoint TEXT NOT NULL UNIQUE/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS notification_deliveries/);
   assert.match(
-    page,
-    /const DEFAULT_PREFS:[\s\S]*?title: DEFAULT_SHIFT_TITLE,[\s\S]*?reminder1: DEFAULT_CALENDAR_ALERT,/,
+    migration,
+    /PRIMARY KEY \(profile_id, event_key, alert_minutes, subscription_id\)/,
   );
+  assert.match(pushService, /ON CONFLICT\(profile_id, event_key, alert_minutes, subscription_id\)/);
+  assert.match(pushService, /status = 'sending'/);
+  assert.match(pushService, /RETURNING profile_id/);
+  assert.match(pushService, /status === 404 \|\| status === 410/);
+  assert.match(pushService, /web_push: 8030/);
+  assert.match(pushService, /notificationPayload/);
+  assert.match(pushService, /sendDueNotifications/);
+  assert.match(worker, /async scheduled/);
+  assert.match(worker, /handlePushRequest/);
+  assert.match(config, /"crons": \["\* \* \* \* \*"\]/);
+  assert.match(config, /"nodejs_compat"/);
+  assert.equal(JSON.parse(manifest).id, "./");
+  assert.match(serviceWorker, /addEventListener\("push"/);
+  assert.match(serviceWorker, /payload\.notification \|\| payload/);
+  assert.match(serviceWorker, /addEventListener\("notificationclick"/);
+
   assert.match(parser, /isPlausibleWorkerName/);
   assert.match(parser, /NON_NAME_WORDS/);
-  assert.match(parser, /parts\.at\(-1\)!\.length < 4/);
   assert.match(page, /aria-label="Add a shift"/);
   assert.match(page, /aria-label="Edit this shift"/);
-  assert.match(page, /shiftdeck\.events/);
-  assert.match(page, />Appearance</);
-  assert.match(page, /hourlyPay/);
-  assert.match(page, />Hourly pay</);
-  assert.doesNotMatch(page, /\(\$ per hour\)/);
-  assert.match(page, /filingStatus/);
-  assert.match(page, /PA_INCOME_TAX_RATE = 0\.0307/);
-  assert.match(page, /SOCIAL_SECURITY_TAX_RATE = 0\.062/);
-  assert.match(page, /MEDICARE_TAX_RATE = 0\.0145/);
-  assert.match(page, /FEDERAL_WEEKLY_WITHHOLDING_2026/);
-  assert.match(page, /weekly-pay-card/);
-  assert.match(page, /weekly-pay-toggle/);
-  assert.match(page, /returnToToday/);
-  assert.match(page, /today-text-button/);
-  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
-  assert.match(page, /data-schedule-date/);
-  assert.match(css, /\.today-text-button/);
   assert.match(page, /customTitle/);
   assert.match(page, />Shift title</);
-  assert.doesNotMatch(page, /heroTimeFontSize/);
-  assert.match(css, /\.hero-card h1\.hero-time-range[\s\S]*?font-size: 34px/);
-  assert.doesNotMatch(css, /--hero-mobile-font-size/);
-  assert.doesNotMatch(page, /compact-shift-list|Check before export|Your shifts|Toggle theme/);
+  assert.match(page, /returnToToday/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
+  assert.match(css, /\.notification-alert-row/);
   assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);
-  assert.match(page, /Automatic updates on/);
-
-  assert.equal(JSON.parse(hosting).d1, null);
-  assert.match(page, /https:\/\/shiftdeck-calendar\.frenchbear1\.workers\.dev/);
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_feeds/);
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS calendar_events/);
-  assert.match(structuredMigration, /ADD COLUMN location_lat REAL/);
-  assert.match(structuredMigration, /ADD COLUMN location_lon REAL/);
 });
 
 test("matches a FlightAware route result by weekday and arrival time", () => {

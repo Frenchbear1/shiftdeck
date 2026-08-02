@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "shiftdeck-shell";
-const CACHE_NAME = `${CACHE_PREFIX}-v3`;
+const CACHE_NAME = `${CACHE_PREFIX}-v4`;
 const scopeRoot = new URL("./", self.registration.scope);
 
 async function cacheResponse(cache, request, response) {
@@ -116,6 +116,50 @@ self.addEventListener("fetch", (event) => {
       if (cached) return cached;
       const response = await fetch(request);
       return cacheResponse(cache, request, response);
+    })(),
+  );
+});
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  event.waitUntil(
+    (async () => {
+      const payload = event.data.json();
+      const notification = payload.notification || payload;
+      const navigate = notification.navigate || scopeRoot.href;
+      await self.registration.showNotification(
+        notification.title || "Shiftdeck",
+        {
+          body: notification.body || "",
+          icon: notification.icon || new URL("icon-192.png", scopeRoot).href,
+          badge: notification.badge || new URL("icon-192.png", scopeRoot).href,
+          tag: notification.tag,
+          silent: notification.silent === true,
+          data: { navigate },
+        },
+      );
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const navigate = event.notification.data?.navigate || scopeRoot.href;
+
+  event.waitUntil(
+    (async () => {
+      const windowClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of windowClients) {
+        if (new URL(client.url).origin === self.location.origin) {
+          if ("navigate" in client) await client.navigate(navigate);
+          return "focus" in client ? client.focus() : undefined;
+        }
+      }
+      return self.clients.openWindow(navigate);
     })(),
   );
 });

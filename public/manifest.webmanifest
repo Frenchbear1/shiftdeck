@@ -2,6 +2,7 @@
   "name": "Shiftdeck",
   "short_name": "Shiftdeck",
   "description": "Schedule, crew, and flight reference for work.",
+  "id": "./",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#17191d",
