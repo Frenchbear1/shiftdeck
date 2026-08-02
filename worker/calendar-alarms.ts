@@ -17,11 +17,10 @@ export function renderAppleTimedAlarm(
   const alarmUid = alarmUidFor(calendarId, eventKey, reminder);
   return [
     "BEGIN:VALARM",
-    `UID:${alarmUid}`,
     `X-WR-ALARMUID:${alarmUid}`,
     `TRIGGER:${reminder === "PT0M" ? "PT0M" : `-${reminder}`}`,
-    "ACTION:AUDIO",
-    "ATTACH;VALUE=URI:Chord",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Shiftdeck reminder",
     "END:VALARM",
   ];
 }
