@@ -90,8 +90,6 @@ type CalendarEvent = {
   customTitle?: boolean;
 };
 
-type FilingStatus = "single" | "married" | "head";
-
 type Preferences = {
   person: string;
   title: string;
@@ -102,8 +100,6 @@ type Preferences = {
   notes: string;
   homeAirport: string;
   airline: string;
-  hourlyPay: string;
-  filingStatus: FilingStatus;
 };
 
 type NotificationProfile = {
@@ -254,66 +250,7 @@ const DEFAULT_PREFS: Preferences = {
   notes: "",
   homeAirport: "ABE",
   airline: "Allegiant",
-  hourlyPay: "",
-  filingStatus: "single",
 };
-
-const PA_INCOME_TAX_RATE = 0.0307;
-const SOCIAL_SECURITY_TAX_RATE = 0.062;
-const MEDICARE_TAX_RATE = 0.0145;
-
-type FederalWithholdingBracket = {
-  from: number;
-  base: number;
-  rate: number;
-};
-
-const FEDERAL_WEEKLY_WITHHOLDING_2026: Record<
-  FilingStatus,
-  FederalWithholdingBracket[]
-> = {
-  single: [
-    { from: 0, base: 0, rate: 0 },
-    { from: 310, base: 0, rate: 0.1 },
-    { from: 548, base: 23.8, rate: 0.12 },
-    { from: 1279, base: 111.52, rate: 0.22 },
-    { from: 2342, base: 345.38, rate: 0.24 },
-    { from: 4190, base: 788.9, rate: 0.32 },
-    { from: 5237, base: 1123.94, rate: 0.35 },
-    { from: 12629, base: 3711.14, rate: 0.37 },
-  ],
-  married: [
-    { from: 0, base: 0, rate: 0 },
-    { from: 619, base: 0, rate: 0.1 },
-    { from: 1096, base: 47.7, rate: 0.12 },
-    { from: 2558, base: 223.14, rate: 0.22 },
-    { from: 4685, base: 691.08, rate: 0.24 },
-    { from: 8380, base: 1577.88, rate: 0.32 },
-    { from: 10474, base: 2247.96, rate: 0.35 },
-    { from: 15402, base: 3972.76, rate: 0.37 },
-  ],
-  head: [
-    { from: 0, base: 0, rate: 0 },
-    { from: 464, base: 0, rate: 0.1 },
-    { from: 805, base: 34.1, rate: 0.12 },
-    { from: 1762, base: 148.94, rate: 0.22 },
-    { from: 2497, base: 310.64, rate: 0.24 },
-    { from: 4344, base: 753.92, rate: 0.32 },
-    { from: 5391, base: 1088.96, rate: 0.35 },
-    { from: 12784, base: 3676.51, rate: 0.37 },
-  ],
-};
-
-function estimateFederalWithholding(
-  weeklyGross: number,
-  filingStatus: FilingStatus,
-) {
-  const brackets = FEDERAL_WEEKLY_WITHHOLDING_2026[filingStatus];
-  const bracket = [...brackets]
-    .reverse()
-    .find((candidate) => weeklyGross >= candidate.from) ?? brackets[0];
-  return bracket.base + Math.max(0, weeklyGross - bracket.from) * bracket.rate;
-}
 
 const ALERT_UNIT_OPTIONS = [
   { value: 1, label: "minutes" },
@@ -436,17 +373,6 @@ const formatMinutes = (minutes: number) => {
     `${`${hours}`.padStart(2, "0")}:${`${mins}`.padStart(2, "0")}`,
   );
 };
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(value);
-
-const formatHours = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-  }).format(value);
 
 function parseCoordinatePair(value: string) {
   const match = value
@@ -633,6 +559,33 @@ function calendarServiceUrl(path: string) {
   return `${CALENDAR_SERVICE_ORIGIN}${path}`;
 }
 
+function isLocalUiPreview() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
+}
+
+function prepareReferenceVault(vault: ReferenceVault): ReferenceVault {
+  return {
+    ...vault,
+    contactGroups: vault.contactGroups.map((group) => ({
+      ...group,
+      contacts: group.contacts.filter(
+        (contact) => contact.methods && contact.methods.length > 0,
+      ),
+    })),
+    quickReferences: vault.quickReferences.filter(
+      (reference) => reference.id !== "manuals",
+    ),
+  };
+}
+
 const REFERENCE_DEVICE_KEY = "shiftdeck.referenceDeviceId";
 const REFERENCE_REQUEST_KEY = "shiftdeck.referenceRequest";
 const REFERENCE_ACCESS_KEY = "shiftdeck.referenceAccessToken";
@@ -758,25 +711,6 @@ function localDateKey(date = new Date()) {
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function weekRangeFor(dateKey: string) {
-  const selected = new Date(`${dateKey}T12:00:00`);
-  const start = new Date(selected);
-  start.setDate(selected.getDate() - selected.getDay());
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return {
-    start: localDateKey(start),
-    end: localDateKey(end),
-    label: `${new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-    }).format(start)} – ${new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-    }).format(end)}`,
-  };
 }
 
 function workdayDateKey(now: Date, shifts: Shift[], person: string) {
@@ -953,7 +887,6 @@ export default function HomePage() {
     end: "17:00",
     title: "Work",
   });
-  const [weekTotalOpen, setWeekTotalOpen] = useState(false);
   const [timeOffDraft, setTimeOffDraft] = useState<TimeOffDraft>({
     date: "2026-07-26",
     start: "09:00",
@@ -1037,6 +970,25 @@ export default function HomePage() {
       });
     });
 
+    (referenceVault.emailDirectory ?? []).forEach((entry) => {
+      if (!matchesQuery(`${entry.name} ${entry.email} email directory`)) return;
+      results.push({
+        id: `email-${entry.id}`,
+        kind: "contact",
+        title: entry.name,
+        category: "Email directory",
+        detail: entry.email,
+        methods: [
+          {
+            label: "Email",
+            value: entry.email,
+            href: `mailto:${entry.email}`,
+            kind: "email",
+          },
+        ],
+      });
+    });
+
     referenceVault.quickReferences.forEach((reference) => {
       const searchableParts = [reference.title, reference.summary];
       reference.sections.forEach((section) => {
@@ -1074,20 +1026,18 @@ export default function HomePage() {
     });
     if (!response.ok) throw new Error("Reference access expired");
     const vault = (await response.json()) as ReferenceVault;
-    setReferenceVault({
-      ...vault,
-      contactGroups: vault.contactGroups.map((group) => ({
-        ...group,
-        contacts: group.contacts.filter(
-          (contact) => contact.methods && contact.methods.length > 0,
-        ),
-      })),
-      quickReferences: vault.quickReferences.filter(
-        (reference) => reference.id !== "manuals",
-      ),
-    });
+    setReferenceVault(prepareReferenceVault(vault));
     setReferenceAccessState("approved");
     setReferenceAccessMessage("");
+  }, []);
+
+  const loadLocalReferenceVault = useCallback(async () => {
+    const response = await fetch("/api/dev/references", { cache: "no-store" });
+    if (!response.ok) throw new Error("Local reference access is unavailable");
+    const vault = (await response.json()) as ReferenceVault;
+    setReferenceVault(prepareReferenceVault(vault));
+    setReferenceAccessState("approved");
+    setReferenceAccessMessage("Local UI preview access");
   }, []);
 
   const checkReferenceRequest = useCallback(
@@ -1154,6 +1104,10 @@ export default function HomePage() {
     async (createIfMissing = true) => {
       setReferenceAccessState("checking");
       try {
+        if (isLocalUiPreview()) {
+          await loadLocalReferenceVault();
+          return;
+        }
         const ownerToken = localStorage.getItem(REFERENCE_OWNER_KEY) ?? "";
         const accessToken = localStorage.getItem(REFERENCE_ACCESS_KEY) ?? "";
         if (ownerToken) {
@@ -1189,7 +1143,12 @@ export default function HomePage() {
         );
       }
     },
-    [checkReferenceRequest, createReferenceRequest, loadReferenceVault],
+    [
+      checkReferenceRequest,
+      createReferenceRequest,
+      loadLocalReferenceVault,
+      loadReferenceVault,
+    ],
   );
 
   const refreshOwnerRequests = useCallback(async (token: string) => {
@@ -1398,15 +1357,6 @@ export default function HomePage() {
             notes: "",
             homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
             airline: saved.airline ?? DEFAULT_PREFS.airline,
-            hourlyPay:
-              typeof saved.hourlyPay === "string"
-                ? saved.hourlyPay
-                : DEFAULT_PREFS.hourlyPay,
-            filingStatus:
-              saved.filingStatus === "married" ||
-              saved.filingStatus === "head"
-                ? saved.filingStatus
-                : DEFAULT_PREFS.filingStatus,
           };
           setPrefs(parsedPrefs);
         } catch {
@@ -1831,55 +1781,6 @@ export default function HomePage() {
     () => getWorkingShift(importedShifts, selectedDate, prefs.person),
     [importedShifts, selectedDate, prefs.person],
   );
-
-  const weeklySummary = useMemo(() => {
-    const range = weekRangeFor(selectedDate);
-    const hours = events
-      .filter(
-        (event) =>
-          event.date >= range.start &&
-          event.date <= range.end,
-      )
-      .reduce((total, event) => {
-        const [start, end] = normalizedInterval(event.start, event.end);
-        return total + (end - start) / 60;
-      }, 0);
-    const hourlyPay = Number.parseFloat(prefs.hourlyPay);
-    const grossPay =
-      Number.isFinite(hourlyPay) && hourlyPay >= 0
-        ? hours * hourlyPay
-        : null;
-    const federal =
-      grossPay === null
-        ? null
-        : estimateFederalWithholding(grossPay, prefs.filingStatus);
-    const socialSecurity =
-      grossPay === null ? null : grossPay * SOCIAL_SECURITY_TAX_RATE;
-    const medicare = grossPay === null ? null : grossPay * MEDICARE_TAX_RATE;
-    const paIncomeTax =
-      grossPay === null ? null : grossPay * PA_INCOME_TAX_RATE;
-    const totalEstimatedTaxes =
-      grossPay === null ||
-      federal === null ||
-      socialSecurity === null ||
-      medicare === null ||
-      paIncomeTax === null
-        ? null
-        : federal + socialSecurity + medicare + paIncomeTax;
-    return {
-      ...range,
-      hours,
-      grossPay,
-      federal,
-      socialSecurity,
-      medicare,
-      paIncomeTax,
-      estimatedTakeHome:
-        grossPay === null || totalEstimatedTaxes === null
-          ? null
-          : Math.max(0, grossPay - totalEstimatedTaxes),
-    };
-  }, [events, prefs.filingStatus, prefs.hourlyPay, selectedDate]);
 
   const dayShifts = useMemo(
     () =>
@@ -3076,74 +2977,6 @@ export default function HomePage() {
         {hasSchedule ? (
           <>
             {renderDateRail(false, true, "home")}
-            <div className={`weekly-pay-card${weekTotalOpen ? " expanded" : ""}`}>
-              <button
-                className="weekly-pay-toggle"
-                type="button"
-                aria-expanded={weekTotalOpen}
-                onClick={() => setWeekTotalOpen((current) => !current)}
-              >
-                <span>
-                  <b>Week total</b>
-                  <small>{weeklySummary.label}</small>
-                </span>
-                <span className="weekly-pay-summary">
-                  <strong>{formatHours(weeklySummary.hours)} hours</strong>
-                  <ChevronDown />
-                </span>
-              </button>
-              {weekTotalOpen && (
-                <div className="weekly-pay-details">
-                  <div className="weekly-pay-stats">
-                    <div>
-                      <strong>
-                        {weeklySummary.grossPay === null
-                          ? "—"
-                          : formatCurrency(weeklySummary.grossPay)}
-                      </strong>
-                      <span>estimated gross</span>
-                    </div>
-                    <div className="take-home">
-                      <strong>
-                        {weeklySummary.estimatedTakeHome === null
-                          ? "—"
-                          : formatCurrency(weeklySummary.estimatedTakeHome)}
-                      </strong>
-                      <span>estimated take-home</span>
-                    </div>
-                  </div>
-                  {weeklySummary.grossPay === null ? (
-                    <small>Add your hourly pay in Settings to see pay estimates.</small>
-                  ) : (
-                    <>
-                      <div className="tax-breakdown">
-                        <span>
-                          Federal withholding
-                          <b>{formatCurrency(weeklySummary.federal ?? 0)}</b>
-                        </span>
-                        <span>
-                          Social Security
-                          <b>{formatCurrency(weeklySummary.socialSecurity ?? 0)}</b>
-                        </span>
-                        <span>
-                          Medicare
-                          <b>{formatCurrency(weeklySummary.medicare ?? 0)}</b>
-                        </span>
-                        <span>
-                          PA income tax
-                          <b>{formatCurrency(weeklySummary.paIncomeTax ?? 0)}</b>
-                        </span>
-                      </div>
-                      <small>
-                        Rough 2026 paycheck estimate using your federal filing status,
-                        standard W-4 withholding, and PA’s 3.07% rate. Local taxes,
-                        benefits, overtime, and other deductions aren’t included.
-                      </small>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
           </>
         ) : (
           <EmptyState
@@ -3896,20 +3729,42 @@ export default function HomePage() {
         </button>
         <div>
           <h1>Contacts</h1>
-          <p>Tap a phone number or email to open it.</p>
         </div>
       </header>
 
+      {(referenceVault?.emailDirectory?.length ?? 0) > 0 && (
+        <details className="panel contact-group email-directory">
+          <summary className="reference-section-title">
+            <h2>Email directory</h2>
+            <span>
+              {referenceVault?.emailDirectory?.length}
+            </span>
+            <ChevronDown />
+          </summary>
+          <div className="email-directory-list">
+            {referenceVault?.emailDirectory?.map((entry) => (
+              <a href={`mailto:${entry.email}`} key={entry.id}>
+                <span>
+                  <strong>{entry.name}</strong>
+                  <small>{entry.email}</small>
+                </span>
+                <Mail />
+              </a>
+            ))}
+          </div>
+        </details>
+      )}
+
       {(referenceVault?.contactGroups ?? []).map((group) => (
-        <section className="panel contact-group" key={group.title}>
-          <div className="reference-section-title">
+        <details className="panel contact-group" key={group.title}>
+          <summary className="reference-section-title">
             <h2>{group.title}</h2>
             <span>{group.contacts.length}</span>
-          </div>
+            <ChevronDown />
+          </summary>
           <div className="contact-list">
             {group.contacts.map((contact) => (
               <article className="contact-card" key={contact.id}>
-                <span className="contact-avatar">{initials(contact.name)}</span>
                 <div className="contact-copy">
                   <div>
                     <strong><PersonName name={contact.name} /></strong>
@@ -3937,7 +3792,7 @@ export default function HomePage() {
               </article>
             ))}
           </div>
-        </section>
+        </details>
       ))}
     </div>
   );
@@ -3957,7 +3812,6 @@ export default function HomePage() {
         </span>
         <div>
           <h1>{reference.title}</h1>
-          <p>{reference.summary}</p>
         </div>
       </header>
 
@@ -4910,41 +4764,6 @@ export default function HomePage() {
                 placeholder="Search airline or code"
                 onSelect={(value) => savePrefs({ airline: value })}
               />
-            </div>
-            <div className="pay-settings-grid">
-              <label className="hourly-pay-setting">
-                <span>Hourly pay</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={prefs.hourlyPay}
-                  onChange={(event) =>
-                    savePrefs({ hourlyPay: event.target.value })
-                  }
-                  placeholder="17.50"
-                />
-              </label>
-              <label>
-                <span>Federal filing status</span>
-                <select
-                  value={prefs.filingStatus}
-                  onChange={(event) =>
-                    savePrefs({
-                      filingStatus: event.target.value as FilingStatus,
-                    })
-                  }
-                >
-                  <option value="single">Single / married separately</option>
-                  <option value="married">Married filing jointly</option>
-                  <option value="head">Head of household</option>
-                </select>
-                <ChevronDown />
-              </label>
-              <small>
-                Used for the rough weekly take-home estimate on Today.
-              </small>
             </div>
             <div className="calendar-subscription-setting">
               <div>

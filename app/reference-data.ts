@@ -18,6 +18,12 @@ export type ContactGroup = {
   contacts: ContactEntry[];
 };
 
+export type EmailDirectoryEntry = {
+  id: string;
+  name: string;
+  email: string;
+};
+
 export type ReferenceLink = {
   label: string;
   href: string;
@@ -43,6 +49,7 @@ export type QuickReference = {
 
 export type ReferenceVault = {
   contactGroups: ContactGroup[];
+  emailDirectory?: EmailDirectoryEntry[];
   quickReferences: QuickReference[];
   updatedAt?: string;
 };

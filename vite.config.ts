@@ -1,5 +1,6 @@
 import vinext from "vinext";
-import { defineConfig } from "vite";
+import { readFile } from "node:fs/promises";
+import { defineConfig, type Plugin } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -10,6 +11,40 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+
+function localReferenceAccess(): Plugin {
+  return {
+    name: "shiftdeck-local-reference-access",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use(
+        "/api/dev/references",
+        async (request, response) => {
+          response.setHeader("Cache-Control", "no-store");
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+
+          if (request.method !== "GET") {
+            response.statusCode = 405;
+            response.end(JSON.stringify({ error: "Method not allowed" }));
+            return;
+          }
+          try {
+            const localVault = await readFile(
+              new URL("./.local-reference-vault.json", import.meta.url),
+              "utf8",
+            );
+            JSON.parse(localVault);
+            response.statusCode = 200;
+            response.end(localVault);
+          } catch {
+            response.statusCode = 503;
+            response.end(JSON.stringify({ error: "Local references are unavailable" }));
+          }
+        },
+      );
+    },
+  };
+}
 
 const localBindingConfig = {
   main: "./worker/index.ts",
@@ -44,10 +79,14 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
-    server: isCodexSeatbeltSandbox
-      ? { watch: { useFsEvents: false, usePolling: true } }
-      : undefined,
+    server: {
+      host: true,
+      ...(isCodexSeatbeltSandbox
+        ? { watch: { useFsEvents: false, usePolling: true } }
+        : {}),
+    },
     plugins: [
+      localReferenceAccess(),
       vinext(),
       sites(),
       cloudflare({
