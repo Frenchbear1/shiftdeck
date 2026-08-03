@@ -559,18 +559,6 @@ function calendarServiceUrl(path: string) {
   return `${CALENDAR_SERVICE_ORIGIN}${path}`;
 }
 
-function isLocalUiPreview() {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname;
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  );
-}
-
 function prepareReferenceVault(vault: ReferenceVault): ReferenceVault {
   return {
     ...vault,
@@ -1031,15 +1019,6 @@ export default function HomePage() {
     setReferenceAccessMessage("");
   }, []);
 
-  const loadLocalReferenceVault = useCallback(async () => {
-    const response = await fetch("/api/dev/references", { cache: "no-store" });
-    if (!response.ok) throw new Error("Local reference access is unavailable");
-    const vault = (await response.json()) as ReferenceVault;
-    setReferenceVault(prepareReferenceVault(vault));
-    setReferenceAccessState("approved");
-    setReferenceAccessMessage("Local UI preview access");
-  }, []);
-
   const checkReferenceRequest = useCallback(
     async (stored: StoredReferenceRequest) => {
       const response = await fetch(
@@ -1104,10 +1083,6 @@ export default function HomePage() {
     async (createIfMissing = true) => {
       setReferenceAccessState("checking");
       try {
-        if (isLocalUiPreview()) {
-          await loadLocalReferenceVault();
-          return;
-        }
         const ownerToken = localStorage.getItem(REFERENCE_OWNER_KEY) ?? "";
         const accessToken = localStorage.getItem(REFERENCE_ACCESS_KEY) ?? "";
         if (ownerToken) {
@@ -1143,12 +1118,7 @@ export default function HomePage() {
         );
       }
     },
-    [
-      checkReferenceRequest,
-      createReferenceRequest,
-      loadLocalReferenceVault,
-      loadReferenceVault,
-    ],
+    [checkReferenceRequest, createReferenceRequest, loadReferenceVault],
   );
 
   const refreshOwnerRequests = useCallback(async (token: string) => {

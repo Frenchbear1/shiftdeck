@@ -110,7 +110,7 @@ test("contains the desktop timeline grid inside the shift plot", async () => {
 });
 
 test("protects work references behind owner-approved device access", async () => {
-  const [page, css, references, service, migration] = await Promise.all([
+  const [page, css, references, service, migration, viteConfig] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/reference-data.ts", import.meta.url), "utf8"),
@@ -119,6 +119,7 @@ test("protects work references behind owner-approved device access", async () =>
       new URL("../drizzle/0002_reference_access.sql", import.meta.url),
       "utf8",
     ),
+    readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /type Tab[\s\S]*?"references"/);
@@ -164,6 +165,8 @@ test("protects work references behind owner-approved device access", async () =>
   assert.match(migration, /CREATE TABLE IF NOT EXISTS reference_vault/);
   assert.doesNotMatch(references, /export const|tel:|mailto:|https?:\/\//);
   assert.doesNotMatch(page, /CONTACT_GROUPS|QUICK_REFERENCES/);
+  assert.doesNotMatch(page, /isLocalUiPreview|\/api\/dev\/references/);
+  assert.doesNotMatch(viteConfig, /localReferenceAccess|\/api\/dev\/references/);
 });
 
 test("searches all references, condenses contacts, and marks GSC workers", async () => {
