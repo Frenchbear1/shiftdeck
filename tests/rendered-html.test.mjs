@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   isPlausibleWorkerName,
+  isSameSchedulePerson,
   isScheduleRevision,
+  resolveSchedulePersonName,
 } from "../app/schedule-parser.ts";
 import { renderAppleTimedAlarm } from "../worker/calendar-alarms.ts";
 import {
@@ -295,6 +297,29 @@ test("renders stable Apple-compatible timed calendar alarms", () => {
   );
   assert.equal((calendar.match(/ATTACH/g) ?? []).length, 0);
   assert.doesNotMatch(calendar, /@shiftdeck\.app/);
+});
+
+test("matches and corrects small OCR errors in worker names", () => {
+  assert.equal(isSameSchedulePerson("David LaBare", "David LaBarre"), true);
+  assert.equal(isSameSchedulePerson("Ohn Snyder", "John Snyder"), true);
+  assert.equal(isSameSchedulePerson("David Walsh", "David LaBarre"), false);
+  assert.equal(
+    resolveSchedulePersonName("Antonio Lannelli", [
+      "Antonio Iannelli",
+      "Andrew Garcia",
+    ]),
+    "Antonio Iannelli",
+  );
+});
+
+test("reprocesses uploads created by an older schedule parser", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /SCHEDULE_PARSER_VERSION = 2/);
+  assert.match(
+    page,
+    /document\.hash === hash &&[\s\S]{0,120}?document\.parserVersion === SCHEDULE_PARSER_VERSION/,
+  );
+  assert.match(page, /parserVersion: SCHEDULE_PARSER_VERSION/);
 });
 
 test("advances existing events when the calendar format changes", () => {

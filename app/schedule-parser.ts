@@ -265,6 +265,66 @@ export const isPlausibleWorkerName = (name: string) => {
   return parts.join("").length >= 6;
 };
 
+const personNameTokens = (name: string) =>
+  name
+    .trim()
+    .toLocaleLowerCase()
+    .split(/\s+/)
+    .map((part) => part.replace(/[^a-z]/g, ""))
+    .filter(Boolean);
+
+const editDistance = (left: string, right: string) => {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+};
+
+const schedulePersonDistance = (left: string, right: string) => {
+  const leftTokens = personNameTokens(left);
+  const rightTokens = personNameTokens(right);
+  if (leftTokens.length < 2 || leftTokens.length !== rightTokens.length) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const distances = leftTokens.map((token, index) =>
+    editDistance(token, rightTokens[index]),
+  );
+  const allowed = leftTokens.map((token, index) =>
+    Math.max(token.length, rightTokens[index].length) >= 7 ? 2 : 1,
+  );
+  return distances.every((distance, index) => distance <= allowed[index])
+    ? distances.reduce((total, distance) => total + distance, 0)
+    : Number.POSITIVE_INFINITY;
+};
+
+export const isSameSchedulePerson = (left: string, right: string) =>
+  Number.isFinite(schedulePersonDistance(left, right));
+
+export const resolveSchedulePersonName = (
+  scannedName: string,
+  knownNames: string[],
+) => {
+  const matches = Array.from(new Set(knownNames.map((name) => name.trim()).filter(Boolean)))
+    .map((name) => ({ name, distance: schedulePersonDistance(scannedName, name) }))
+    .filter((match) => Number.isFinite(match.distance))
+    .sort((left, right) => left.distance - right.distance);
+  if (!matches.length) return scannedName;
+  if (matches.length > 1 && matches[0].distance === matches[1].distance) {
+    return scannedName;
+  }
+  return matches[0].name;
+};
+
 const normalizedCellText = (raw: string) =>
   raw
     .toUpperCase()

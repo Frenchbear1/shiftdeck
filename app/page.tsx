@@ -54,9 +54,11 @@ import {
 } from "./sample-data";
 import {
   isPlausibleWorkerName,
+  isSameSchedulePerson,
   isScheduleRevision,
   parseScheduleTsv,
   ParsedSchedule,
+  resolveSchedulePersonName,
 } from "./schedule-parser";
 import {
   QuickReference,
@@ -186,6 +188,7 @@ type ScheduleDocument = {
   uploadedAt: string;
   updatedAt: string;
   revision: number;
+  parserVersion?: number;
 };
 
 type AviationOption = {
@@ -239,6 +242,7 @@ type ReferenceSearchResult =
 
 const DEFAULT_SHIFT_TITLE = "Work";
 const DEFAULT_ALERT_MINUTES = 120;
+const SCHEDULE_PARSER_VERSION = 2;
 
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
@@ -526,7 +530,8 @@ const eventsFor = (shifts: Shift[], person: string) =>
   shifts
     .filter(
       (shift) =>
-        shift.worker === person && shift.status === "working",
+        isSameSchedulePerson(shift.worker, person) &&
+        shift.status === "working",
     )
     .map((shift) => ({
       id: shift.id,
@@ -2149,7 +2154,7 @@ export default function HomePage() {
     const matching = nextParsedShifts
       .filter(
         (shift) =>
-          personKey(shift.worker) === personKey(prefs.person) &&
+          isSameSchedulePerson(shift.worker, prefs.person) &&
           shift.status === "working" &&
           detectedDates.includes(shift.date),
       )
@@ -2183,8 +2188,8 @@ export default function HomePage() {
           `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`),
         );
       });
-      selectDate(detectedDates[0]);
     }
+    if (detectedDates.length) selectDate(detectedDates[0]);
     setParsedShifts(nextParsedShifts);
     setParsedFlights(nextParsedFlights);
     setImportedDates(nextDates);
@@ -2209,7 +2214,13 @@ export default function HomePage() {
         const file = files[index];
         setImportMessage(`Checking ${file.name}`);
         const hash = await hashFile(file);
-        if (nextDocuments.some((document) => document.hash === hash)) {
+        if (
+          nextDocuments.some(
+            (document) =>
+              document.hash === hash &&
+              document.parserVersion === SCHEDULE_PARSER_VERSION,
+          )
+        ) {
           duplicateFiles += 1;
           continue;
         }
@@ -2257,6 +2268,31 @@ export default function HomePage() {
           await worker.terminate();
         }
         if (!parsed) continue;
+        const knownNames = [
+          prefs.person,
+          ...parsedShifts.map((shift) => shift.worker),
+          ...scheduleDocuments.flatMap((document) =>
+            document.shifts.map((shift) => shift.worker),
+          ),
+          ...(referenceVault?.contactGroups.flatMap((group) =>
+            group.contacts.map((contact) => contact.name),
+          ) ?? []),
+          ...(referenceVault?.emailDirectory?.map((entry) => entry.name) ?? []),
+        ];
+        parsed = {
+          ...parsed,
+          shifts: parsed.shifts.map((shift) => {
+            const worker = resolveSchedulePersonName(shift.worker, knownNames);
+            if (worker === shift.worker) return shift;
+            return {
+              ...shift,
+              id: `${shift.date}-${worker}-${
+                shift.status === "working" ? shift.start : shift.status
+              }`,
+              worker,
+            };
+          }),
+        };
         parsedSchedules.push(parsed);
 
         const replacementIndex = nextDocuments.findIndex((document) =>
@@ -2276,6 +2312,7 @@ export default function HomePage() {
           uploadedAt: replacement?.uploadedAt ?? now,
           updatedAt: now,
           revision: (replacement?.revision ?? 0) + 1,
+          parserVersion: SCHEDULE_PARSER_VERSION,
         };
         if (replacement) {
           nextDocuments[replacementIndex] = nextDocument;
