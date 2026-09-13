@@ -1,0 +1,191 @@
+const CACHE_PREFIX = "shiftdeck-shell";
+const CACHE_NAME = `${CACHE_PREFIX}-v7`;
+const scopeRoot = new URL("./", self.registration.scope);
+
+async function cacheResponse(cache, request, response) {
+  if (response?.ok) {
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
+
+async function warmDocumentAssets(cache, response) {
+  const html = await response.clone().text();
+  const assetUrls = [...html.matchAll(/(?:src|href)=["']([^"'#]+)["']/g)]
+    .map((match) => new URL(match[1], scopeRoot))
+    .filter((url) => url.origin === self.location.origin);
+
+  await Promise.allSettled(
+    [...new Set(assetUrls.map((url) => url.href))].map(async (url) => {
+      const response = await fetch(url, { cache: "reload" });
+      await cacheResponse(cache, url, response);
+    }),
+  );
+}
+
+async function precacheShell() {
+  const cache = await caches.open(CACHE_NAME);
+  const response = await fetch(scopeRoot, { cache: "reload" });
+  if (response.ok) {
+    await cache.put(scopeRoot, response.clone());
+    await warmDocumentAssets(cache, response);
+  }
+
+  await Promise.allSettled(
+    [
+      "manifest.webmanifest",
+      "apple-touch-icon.png",
+      "icon-192.png",
+      "icon-512.png",
+      "favicon.svg",
+    ].map(async (path) => {
+      const url = new URL(path, scopeRoot);
+      const response = await fetch(url, { cache: "reload" });
+      await cacheResponse(cache, url, response);
+    }),
+  );
+}
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(precacheShell().then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+          .map((key) => caches.delete(key)),
+      );
+      await self.clients.claim();
+      const windows = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      await Promise.allSettled(
+        windows.map((client) =>
+          "navigate" in client ? client.navigate(client.url) : undefined,
+        ),
+      );
+    })(),
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (request.mode === "navigate") {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE_NAME);
+        const cached =
+          (await cache.match(scopeRoot)) ||
+          (await cache.match(request, { ignoreSearch: true }));
+        try {
+          const response = await fetch(request);
+          if (!response.ok && cached) return cached;
+          if (response.ok) {
+            event.waitUntil(
+              (async () => {
+                await cache.put(scopeRoot, response.clone());
+                await warmDocumentAssets(cache, response);
+              })(),
+            );
+          }
+          return response;
+        } catch (error) {
+          if (cached) return cached;
+          throw error;
+        }
+      })(),
+    );
+    return;
+  }
+
+  const cacheableAsset =
+    ["script", "style", "font", "image"].includes(request.destination) ||
+    url.pathname.startsWith(new URL("data/", scopeRoot).pathname);
+  if (!cacheableAsset) return;
+
+  if (["script", "style"].includes(request.destination)) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE_NAME);
+        const cached = await cache.match(request);
+        try {
+          const response = await fetch(request, { cache: "no-cache" });
+          if (response.ok) {
+            event.waitUntil(cache.put(request, response.clone()));
+            return response;
+          }
+          if (cached) return cached;
+          return response;
+        } catch (error) {
+          if (cached) return cached;
+          throw error;
+        }
+      })(),
+    );
+    return;
+  }
+
+  event.respondWith(
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      const response = await fetch(request);
+      return cacheResponse(cache, request, response);
+    })(),
+  );
+});
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  event.waitUntil(
+    (async () => {
+      const payload = event.data.json();
+      const notification = payload.notification || payload;
+      const navigate = notification.navigate || scopeRoot.href;
+      await self.registration.showNotification(
+        notification.title || "Shiftdeck",
+        {
+          body: notification.body || "",
+          icon: notification.icon || new URL("icon-192.png", scopeRoot).href,
+          badge: notification.badge || new URL("icon-192.png", scopeRoot).href,
+          tag: notification.tag,
+          silent: notification.silent === true,
+          data: { navigate },
+        },
+      );
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const navigate = event.notification.data?.navigate || scopeRoot.href;
+
+  event.waitUntil(
+    (async () => {
+      const windowClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of windowClients) {
+        if (new URL(client.url).origin === self.location.origin) {
+          if ("navigate" in client) await client.navigate(navigate);
+          return "focus" in client ? client.focus() : undefined;
+        }
+      }
+      return self.clients.openWindow(navigate);
+    })(),
+  );
+});

@@ -1,0 +1,470 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import {
+  isPlausibleWorkerName,
+  isSameSchedulePerson,
+  isScheduleRevision,
+  resolveSchedulePersonName,
+} from "../app/schedule-parser.ts";
+import { renderAppleTimedAlarm } from "../worker/calendar-alarms.ts";
+import {
+  CALENDAR_FORMAT_VERSION,
+  calendarSequenceFor,
+} from "../worker/calendar-revisions.ts";
+import { matchFlightAwareResult } from "../worker/flightaware.ts";
+import { normalizeNotificationPayload } from "../worker/push-service.ts";
+import {
+  activeShiftSessionKey,
+  activeWorkingShiftAt,
+} from "../app/schedule-time.ts";
+
+async function render() {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+
+  return worker.fetch(
+    new Request("http://localhost/", {
+      headers: { accept: "text/html" },
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+}
+
+test("server-renders the blank Shiftdeck app shell", async () => {
+  const response = await render();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+
+  const html = await response.text();
+  assert.match(html, /<title>Shiftdeck/);
+  assert.match(html, />Today</);
+  assert.match(html, />Workers</);
+  assert.match(html, />Flights</);
+  assert.match(html, />Import</);
+  assert.match(html, /Nothing imported/);
+  assert.match(html, /serviceWorker/);
+  assert.match(html, /sw\.js/);
+  assert.doesNotMatch(html, /Subscribed calendar/);
+});
+
+test("keeps Workers and Flights date navigation compact", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    page,
+    /<h1>Workers<\/h1>[\s\S]{0,900}?selectedDate !== todayDate[\s\S]{0,500}?onClick=\{returnToToday\}[\s\S]{0,100}?>\s*Today/,
+  );
+  assert.match(
+    page,
+    /<h1>Flights<\/h1>[\s\S]{0,900}?selectedDate !== todayDate[\s\S]{0,500}?onClick=\{returnToToday\}[\s\S]{0,100}?>\s*Today/,
+  );
+  assert.match(css, /\.page-title-actions/);
+  assert.match(page, /const workersDateRail = useRef<HTMLDivElement>\(null\)/);
+  assert.match(page, /const flightsDateRail = useRef<HTMLDivElement>\(null\)/);
+  assert.match(page, /activeTab === "workers"\s*\? workersDateRail\.current/);
+  assert.match(page, /:\s*flightsDateRail\.current/);
+  assert.match(page, /renderDateRail\(false, true, "workers"\)/);
+  assert.match(page, /renderDateRail\(false, true, "flights"\)/);
+  assert.match(page, /useLayoutEffect\(\(\) =>/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate, "auto"\)/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
+  assert.match(page, /pendingDateCenter\.current = \{ tab, date \}/);
+  assert.match(
+    page,
+    /const selectDate = \(date: string\)[\s\S]{0,180}?tab === "home" \|\| tab === "workers" \|\| tab === "flights"[\s\S]{0,120}?pendingDateCenter\.current = \{ tab, date \}/,
+  );
+  assert.match(
+    page,
+    /const openTodayTab = \(\)[\s\S]{0,100}?pendingDateCenter\.current = null/,
+  );
+  assert.doesNotMatch(page, /hasCenteredHomeOnLaunch/);
+  assert.doesNotMatch(
+    page,
+    /tab === "home" && selectedDate !== todayDate/,
+  );
+  assert.doesNotMatch(page, /<span>Showing<\/span>/);
+  assert.doesNotMatch(page, /<span>During your shift<\/span>/);
+  assert.doesNotMatch(css, /\.flight-summary/);
+});
+
+test("contains the desktop timeline grid inside the shift plot", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    page,
+    /className="timeline-plot"[\s\S]{0,500}?className="timeline-grid"[\s\S]{0,500}?className="timeline-rows"/,
+  );
+  assert.match(css, /\.timeline-grid\s*\{[\s\S]{0,120}?inset:\s*0;/);
+  assert.doesNotMatch(css, /inset:\s*98px 26px 26px 172px/);
+});
+
+test("shows only workers whose shifts actually overlap", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    page,
+    /const visible = dayShifts[\s\S]{0,220}?shift\.worker === prefs\.person \|\| shiftsOverlap\(myShift, shift\)/,
+  );
+});
+
+test("restores a saved page only during the same active shift", async () => {
+  const shifts = [
+    {
+      id: "david-evening",
+      date: "2026-08-24",
+      worker: "David LaBarre",
+      start: "18:00",
+      end: "22:00",
+      status: "working",
+    },
+    {
+      id: "david-overnight",
+      date: "2026-08-25",
+      worker: "David LaBarre",
+      start: "20:30",
+      end: "00:30",
+      status: "working",
+    },
+  ];
+
+  const evening = activeWorkingShiftAt(
+    shifts,
+    "David LaBarre",
+    new Date(2026, 7, 24, 19, 0),
+  );
+  assert.equal(evening?.id, "david-evening");
+  assert.equal(
+    activeShiftSessionKey(evening),
+    "David LaBarre|2026-08-24|18:00|22:00",
+  );
+  assert.equal(
+    activeWorkingShiftAt(
+      shifts,
+      "David LaBarre",
+      new Date(2026, 7, 24, 17, 59),
+    ),
+    null,
+  );
+  assert.equal(
+    activeWorkingShiftAt(
+      shifts,
+      "David LaBarre",
+      new Date(2026, 7, 26, 0, 15),
+    )?.id,
+    "david-overnight",
+  );
+
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /ACTIVE_SHIFT_PAGE_KEY = "shiftdeck\.activeShiftPage"/);
+  assert.match(page, /let restoredTab: Tab = "home"/);
+  assert.match(
+    page,
+    /if \(!activeShift\)[\s\S]{0,120}?localStorage\.removeItem\(ACTIVE_SHIFT_PAGE_KEY\)/,
+  );
+  assert.match(page, /queueMicrotask\([\s\S]{0,140}?setTab\(restoredTab\)/);
+  assert.match(page, /saved\.shiftKey === shiftKey && isTab\(saved\.tab\)/);
+});
+
+test("caches the PWA shell and restores Today before background data", async () => {
+  const [serviceWorker, page, layout, pagesShell] = await Promise.all([
+    readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../github-pages/index.html", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(serviceWorker, /shiftdeck-shell/);
+  assert.match(serviceWorker, /shiftdeck-shell.*v7|CACHE_PREFIX.*v7/s);
+  assert.match(serviceWorker, /request\.mode === "navigate"/);
+  assert.match(serviceWorker, /warmDocumentAssets/);
+  assert.match(serviceWorker, /cache\.match\(scopeRoot\)/);
+  assert.match(
+    serviceWorker,
+    /request\.mode === "navigate"[\s\S]*?await fetch\(request\)[\s\S]*?if \(cached\) return cached/,
+  );
+  assert.match(page, /backgroundHydrated/);
+  assert.match(page, /setHydrated\(true\)[\s\S]*?window\.setTimeout/);
+  assert.doesNotMatch(layout, /next\/font/);
+  assert.match(layout, /launchPaintStyle/);
+  assert.match(layout, /background: #17191d/);
+  assert.match(layout, /backgroundColor: "#17191d"/);
+  assert.match(layout, /navigator\.serviceWorker\.register/);
+  assert.match(pagesShell, /navigator\.serviceWorker/);
+  assert.match(pagesShell, /background: #17191d/);
+});
+
+test("rejects schedule headings and OCR fragments as worker names", () => {
+  assert.equal(isPlausibleWorkerName("Pass Subject To Sore"), false);
+  assert.equal(isPlausibleWorkerName("She An Ow"), false);
+  assert.equal(isPlausibleWorkerName("Andrew Garcia"), true);
+  assert.equal(isPlausibleWorkerName("David LaBarre"), true);
+  assert.equal(isPlausibleWorkerName("Thales Ferraz Alves"), true);
+});
+
+test("only replaces an imported schedule when most of its week matches", () => {
+  const firstWeek = [
+    "2026-07-26",
+    "2026-07-27",
+    "2026-07-28",
+    "2026-07-29",
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-01",
+  ];
+  const differentWeekWithOneMisreadOverlap = [
+    "2026-07-30",
+    "2026-08-09",
+    "2026-08-10",
+    "2026-08-11",
+    "2026-08-12",
+    "2026-08-13",
+    "2026-08-14",
+  ];
+  const correctedVersion = [
+    "2026-07-26",
+    "2026-07-27",
+    "2026-07-28",
+    "2026-07-29",
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-02",
+  ];
+
+  assert.equal(
+    isScheduleRevision(firstWeek, differentWeekWithOneMisreadOverlap),
+    false,
+  );
+  assert.equal(isScheduleRevision(firstWeek, correctedVersion), true);
+});
+
+test("renders stable Apple-compatible timed calendar alarms", () => {
+  const calendar = [
+    ...renderAppleTimedAlarm(
+      "calendar-test-id",
+      "david-2026-08-01",
+      "PT1H",
+    ),
+    ...renderAppleTimedAlarm(
+      "calendar-test-id",
+      "david-2026-08-01",
+      "PT2H",
+    ),
+  ].join("\r\n");
+
+  assert.equal((calendar.match(/BEGIN:VALARM/g) ?? []).length, 2);
+  assert.match(calendar, /TRIGGER:-PT1H/);
+  assert.match(calendar, /TRIGGER:-PT2H/);
+  assert.doesNotMatch(calendar, /RELATED=START/);
+  assert.equal((calendar.match(/ACTION:DISPLAY/g) ?? []).length, 2);
+  assert.equal((calendar.match(/DESCRIPTION:Shiftdeck reminder/g) ?? []).length, 2);
+  assert.equal((calendar.match(/X-WR-ALARMUID:/g) ?? []).length, 2);
+  assert.equal((calendar.match(/^UID:[0-9A-F-]{36}$/gm) ?? []).length, 2);
+  assert.equal(
+    (calendar.match(/^X-WR-ALARMUID:[0-9A-F-]{36}$/gm) ?? []).length,
+    2,
+  );
+  assert.equal((calendar.match(/ATTACH/g) ?? []).length, 0);
+  assert.doesNotMatch(calendar, /@shiftdeck\.app/);
+});
+
+test("matches and corrects small OCR errors in worker names", () => {
+  assert.equal(isSameSchedulePerson("David LaBare", "David LaBarre"), true);
+  assert.equal(isSameSchedulePerson("Ohn Snyder", "John Snyder"), true);
+  assert.equal(isSameSchedulePerson("David Walsh", "David LaBarre"), false);
+  assert.equal(
+    resolveSchedulePersonName("Antonio Lannelli", [
+      "Antonio Iannelli",
+      "Andrew Garcia",
+    ]),
+    "Antonio Iannelli",
+  );
+});
+
+test("reprocesses uploads and records the current schedule parser", async () => {
+  const [page, parser, charterParser] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/charter-parser.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(parser, /SCHEDULE_PARSER_VERSION = 4/);
+  assert.doesNotMatch(page, /document\.hash === hash/);
+  assert.match(page, /parserVersion: SCHEDULE_PARSER_VERSION/);
+  assert.match(page, /accept="image\/\*,application\/pdf,\.pdf"/);
+  assert.match(page, /parseCharterPdf\(file\)/);
+  assert.match(page, /flight\.source === "charter" && flight\.trackingId/);
+  assert.match(page, /canonicalizeScheduleShifts\(document\.shifts\)/);
+  assert.match(charterParser, /pdfjs-dist\/build\/pdf\.worker\.mjs/);
+});
+
+test("advances existing events when the calendar format changes", () => {
+  assert.equal(calendarSequenceFor(0), CALENDAR_FORMAT_VERSION);
+  assert.equal(
+    calendarSequenceFor(1),
+    1_000 + CALENDAR_FORMAT_VERSION,
+  );
+  assert.ok(calendarSequenceFor(12) > 12);
+});
+
+test("normalizes precise notification alerts without duplicates", () => {
+  const result = normalizeNotificationPayload({
+    title: "  Ramp shift  ",
+    location: "  ABE terminal  ",
+    timezone: "America/New_York",
+    alerts: [120, 30, 120, -1, 10081],
+    events: [
+      {
+        key: "shift-1",
+        date: "2026-08-04",
+        start: "09:00",
+        end: "17:00",
+        startAt: "2026-08-04T13:00:00.000Z",
+        title: "",
+      },
+    ],
+  });
+
+  assert.deepEqual(result.alerts, [120, 30]);
+  assert.equal(result.title, "Ramp shift");
+  assert.equal(result.location, "ABE terminal");
+  assert.equal(result.events[0].title, "Ramp shift");
+  assert.equal(result.events[0].startAt, "2026-08-04T13:00:00.000Z");
+});
+
+test("uses durable, duplicate-safe PWA shift notifications", async () => {
+  const [page, css, pushService, worker, migration, manifest, config, serviceWorker, parser] =
+    await Promise.all([
+      readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+      readFile(new URL("../worker/push-service.ts", import.meta.url), "utf8"),
+      readFile(new URL("../worker/calendar-only.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../drizzle/0003_pwa_notifications.sql", import.meta.url),
+        "utf8",
+      ),
+      readFile(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"),
+      readFile(new URL("../wrangler.calendar.jsonc", import.meta.url), "utf8"),
+      readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
+      readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
+    ]);
+
+  assert.match(page, /createNotificationProfile/);
+  assert.match(page, /syncNotificationProfile/);
+  assert.match(page, /registerPushSubscription/);
+  assert.match(page, /requestTestNotification/);
+  assert.match(page, /shiftdeck\.notificationProfile/);
+  assert.match(page, /Notification\.requestPermission\(\)/);
+  assert.match(page, /navigator\.serviceWorker\.ready/);
+  assert.match(page, /registration\.pushManager\.subscribe/);
+  assert.match(page, /display-mode: standalone/);
+  assert.match(page, />Default job title</);
+  assert.match(page, />Location</);
+  assert.match(page, /Add alert/);
+  assert.match(page, /updateNotificationAlert/);
+  assert.match(page, /prefs\.alerts\.length >= 12/);
+  assert.match(page, /DEFAULT_ALERT_MINUTES = 120/);
+  assert.match(page, /Send test/);
+  assert.match(page, /Add shifts for Waze/);
+
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS notification_profiles/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS notification_events/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS push_subscriptions/);
+  assert.match(migration, /endpoint TEXT NOT NULL UNIQUE/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS notification_deliveries/);
+  assert.match(
+    migration,
+    /PRIMARY KEY \(profile_id, event_key, alert_minutes, subscription_id\)/,
+  );
+  assert.match(pushService, /ON CONFLICT\(profile_id, event_key, alert_minutes, subscription_id\)/);
+  assert.match(pushService, /status = 'sending'/);
+  assert.match(pushService, /RETURNING profile_id/);
+  assert.match(pushService, /status === 404 \|\| status === 410/);
+  assert.match(pushService, /web_push: 8030/);
+  assert.match(pushService, /notificationPayload/);
+  assert.match(pushService, /sendDueNotifications/);
+  assert.match(worker, /async scheduled/);
+  assert.match(worker, /handlePushRequest/);
+  assert.match(config, /"crons": \["\* \* \* \* \*"\]/);
+  assert.match(config, /"nodejs_compat"/);
+  assert.equal(JSON.parse(manifest).id, "./");
+  assert.match(serviceWorker, /addEventListener\("push"/);
+  assert.match(serviceWorker, /payload\.notification \|\| payload/);
+  assert.match(serviceWorker, /addEventListener\("notificationclick"/);
+
+  assert.match(parser, /isPlausibleWorkerName/);
+  assert.match(parser, /NON_NAME_WORDS/);
+  assert.match(page, /aria-label="Add a shift"/);
+  assert.match(page, /aria-label="Edit this shift"/);
+  assert.match(page, /customTitle/);
+  assert.match(page, />Shift title</);
+  assert.match(page, /returnToToday/);
+  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
+  assert.match(css, /\.notification-alert-row/);
+  assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);
+});
+
+test("restores a subtle Apple Calendar subscription with a work address", async () => {
+  const [page, service] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../worker/calendar-service.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    page,
+    /DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109"/,
+  );
+  assert.match(page, /type CalendarSubscription/);
+  assert.match(page, /createCalendarFeed/);
+  assert.match(page, /syncCalendarFeed/);
+  assert.match(page, /shiftdeck\.calendarSubscription/);
+  assert.match(page, /<span>Apple Calendar<\/span>/);
+  assert.match(page, /Add shifts for Waze/);
+  assert.match(page, /onClick=\{\(\) => void subscribeToCalendar\(\)\}/);
+  assert.doesNotMatch(page, /aria-label="Apple Calendar settings"/);
+  assert.match(service, /const location = cleanText\(payload\.location, 300\)/);
+  assert.match(
+    service,
+    /if \(feed\.location\) lines\.push\(`LOCATION:\$\{safeIcsText\(feed\.location\)\}`\)/,
+  );
+});
+
+test("matches a FlightAware route result by weekday and arrival time", () => {
+  const flightAwareResults = String.raw`
+    {"flightArrivalDay":" <span title=\"EDT\">Thu</span>","flightArrivalTime":"12:27PM&nbsp;<span class=\"tz\">EDT</span>","flightDepartureDay":"<span title=\"EDT\">Thu</span>","flightDepartureTime":"09:54AM&nbsp;<span class=\"tz\">EDT</span>","flightIdent":" <a href=\"/live/flight/id/AAY1821-1785215549-airline-51p%3a0\">AAY1821</a>","flightStatus":"Taxiing"}
+    {"flightArrivalDay":" <span title=\"EDT\">Wed</span>","flightArrivalTime":"07:27PM&nbsp;<span class=\"tz\">EDT</span>","flightDepartureDay":"<span title=\"EDT\">Wed</span>","flightDepartureTime":"04:54PM&nbsp;<span class=\"tz\">EDT</span>","flightIdent":" <a href=\"/live/flight/id/AAY178-1785130155-airline-982p%3a0\">AAY178</a>","flightStatus":"Arrived"}
+  `;
+
+  assert.equal(
+    matchFlightAwareResult(
+      flightAwareResults,
+      "2026-07-29",
+      "19:27",
+      "arrival",
+    ),
+    "https://www.flightaware.com/live/flight/id/AAY178-1785130155-airline-982p%3a0",
+  );
+  assert.equal(
+    matchFlightAwareResult(
+      flightAwareResults,
+      "2026-07-29",
+      "16:54",
+      "departure",
+    ),
+    "https://www.flightaware.com/live/flight/id/AAY178-1785130155-airline-982p%3a0",
+  );
+});

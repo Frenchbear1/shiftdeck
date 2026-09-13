@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#17191d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #17191d;
+        color-scheme: dark;
+      }
+      html[data-theme="light"],
+      html[data-theme="light"] body {
+        background: #f4f5f7;
+        color-scheme: light;
+      }
+    </style>
+    <script>
+      try {
+        const activeTheme =
+          localStorage.getItem("shiftdeck.theme") === "dark" ? "dark" : "light";
+        const themeColor = activeTheme === "dark" ? "#17191d" : "#f4f5f7";
+        document.documentElement.dataset.theme = activeTheme;
+        document.documentElement.style.colorScheme = activeTheme;
+        document.documentElement.style.backgroundColor = themeColor;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", themeColor);
+        document
+          .querySelector(
+            'meta[name="apple-mobile-web-app-status-bar-style"]',
+          )
+          ?.setAttribute(
+            "content",
+            activeTheme === "dark" ? "black-translucent" : "default",
+          );
+      } catch (error) {}
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .register(new URL("sw.js", document.baseURI).href, {
+            scope: new URL("./", document.baseURI).pathname,
+          })
+          .catch(() => {});
+      }
+    </script>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <title>Shiftdeck</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>
