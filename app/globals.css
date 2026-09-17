@@ -2810,7 +2810,7 @@ body {
     position: fixed;
     inset: auto 0 0;
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     padding: 5px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
     background: color-mix(in srgb, var(--surface) 93%, transparent);
     border-top: 1px solid var(--line);
