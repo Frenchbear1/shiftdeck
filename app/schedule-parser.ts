@@ -24,7 +24,7 @@ export type ParsedSchedule = {
   warnings: string[];
 };
 
-export const SCHEDULE_PARSER_VERSION = 4;
+export const SCHEDULE_PARSER_VERSION = 5;
 
 const DAY_MS = 86_400_000;
 
@@ -411,6 +411,92 @@ export const resolveSchedulePersonName = (
   return matches[0].name;
 };
 
+const parseSignal = (schedule: ParsedSchedule) => {
+  const workingShifts = schedule.shifts.filter(
+    (shift) => shift.status === "working",
+  ).length;
+  const workers = new Set(schedule.shifts.map((shift) => shift.worker)).size;
+  return workingShifts * 20 + schedule.flights.length * 8 + workers * 3 +
+    schedule.confidence / 100;
+};
+
+const flightIdentity = (flight: Flight) =>
+  [
+    flight.date,
+    flight.source ?? "schedule",
+    flight.trackingId ?? "",
+    flight.kind,
+    flight.origin,
+    flight.destination ?? "",
+    flight.arrival ?? "",
+    flight.departure ?? "",
+  ].join("|");
+
+/**
+ * OCR passes often recognize different parts of the same image. Keep the most
+ * complete week and fill its gaps with details recovered by the other passes.
+ */
+export function mergeScheduleParses(
+  schedules: ParsedSchedule[],
+): ParsedSchedule | null {
+  if (!schedules.length) return null;
+
+  const weekGroups = new Map<string, ParsedSchedule[]>();
+  schedules.forEach((schedule) => {
+    const key = [...schedule.dates].sort().join("|");
+    weekGroups.set(key, [...(weekGroups.get(key) ?? []), schedule]);
+  });
+  const matchingWeek = [...weekGroups.values()].sort(
+    (left, right) =>
+      right.reduce((total, schedule) => total + parseSignal(schedule), 0) -
+      left.reduce((total, schedule) => total + parseSignal(schedule), 0),
+  )[0];
+  const ranked = [...matchingWeek].sort(
+    (left, right) => parseSignal(right) - parseSignal(left),
+  );
+
+  const shifts = new Map<string, Shift>();
+  ranked.forEach((schedule) => {
+    schedule.shifts.forEach((shift) => {
+      const worker = canonicalSchedulePersonName(shift.worker);
+      const key = `${shift.date}|${worker}`;
+      const current = shifts.get(key);
+      if (!current || (current.status !== "working" && shift.status === "working")) {
+        shifts.set(key, {
+          ...shift,
+          id: `${shift.date}-${worker}-${
+            shift.status === "working" ? shift.start : shift.status
+          }`,
+          worker,
+        });
+      }
+    });
+  });
+
+  const flights = new Map<string, Flight>();
+  ranked.forEach((schedule) => {
+    schedule.flights.forEach((flight) => {
+      const key = flightIdentity(flight);
+      if (!flights.has(key)) flights.set(key, flight);
+    });
+  });
+
+  return {
+    dates: ranked[0].dates,
+    shifts: [...shifts.values()],
+    flights: [...flights.values()],
+    confidence: Math.max(...ranked.map((schedule) => schedule.confidence)),
+    warnings: Array.from(
+      new Set([
+        ...ranked.flatMap((schedule) => schedule.warnings),
+        ...(ranked.length > 1
+          ? ["Combined the readable details from several scans of this file."]
+          : []),
+      ]),
+    ),
+  };
+}
+
 const normalizedCellText = (raw: string) =>
   raw
     .toUpperCase()
@@ -758,7 +844,7 @@ export function parseScheduleTsv(tsv: string, ocrConfidence = 0): ParsedSchedule
   const shifts = parseShifts(words, week);
   const flights = parseFlights(words, week);
   const workingShifts = shifts.filter((shift) => shift.status === "working");
-  if (!workingShifts.length) return null;
+  if (!workingShifts.length && !flights.length) return null;
 
   const warnings: string[] = [];
   if (week.confidence < 65 || ocrConfidence < 45) {
@@ -766,6 +852,11 @@ export function parseScheduleTsv(tsv: string, ocrConfidence = 0): ParsedSchedule
   }
   if (!flights.length) {
     warnings.push("No flight rows were confidently recognized.");
+  }
+  if (!workingShifts.length) {
+    warnings.push(
+      "No work hours were confidently recognized, so only the readable flights were imported.",
+    );
   }
   return {
     dates: week.dates,

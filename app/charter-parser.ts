@@ -119,6 +119,7 @@ export function parseCharterTextItems(
 ): ParsedCharterSchedule | null {
   const flights: Flight[] = [];
   let header: CharterHeader | null = null;
+  let skippedLegs = 0;
 
   textLines(items).forEach((line, lineIndex) => {
     const headerMatch = line.match(HEADER_PATTERN);
@@ -130,25 +131,38 @@ export function parseCharterTextItems(
       };
       return;
     }
+    if (line.includes("|")) {
+      header = null;
+      return;
+    }
 
     const leg = line.match(LEG_PATTERN);
-    if (!leg || !header) return;
+    if (!leg) {
+      if (/\b(?:Inbound|Return|Reposition)\b/i.test(line)) skippedLegs += 1;
+      return;
+    }
     const date = parseCharterDate(leg[2]);
     const departure = parseCharterClock(leg[5]);
     const arrival = parseCharterClock(leg[6]);
-    if (!date || !departure || !arrival) return;
+    if (!date || !departure || !arrival) {
+      skippedLegs += 1;
+      return;
+    }
     const origin = leg[3].toUpperCase();
     const destination = leg[4].toUpperCase();
     const kind: Flight["kind"] =
       /^return$/i.test(leg[1]) ? "departure" : "arrival";
     const start = kind === "departure" ? departure : arrival;
+    const trackingId = header?.trackingId;
 
     flights.push({
-      id: `${date}-charter-${header.trackingId}-${lineIndex}-${start}`,
+      id: `${date}-charter-${trackingId ?? `${origin}-${destination}`}-${lineIndex}-${start}`,
       date,
       period: periodForTime(start),
       kind,
-      raw: `${header.operator} | ${header.aircraft} | ${header.trackingId} - ${leg[1]}`,
+      raw: header
+        ? `${header.operator} | ${header.aircraft} | ${header.trackingId} - ${leg[1]}`
+        : line,
       origin,
       destination,
       inboundAirport: kind === "arrival" ? origin : undefined,
@@ -158,9 +172,9 @@ export function parseCharterTextItems(
       start,
       end: kind === "arrival" ? arrival : undefined,
       source: "charter",
-      operator: header.operator,
-      aircraft: header.aircraft,
-      trackingId: header.trackingId,
+      operator: header?.operator,
+      aircraft: header?.aircraft,
+      trackingId,
     });
   });
 
@@ -170,7 +184,14 @@ export function parseCharterTextItems(
     shifts: [],
     flights,
     confidence: 100,
-    warnings: [],
+    warnings: [
+      ...(flights.some((flight) => !flight.trackingId)
+        ? ["Some charter details were missing, but the readable flight times were imported."]
+        : []),
+      ...(skippedLegs
+        ? [`Skipped ${skippedLegs} charter ${skippedLegs === 1 ? "row" : "rows"} that could not be read.`]
+        : []),
+    ],
   };
 }
 
@@ -200,7 +221,7 @@ export async function parseCharterPdf(file: File) {
       });
     }
   } finally {
-    await document.destroy();
+    await document.destroy().catch(() => undefined);
   }
   return parseCharterTextItems(items);
 }

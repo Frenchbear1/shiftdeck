@@ -47,6 +47,7 @@ import {
   isPlausibleWorkerName,
   isSameSchedulePerson,
   isScheduleRevision,
+  mergeScheduleParses,
   parseScheduleTsv,
   ParsedSchedule,
   resolveSchedulePersonName,
@@ -1960,6 +1961,7 @@ export default function HomePage() {
     setLoadedFiles(files.map((file) => file.name));
 
     const parsedSchedules: ParsedSchedule[] = [];
+    const skippedFiles: string[] = [];
     let nextDocuments = [...scheduleDocuments];
     let updatedDocuments = 0;
 
@@ -1967,130 +1969,144 @@ export default function HomePage() {
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
         setImportMessage(`Checking ${file.name}`);
-        const hash = await hashFile(file);
 
-        let parsed: ParsedSchedule | null = null;
-        const isPdf =
-          file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-        if (isPdf) {
-          setImportMessage(`Reading charter flights in ${file.name}`);
-          const fileBase = index / files.length;
-          setImportProgress(Math.round((fileBase + 0.75 / files.length) * 88));
-          parsed = await parseCharterPdf(file);
-        } else {
-          setImportMessage(`Reading the schedule in ${file.name}`);
-          const { createWorker, PSM } = await import("tesseract.js");
-          const worker = await createWorker("eng", 1, {
-            logger: (status) => {
-              if (status.status === "recognizing text") {
-                const fileBase = index / files.length;
-                const fileShare = status.progress / files.length;
-                setImportProgress(Math.round((fileBase + fileShare) * 88));
+        try {
+          const hash = await hashFile(file);
+          let parsed: ParsedSchedule | null = null;
+          const isPdf =
+            file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+
+          if (isPdf) {
+            setImportMessage(`Reading charter flights in ${file.name}`);
+            const fileBase = index / files.length;
+            setImportProgress(Math.round((fileBase + 0.75 / files.length) * 88));
+            parsed = await parseCharterPdf(file);
+          } else {
+            setImportMessage(`Reading the schedule in ${file.name}`);
+            const { createWorker, PSM } = await import("tesseract.js");
+            const worker = await createWorker("eng", 1, {
+              logger: (status) => {
+                if (status.status === "recognizing text") {
+                  const fileBase = index / files.length;
+                  const fileShare = status.progress / files.length;
+                  setImportProgress(Math.round((fileBase + fileShare) * 88));
+                }
+              },
+            });
+            try {
+              const enhanced = await enhanceScheduleImage(file);
+              const attempts = [
+                { image: file as Blob, mode: PSM.SPARSE_TEXT },
+                { image: enhanced, mode: PSM.SPARSE_TEXT },
+                { image: enhanced, mode: PSM.AUTO },
+                { image: enhanced, mode: PSM.SINGLE_BLOCK },
+              ];
+              const readableAttempts: ParsedSchedule[] = [];
+
+              for (let attempt = 0; attempt < attempts.length; attempt += 1) {
+                if (attempt > 0) {
+                  setImportMessage(`Looking for more readable details in ${file.name}`);
+                }
+                try {
+                  await worker.setParameters({
+                    tessedit_pageseg_mode: attempts[attempt].mode,
+                    preserve_interword_spaces: "1",
+                  });
+                  const result = await worker.recognize(
+                    attempts[attempt].image,
+                    { rotateAuto: true },
+                    { text: true, tsv: true },
+                  );
+                  const attemptResult = result.data.tsv
+                    ? parseScheduleTsv(result.data.tsv, result.data.confidence)
+                    : null;
+                  if (attemptResult) readableAttempts.push(attemptResult);
+                } catch {
+                  // Keep results from the other OCR passes.
+                }
               }
-            },
-          });
-          try {
-            const enhanced = await enhanceScheduleImage(file);
-            const attempts = [
-              { image: file as Blob, mode: PSM.SPARSE_TEXT },
-              { image: enhanced, mode: PSM.SPARSE_TEXT },
-              { image: enhanced, mode: PSM.AUTO },
-              { image: enhanced, mode: PSM.SINGLE_BLOCK },
-            ];
-            for (
-              let attempt = 0;
-              attempt < attempts.length && !parsed;
-              attempt += 1
-            ) {
-              if (attempt > 0) {
-                setImportMessage(`Trying a clearer read of ${file.name}`);
-              }
-              await worker.setParameters({
-                tessedit_pageseg_mode: attempts[attempt].mode,
-                preserve_interword_spaces: "1",
-              });
-              const result = await worker.recognize(
-                attempts[attempt].image,
-                { rotateAuto: true },
-                { text: true, tsv: true },
-              );
-              parsed = result.data.tsv
-                ? parseScheduleTsv(result.data.tsv, result.data.confidence)
-                : null;
+              parsed = mergeScheduleParses(readableAttempts);
+            } finally {
+              await worker.terminate().catch(() => undefined);
             }
-          } finally {
-            await worker.terminate();
           }
-        }
-        if (!parsed) continue;
-        const knownNames = [
-          prefs.person,
-          ...parsedShifts.map((shift) => shift.worker),
-          ...scheduleDocuments.flatMap((document) =>
-            document.shifts.map((shift) => shift.worker),
-          ),
-        ];
-        parsed = {
-          ...parsed,
-          shifts: canonicalizeScheduleShifts(
-            parsed.shifts.map((shift) => {
-              const worker = resolveSchedulePersonName(shift.worker, knownNames);
-              return {
-                ...shift,
-                id: `${shift.date}-${worker}-${
-                  shift.status === "working" ? shift.start : shift.status
-                }`,
-                worker,
-              };
-            }),
-          ),
-        };
-        parsedSchedules.push(parsed);
 
-        const replacementIndex = nextDocuments.findIndex((document) =>
-          isScheduleRevision(document.dates, parsed.dates),
-        );
-        const replacement =
-          replacementIndex >= 0 ? nextDocuments[replacementIndex] : null;
-        const now = new Date().toISOString();
-        const documentId = replacement?.id ?? `schedule-${hash.slice(0, 20)}`;
-        const nextDocument: ScheduleDocument = {
-          id: documentId,
-          hash,
-          name: file.name,
-          dates: parsed.dates,
-          shifts: parsed.shifts,
-          flights: parsed.flights,
-          uploadedAt: replacement?.uploadedAt ?? now,
-          updatedAt: now,
-          revision: (replacement?.revision ?? 0) + 1,
-          parserVersion: SCHEDULE_PARSER_VERSION,
-          mimeType: isPdf ? "application/pdf" : file.type,
-        };
-        if (replacement) {
-          nextDocuments[replacementIndex] = nextDocument;
-          updatedDocuments += 1;
-          const preview = documentPreviews[documentId];
-          if (preview) URL.revokeObjectURL(preview);
-          setDocumentPreviews((current) => {
-            const next = { ...current };
-            delete next[documentId];
-            return next;
-          });
-          if (expandedDocument === documentId) setExpandedDocument(null);
-        } else {
-          nextDocuments.push(nextDocument);
+          if (!parsed) {
+            skippedFiles.push(file.name);
+            continue;
+          }
+
+          const knownNames = [
+            prefs.person,
+            ...parsedShifts.map((shift) => shift.worker),
+            ...scheduleDocuments.flatMap((document) =>
+              document.shifts.map((shift) => shift.worker),
+            ),
+          ];
+          parsed = {
+            ...parsed,
+            shifts: canonicalizeScheduleShifts(
+              parsed.shifts.map((shift) => {
+                const worker = resolveSchedulePersonName(shift.worker, knownNames);
+                return {
+                  ...shift,
+                  id: `${shift.date}-${worker}-${
+                    shift.status === "working" ? shift.start : shift.status
+                  }`,
+                  worker,
+                };
+              }),
+            ),
+          };
+          parsedSchedules.push(parsed);
+
+          const replacementIndex = nextDocuments.findIndex((document) =>
+            isScheduleRevision(document.dates, parsed.dates),
+          );
+          const replacement =
+            replacementIndex >= 0 ? nextDocuments[replacementIndex] : null;
+          const now = new Date().toISOString();
+          const documentId = replacement?.id ?? `schedule-${hash.slice(0, 20)}`;
+          const nextDocument: ScheduleDocument = {
+            id: documentId,
+            hash,
+            name: file.name,
+            dates: parsed.dates,
+            shifts: parsed.shifts,
+            flights: parsed.flights,
+            uploadedAt: replacement?.uploadedAt ?? now,
+            updatedAt: now,
+            revision: (replacement?.revision ?? 0) + 1,
+            parserVersion: SCHEDULE_PARSER_VERSION,
+            mimeType: isPdf ? "application/pdf" : file.type,
+          };
+          if (replacement) {
+            nextDocuments[replacementIndex] = nextDocument;
+            updatedDocuments += 1;
+            const preview = documentPreviews[documentId];
+            if (preview) URL.revokeObjectURL(preview);
+            setDocumentPreviews((current) => {
+              const next = { ...current };
+              delete next[documentId];
+              return next;
+            });
+            if (expandedDocument === documentId) setExpandedDocument(null);
+          } else {
+            nextDocuments.push(nextDocument);
+          }
+          await saveScheduleImage(documentId, file).catch(() => undefined);
+        } catch {
+          skippedFiles.push(file.name);
         }
-        await saveScheduleImage(documentId, file).catch(() => undefined);
       }
 
       if (!parsedSchedules.length) {
         setImportMessage(
-          "I couldn’t find a supported employee schedule or charter flight table. Make sure the complete schedule is visible.",
+          "I couldn’t find any readable names, work hours, or flights. Unrecognized details were skipped; try a clearer copy if you want to recover more.",
         );
         setImportProgress(100);
         setImportState("error");
-        setToast("Schedule format not recognized");
+        setToast("No readable schedule details found");
         return;
       }
 
@@ -2121,7 +2137,13 @@ export default function HomePage() {
           parsedShiftCount
             ? `${count} of your shifts found, plus ${Math.max(0, parsedShiftCount - count)} coworker shifts and ${parsedFlightCount} flights.`
             : `${charterFlightCount || parsedFlightCount} charter flights found.`
-        }${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
+        }${warnings.length ? ` ${warnings.join(" ")}` : ""}${
+          skippedFiles.length
+            ? ` Skipped ${skippedFiles.length} unreadable ${
+                skippedFiles.length === 1 ? "file" : "files"
+              } and kept everything else.`
+            : ""
+        }`,
       );
       setImportState("review");
       setToast("Schedule imported");
@@ -2129,7 +2151,7 @@ export default function HomePage() {
       setImportState("error");
       setImportProgress(100);
       setImportMessage(
-        "I couldn’t confidently read that file. Try a clearer image or the original charter PDF.",
+        "The readable schedule details could not be saved. Please try the import again.",
       );
     }
   };

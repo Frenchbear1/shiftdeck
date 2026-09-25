@@ -302,7 +302,7 @@ test("reprocesses uploads and records the current schedule parser", async () => 
     readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/charter-parser.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(parser, /SCHEDULE_PARSER_VERSION = 4/);
+  assert.match(parser, /SCHEDULE_PARSER_VERSION = 5/);
   assert.doesNotMatch(page, /document\.hash === hash/);
   assert.match(page, /parserVersion: SCHEDULE_PARSER_VERSION/);
   assert.match(page, /accept="image\/\*,application\/pdf,\.pdf"/);

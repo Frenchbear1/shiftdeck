@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canonicalSchedulePersonName,
   canonicalizeScheduleShifts,
+  mergeScheduleParses,
   parseScheduleTsv,
   resolveSchedulePersonName,
   SCHEDULE_PARSER_VERSION,
@@ -17,7 +18,7 @@ const word = (text, x, y, width = Math.max(8, text.length * 6), height = 10) =>
   [5, 1, 1, 1, 1, 1, x, y, width, height, 90, text].join("\t");
 
 test("imports the employee grid when a document date precedes the seven-day header", () => {
-  assert.equal(SCHEDULE_PARSER_VERSION, 4);
+  assert.equal(SCHEDULE_PARSER_VERSION, 5);
   const rows = [
     word("Morning", 4, 100, 50),
     word("ACY", 160, 200, 24),
@@ -148,6 +149,108 @@ test("imports charter PDF text as tracked private flights", () => {
     ],
   );
   assert.equal(normalizeFlightAwareIdent("CGCUA"), "C-GCUA");
+});
+
+test("keeps readable charter legs when the aircraft header is not recognized", () => {
+  const line = "Inbound 09-17-26 OMA ABE 0430 0800 Terminal N/A";
+  const items = line.split(" ").map((text, index) => ({
+    text,
+    x: index * 45,
+    y: 500,
+  }));
+
+  const parsed = parseCharterTextItems(items);
+
+  assert.ok(parsed);
+  assert.equal(parsed.flights.length, 1);
+  assert.equal(parsed.flights[0].origin, "OMA");
+  assert.equal(parsed.flights[0].arrival, "08:00");
+  assert.equal(parsed.flights[0].trackingId, undefined);
+  assert.match(parsed.warnings.join(" "), /readable flight times were imported/i);
+});
+
+test("accepts readable flights even when no work-hour cells are recognized", () => {
+  const rows = [
+    word("Morning", 4, 180, 50),
+    word("ACY 0353/0600 SRQ", 160, 200, 120),
+    ...[
+      "8/30/2026",
+      "8/31/2026",
+      "9/1/2026",
+      "9/2/2026",
+      "9/3/2026",
+      "9/4/2026",
+      "9/5/2026",
+    ].map((date, index) => word(date, 188 + index * 145, 327, 61, 13)),
+  ];
+
+  const parsed = parseScheduleTsv(rows.join("\n"), 90);
+
+  assert.ok(parsed);
+  assert.equal(parsed.shifts.length, 0);
+  assert.equal(parsed.flights.length, 1);
+  assert.match(parsed.warnings.join(" "), /only the readable flights were imported/i);
+});
+
+test("combines complementary details from multiple OCR passes", () => {
+  const dates = [
+    "2026-08-30",
+    "2026-08-31",
+    "2026-09-01",
+    "2026-09-02",
+    "2026-09-03",
+    "2026-09-04",
+    "2026-09-05",
+  ];
+  const first = {
+    dates,
+    shifts: [{
+      id: "first",
+      date: dates[0],
+      worker: "David LaBarre",
+      start: "20:30",
+      end: "00:30",
+      status: "working",
+    }],
+    flights: [],
+    confidence: 88,
+    warnings: [],
+  };
+  const second = {
+    dates,
+    shifts: [{
+      id: "second",
+      date: dates[1],
+      worker: "David LaBarre",
+      start: "21:00",
+      end: "01:00",
+      status: "working",
+    }],
+    flights: [{
+      id: "flight",
+      date: dates[1],
+      period: "Morning",
+      kind: "turnaround",
+      raw: "ACY 0353/0600 SRQ",
+      origin: "ACY",
+      destination: "SRQ",
+      inboundAirport: "ACY",
+      outboundAirport: "SRQ",
+      arrival: "03:53",
+      departure: "06:00",
+      start: "03:53",
+      end: "06:00",
+    }],
+    confidence: 74,
+    warnings: [],
+  };
+
+  const parsed = mergeScheduleParses([first, second]);
+
+  assert.ok(parsed);
+  assert.equal(parsed.shifts.filter((shift) => shift.status === "working").length, 2);
+  assert.equal(parsed.flights.length, 1);
+  assert.match(parsed.warnings.join(" "), /several scans/i);
 });
 
 test("merges the Labare misspelling into David LaBarre", () => {
