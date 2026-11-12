@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlightAware link test</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 24px 16px 40px; font: 16px/1.4 -apple-system, system-ui, sans-serif; background: #f4f5f7; color: #16191f; }
+  @media (prefers-color-scheme: dark) { body { background: #17191d; color: #f2f3f5; } a { background: #202329 !important; border-color: #353a43 !important; } }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p { margin: 0 0 18px; color: #6f7682; font-size: 14px; }
+  ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: n; }
+  li { counter-increment: n; }
+  a { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: center; padding: 12px; color: inherit; text-decoration: none; background: #fff; border: 1px solid #e3e6eb; border-radius: 14px; }
+  a::before { content: counter(n); display: grid; place-items: center; width: 30px; height: 30px; color: #fff; background: #3767dc; border-radius: 50%; font-weight: 800; }
+  code { font-size: 12.5px; word-break: break-all; color: #6f7682; }
+  b { display: block; }
+</style>
+</head>
+<body>
+<h1>FlightAware link test</h1>
+<p>Tap each one, then come back. Tell me the numbers that open ABE in the FlightAware app (or just open the app). "Address is invalid" means that one doesn't work.</p>
+<ol id="links"></ol>
+<script>
+  const links = [
+    ["Scheme · airport ICAO", "flightaware://airport/KABE"],
+    ["Scheme · airport IATA", "flightaware://airport/ABE"],
+    ["Scheme · live airport path", "flightaware://live/airport/KABE"],
+    ["Scheme · full web path", "flightaware://www.flightaware.com/live/airport/KABE"],
+    ["Scheme · arrivals", "flightaware://airport/KABE/arrivals"],
+    ["Scheme · just open app", "flightaware://"],
+    ["Alt scheme · fa", "fa://airport/KABE"],
+    ["Alt scheme · flightawarelive", "flightawarelive://airport/KABE"],
+    ["Alt scheme · faflighttracker", "faflighttracker://airport/KABE"],
+    ["Flight link trick · KABE", "https://www.flightaware.com/live/flight/KABE"],
+    ["Flight link trick · airport path", "https://www.flightaware.com/live/flight/airport/KABE"],
+  ];
+  const list = document.getElementById("links");
+  links.forEach(([label, href]) => {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = href;
+    link.innerHTML = `<span><b></b><code></code></span>`;
+    link.querySelector("b").textContent = label;
+    link.querySelector("code").textContent = href;
+    item.appendChild(link);
+    list.appendChild(item);
+  });
+</script>
+</body>
+</html>
