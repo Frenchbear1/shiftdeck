@@ -956,3 +956,135 @@ export function SwapSheet({
     </div>
   );
 }
+
+/* ---------- name merging (settings) ---------- */
+
+export function NameMergeSection({
+  names,
+  suggestions,
+  merges,
+  person,
+  onMerge,
+  onDismiss,
+  onUndo,
+}: {
+  names: string[];
+  suggestions: Array<{ from: string; to: string }>;
+  merges: Array<{ from: string; to: string }>;
+  person: string;
+  onMerge: (from: string, to: string) => void;
+  onDismiss: (from: string, to: string) => void;
+  onUndo: (from: string) => void;
+}) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [flipped, setFlipped] = useState<Record<string, boolean>>({});
+  const canMerge = Boolean(from && to && from !== to);
+
+  return (
+    <section className="name-merge">
+      <div className="name-merge-head">
+        <span>Coworker names</span>
+        <small>Combine names the scanner read two different ways.</small>
+      </div>
+
+      {suggestions.length > 0 && (
+        <ul className="merge-suggestions">
+          {suggestions.map((pair) => {
+            const pairKey = `${pair.from}|${pair.to}`;
+            // Your own name is always the one kept.
+            const reverse =
+              flipped[pairKey] !== undefined ? flipped[pairKey] : pair.from === person;
+            const drop = reverse ? pair.to : pair.from;
+            const keep = reverse ? pair.from : pair.to;
+            return (
+              <li key={pairKey}>
+                <div className="merge-pair">
+                  <span className="merge-drop">{drop}</span>
+                  <button
+                    type="button"
+                    className="merge-flip"
+                    onClick={() => setFlipped((current) => ({ ...current, [pairKey]: !reverse }))}
+                    aria-label={`Keep ${drop} instead`}
+                    title="Swap which name is kept"
+                  >
+                    <ArrowLeftRight />
+                  </button>
+                  <span className="merge-keep">
+                    <PersonName name={keep} />
+                  </span>
+                </div>
+                <div className="merge-actions">
+                  <button type="button" className="button soft" onClick={() => onMerge(drop, keep)}>
+                    <Check /> Merge
+                  </button>
+                  <button type="button" className="merge-dismiss" onClick={() => onDismiss(pair.from, pair.to)}>
+                    Different people
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <div className="merge-manual">
+        <label>
+          <span>Misspelled name</span>
+          <select value={from} onChange={(event) => setFrom(event.target.value)}>
+            <option value="">Choose…</option>
+            {names
+              .filter((name) => name !== person)
+              .map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+          </select>
+          <ChevronDown />
+        </label>
+        <label>
+          <span>Is really</span>
+          <select value={to} onChange={(event) => setTo(event.target.value)}>
+            <option value="">Choose…</option>
+            {names
+              .filter((name) => name !== from)
+              .map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+          </select>
+          <ChevronDown />
+        </label>
+        <button
+          type="button"
+          className="button soft"
+          disabled={!canMerge}
+          onClick={() => {
+            onMerge(from, to);
+            setFrom("");
+            setTo("");
+          }}
+        >
+          <Check /> Merge names
+        </button>
+      </div>
+
+      {merges.length > 0 && (
+        <ul className="merge-done">
+          {merges.map((merge) => (
+            <li key={merge.from}>
+              <span>
+                <s>{merge.from}</s> → {merge.to}
+              </span>
+              <button type="button" onClick={() => onUndo(merge.from)}>
+                <Undo2 /> Undo
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}

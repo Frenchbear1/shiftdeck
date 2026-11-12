@@ -43,7 +43,12 @@ import {
   createImportProgress,
   IMPORT_STAGES,
   ImportSnapshot,
+  applyNameMerges,
   isScheduleRange,
+  likelyDuplicateNames,
+  mergePairKey,
+  NameMerges,
+  nameKey,
   ScheduleRange,
   toMinutes,
 } from "./schedule-tools";
@@ -60,6 +65,7 @@ import {
   isGroundSecurityCoordinator,
   ScheduleViews,
   SwapSheet,
+  NameMergeSection,
   TodayHero,
   backdropClose,
 } from "./home-sections";
@@ -189,6 +195,8 @@ const DEFAULT_SHIFT_TITLE = "Work";
 const DEFAULT_ALERT_MINUTES = 120;
 const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
 const HOME_VIEW_KEY = "shiftdeck.homeView";
+const NAME_MERGES_KEY = "shiftdeck.nameMerges";
+const NAME_MERGE_DISMISSED_KEY = "shiftdeck.nameMergeDismissed";
 
 type Sheet = "import" | "swap" | null;
 
@@ -607,6 +615,8 @@ export default function HomePage() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [scheduleRange, setScheduleRange] = useState<ScheduleRange>("week");
   const [showRanges, setShowRanges] = useState(false);
+  const [nameMerges, setNameMerges] = useState<NameMerges>({});
+  const [dismissedMerges, setDismissedMerges] = useState<string[]>([]);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [selectedDate, setSelectedDate] = useState(() => localDateKey());
@@ -791,6 +801,29 @@ export default function HomePage() {
         setEvents(fallbackEvents);
       }
       if (savedTheme === "dark") setTheme("dark");
+      try {
+        const savedMerges = JSON.parse(
+          localStorage.getItem(NAME_MERGES_KEY) ?? "{}",
+        ) as unknown;
+        if (savedMerges && typeof savedMerges === "object" && !Array.isArray(savedMerges)) {
+          setNameMerges(
+            Object.fromEntries(
+              Object.entries(savedMerges as Record<string, unknown>).filter(
+                (entry): entry is [string, string] => typeof entry[1] === "string",
+              ),
+            ),
+          );
+        }
+        const savedDismissed = JSON.parse(
+          localStorage.getItem(NAME_MERGE_DISMISSED_KEY) ?? "[]",
+        ) as unknown;
+        if (Array.isArray(savedDismissed)) {
+          setDismissedMerges(savedDismissed.filter((item) => typeof item === "string"));
+        }
+      } catch {
+        localStorage.removeItem(NAME_MERGES_KEY);
+        localStorage.removeItem(NAME_MERGE_DISMISSED_KEY);
+      }
       try {
         const savedView = JSON.parse(
           localStorage.getItem(HOME_VIEW_KEY) ?? "{}",
@@ -1080,6 +1113,12 @@ export default function HomePage() {
     sheetRef.current = sheet;
   }, [sheet]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(NAME_MERGES_KEY, JSON.stringify(nameMerges));
+    localStorage.setItem(NAME_MERGE_DISMISSED_KEY, JSON.stringify(dismissedMerges));
+  }, [dismissedMerges, hydrated, nameMerges]);
+
   const importedDateSet = useMemo(() => new Set(importedDates), [importedDates]);
 
   const scheduleDates = useMemo(
@@ -1088,8 +1127,32 @@ export default function HomePage() {
   );
 
   const baseImportedShifts = useMemo(
-    () => parsedShifts.filter((shift) => importedDateSet.has(shift.date)),
-    [importedDateSet, parsedShifts],
+    () =>
+      applyNameMerges(
+        parsedShifts.filter((shift) => importedDateSet.has(shift.date)),
+        nameMerges,
+      ),
+    [importedDateSet, nameMerges, parsedShifts],
+  );
+
+  const workerNameCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    baseImportedShifts.forEach((shift) => {
+      if (shift.status === "working") {
+        counts.set(shift.worker, (counts.get(shift.worker) ?? 0) + 1);
+      } else if (!counts.has(shift.worker)) {
+        counts.set(shift.worker, 0);
+      }
+    });
+    if (!counts.has(prefs.person)) counts.set(prefs.person, events.length);
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [baseImportedShifts, events.length, prefs.person]);
+
+  const mergeSuggestions = useMemo(
+    () => likelyDuplicateNames(workerNameCounts, new Set(dismissedMerges)),
+    [dismissedMerges, workerNameCounts],
   );
 
   const importedShifts = useMemo(
@@ -1349,6 +1412,63 @@ export default function HomePage() {
       void releaseScheduleReader();
     }
     setSheet(null);
+  };
+
+  const mergeNames = (from: string, to: string) => {
+    // Your own name is always the one that's kept.
+    if (isSameSchedulePerson(from, prefs.person)) [from, to] = [to, from];
+    if (!from || !to || nameKey(from) === nameKey(to)) return;
+    const next: NameMerges = { ...nameMerges, [nameKey(from)]: to };
+    // Anything already merged into the old name follows it.
+    Object.entries(next).forEach(([key, target]) => {
+      if (nameKey(target) === nameKey(from)) next[key] = to;
+    });
+    delete next[nameKey(to)];
+    setNameMerges(next);
+    if (isSameSchedulePerson(to, prefs.person)) {
+      // Shifts read under the misspelling become your shifts too.
+      const known = new Set(events.map((event) => event.date));
+      const added = applyNameMerges(
+        parsedShifts.filter((shift) => importedDateSet.has(shift.date)),
+        next,
+      )
+        .filter(
+          (shift) =>
+            isSameSchedulePerson(shift.worker, prefs.person) &&
+            shift.status === "working" &&
+            !known.has(shift.date),
+        )
+        .map((shift) => ({
+          id: shift.id,
+          calendarKey: calendarKeyFor(prefs.person, shift.date),
+          date: shift.date,
+          start: shift.start,
+          end: shift.end,
+          title: DEFAULT_SHIFT_TITLE,
+          customTitle: false,
+        }));
+      if (added.length) {
+        setEvents((current) =>
+          [...current, ...added].sort((a, b) =>
+            `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`),
+          ),
+        );
+      }
+    }
+    setToast(`Merged ${from} into ${to}`);
+  };
+
+  const undoNameMerge = (from: string) => {
+    setNameMerges((current) => {
+      const next = { ...current };
+      delete next[nameKey(from)];
+      return next;
+    });
+    setToast(`${from} is separate again`);
+  };
+
+  const dismissMergeSuggestion = (a: string, b: string) => {
+    setDismissedMerges((current) => [...new Set([...current, mergePairKey(a, b)])]);
   };
 
   const savePrefs = (next: Partial<Preferences>) => {
@@ -1816,6 +1936,9 @@ export default function HomePage() {
       "shiftdeck.parsedFlights",
       "shiftdeck.scheduleDocuments",
       "shiftdeck.events",
+      NAME_MERGES_KEY,
+      NAME_MERGE_DISMISSED_KEY,
+      HOME_VIEW_KEY,
     ].forEach((key) => localStorage.removeItem(key));
     setPrefs(DEFAULT_PREFS);
     setTheme("light");
@@ -1829,6 +1952,8 @@ export default function HomePage() {
     setDocumentPreviews({});
     void clearScheduleImages().catch(() => undefined);
     setEvents([]);
+    setNameMerges({});
+    setDismissedMerges([]);
     setImportState("idle");
     setImportSnapshot({ progress: 0, stage: 0, detail: "" });
     setImportMessage("");
@@ -2748,6 +2873,19 @@ export default function HomePage() {
               </select>
               <ChevronDown />
             </label>
+            <NameMergeSection
+              names={workerNameCounts.map((entry) => entry.name)}
+              suggestions={mergeSuggestions}
+              merges={Object.entries(nameMerges).map(([key, to]) => ({
+                from:
+                  parsedShifts.find((shift) => nameKey(shift.worker) === key)?.worker ?? key,
+                to,
+              }))}
+              person={prefs.person}
+              onMerge={mergeNames}
+              onDismiss={dismissMergeSuggestion}
+              onUndo={undoNameMerge}
+            />
             <div className="settings-grid">
               <SearchableSelect
                 label="Home airport"

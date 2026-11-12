@@ -535,3 +535,121 @@ export function analyzeSwap({
     coverOnly: coverOnly.sort(order),
   };
 }
+
+/* ---------- name merges ---------- */
+
+/** Misspelled name key → the name it really is. */
+export type NameMerges = Record<string, string>;
+
+export const nameKey = (name: string) =>
+  name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+export function resolveMergedName(name: string, merges: NameMerges) {
+  let current = name;
+  const seen = new Set<string>();
+  while (merges[nameKey(current)] && !seen.has(nameKey(current))) {
+    seen.add(nameKey(current));
+    current = merges[nameKey(current)];
+  }
+  return current;
+}
+
+/**
+ * Renames merged workers and folds their days together. On a day both names
+ * have, worked shifts win over PTO, and PTO over off.
+ */
+export function applyNameMerges(shifts: Shift[], merges: NameMerges): Shift[] {
+  if (!Object.keys(merges).length) return shifts;
+  const days = new Map<string, Shift[]>();
+  shifts.forEach((shift) => {
+    const worker = resolveMergedName(shift.worker, merges);
+    const next =
+      worker === shift.worker
+        ? shift
+        : {
+            ...shift,
+            worker,
+            id: `${shift.date}-${worker}-${
+              shift.status === "working" ? shift.start : shift.status
+            }`,
+          };
+    const key = `${shift.date}|${nameKey(worker)}`;
+    days.set(key, [...(days.get(key) ?? []), next]);
+  });
+  return [...days.values()].flatMap((records) => {
+    const worked = records.filter((shift) => shift.status === "working");
+    if (worked.length) {
+      const byStart = new Map(worked.map((shift) => [shift.start, shift]));
+      return [...byStart.values()];
+    }
+    return [records.find((shift) => shift.status === "pto") ?? records[0]];
+  });
+}
+
+const editDistance = (a: string, b: string) => {
+  if (a === b) return 0;
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const current = row[j];
+      row[j] = Math.min(
+        row[j] + 1,
+        row[j - 1] + 1,
+        previous + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      previous = current;
+    }
+  }
+  return row[b.length];
+};
+
+export const mergePairKey = (a: string, b: string) =>
+  [nameKey(a), nameKey(b)].sort().join("|");
+
+/**
+ * Pairs of names that are probably the same person read two ways, like
+ * "Ody Hermany" and "Kody Hermany". The name seen more often is kept.
+ */
+export function likelyDuplicateNames(
+  names: Array<{ name: string; count: number }>,
+  dismissed: Set<string> = new Set(),
+) {
+  const pairs: Array<{ from: string; to: string }> = [];
+  for (let i = 0; i < names.length; i += 1) {
+    for (let j = i + 1; j < names.length; j += 1) {
+      const a = names[i];
+      const b = names[j];
+      if (dismissed.has(mergePairKey(a.name, b.name))) continue;
+      const partsA = a.name.trim().toLowerCase().split(/\s+/);
+      const partsB = b.name.trim().toLowerCase().split(/\s+/);
+      const firstA = nameKey(partsA[0] ?? "");
+      const firstB = nameKey(partsB[0] ?? "");
+      const lastA = nameKey(partsA.slice(1).join(" "));
+      const lastB = nameKey(partsB.slice(1).join(" "));
+      const fullA = nameKey(a.name);
+      const fullB = nameKey(b.name);
+      const sameLast = Boolean(lastA) && lastA === lastB;
+      const firstClose =
+        Boolean(firstA && firstB) &&
+        (editDistance(firstA, firstB) <= 1 ||
+          (Math.min(firstA.length, firstB.length) >= 2 &&
+            (firstA.endsWith(firstB) ||
+              firstB.endsWith(firstA) ||
+              firstA.startsWith(firstB) ||
+              firstB.startsWith(firstA))));
+      const lastClose =
+        Boolean(lastA && lastB) &&
+        firstA === firstB &&
+        editDistance(lastA, lastB) <= Math.max(1, Math.floor(Math.min(lastA.length, lastB.length) / 4));
+      const wholeClose =
+        Math.min(fullA.length, fullB.length) >= 8 && editDistance(fullA, fullB) <= 2;
+      if (!((sameLast && firstClose) || lastClose || wholeClose)) continue;
+      const keepA =
+        a.count > b.count || (a.count === b.count && a.name.length >= b.name.length);
+      pairs.push(keepA ? { from: b.name, to: a.name } : { from: a.name, to: b.name });
+    }
+  }
+  return pairs;
+}

@@ -132,3 +132,52 @@ test("finds swap partners who are free when you work and work when you are free"
     null,
   );
 });
+
+test("merges misspelled coworker names and suggests likely duplicates", async () => {
+  const {
+    applyNameMerges,
+    likelyDuplicateNames,
+    mergePairKey,
+    resolveMergedName,
+  } = await import("../app/schedule-tools.ts");
+  const merges = { odyhermany: "Kody Hermany" };
+  const merged = applyNameMerges(
+    [
+      shift("Ody Hermany", "2026-11-12", "14:00", "20:30"),
+      shift("Kody Hermany", "2026-11-12", "", "", "off"),
+      shift("Kody Hermany", "2026-11-13", "", "", "off"),
+      shift("Ody Hermany", "2026-11-13", "", "", "pto"),
+      shift("Ana Lee", "2026-11-12", "09:00", "17:00"),
+    ],
+    merges,
+  );
+  assert.equal(merged.length, 3);
+  assert.ok(merged.every((item) => item.worker !== "Ody Hermany"));
+  assert.equal(
+    merged.find((item) => item.date === "2026-11-12" && item.worker === "Kody Hermany").status,
+    "working",
+  );
+  assert.equal(
+    merged.find((item) => item.date === "2026-11-13").status,
+    "pto",
+  );
+  assert.equal(resolveMergedName("ody  hermany", merges), "Kody Hermany");
+  assert.equal(resolveMergedName("A", { a: "B", b: "A" }), "A");
+
+  const names = [
+    { name: "Kody Hermany", count: 9 },
+    { name: "Ody Hermany", count: 2 },
+    { name: "Jason Hudak", count: 6 },
+    { name: "Jason Hudek", count: 1 },
+    { name: "Naira Ortiz", count: 5 },
+    { name: "Nicole Watson", count: 5 },
+  ];
+  assert.deepEqual(likelyDuplicateNames(names), [
+    { from: "Ody Hermany", to: "Kody Hermany" },
+    { from: "Jason Hudek", to: "Jason Hudak" },
+  ]);
+  assert.deepEqual(
+    likelyDuplicateNames(names, new Set([mergePairKey("Kody Hermany", "Ody Hermany")])),
+    [{ from: "Jason Hudek", to: "Jason Hudak" }],
+  );
+});
