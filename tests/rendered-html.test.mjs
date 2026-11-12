@@ -343,11 +343,11 @@ test("uses durable, duplicate-safe PWA shift notifications", async () => {
   assert.match(page, /display-mode: standalone/);
   assert.match(page, />Default job title</);
   assert.match(page, />Location</);
-  assert.match(page, /Add alert/);
+  assert.match(page, /className="notify-presets"/);
   assert.match(page, /updateNotificationAlert/);
   assert.match(page, /prefs\.alerts\.length >= 12/);
   assert.match(page, /DEFAULT_ALERT_MINUTES = 120/);
-  assert.match(page, /Send test/);
+  assert.match(page, /sendTestNotification\(\)/);
   assert.match(page, /Add shifts for Waze/);
 
   assert.match(migration, /CREATE TABLE IF NOT EXISTS notification_profiles/);
@@ -386,7 +386,7 @@ test("uses durable, duplicate-safe PWA shift notifications", async () => {
   assert.match(page, /customTitle/);
   assert.match(page, />Shift title</);
   assert.match(page, /returnToToday/);
-  assert.match(css, /\.notification-alert-row/);
+  assert.match(css, /\.notify-alert \{/);
 });
 
 test("restores a subtle Apple Calendar subscription with a work address", async () => {
