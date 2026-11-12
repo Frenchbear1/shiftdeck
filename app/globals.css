@@ -2606,6 +2606,7 @@ select:focus-visible {
 .crew-rows {
   position: relative;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 
@@ -2639,18 +2640,18 @@ select:focus-visible {
 
 .crew-row-text {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   font-size: 13.5px;
 }
 
+/* Long crews wrap onto more lines instead of running off the card. */
 .crew-names {
   min-width: 0;
-  overflow: hidden;
+  flex: 1;
   font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
 }
 
 .crew-names .person-name-with-tag {
