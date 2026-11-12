@@ -19,30 +19,19 @@
 </style>
 </head>
 <body>
-<h1>FlightAware link test</h1>
-<p>Tap each one, then come back. Tell me the numbers that open ABE in the FlightAware app (or just open the app). "Address is invalid" means that one doesn't work.</p>
+<h1>Scheduled to Arrive test</h1>
+<p>Tap each one and tell me which number opens ABE on the "Scheduled to Arrive" tab.</p>
 <ol id="links"></ol>
 <script>
-  const links = [
-    ["Scheme · airport ICAO", "flightaware://airport/KABE"],
-    ["Scheme · airport IATA", "flightaware://airport/ABE"],
-    ["Scheme · live airport path", "flightaware://live/airport/KABE"],
-    ["Scheme · full web path", "flightaware://www.flightaware.com/live/airport/KABE"],
-    ["Scheme · arrivals", "flightaware://airport/KABE/arrivals"],
-    ["Scheme · just open app", "flightaware://"],
-    ["Alt scheme · fa", "fa://airport/KABE"],
-    ["Alt scheme · flightawarelive", "flightawarelive://airport/KABE"],
-    ["Alt scheme · faflighttracker", "faflighttracker://airport/KABE"],
-    ["Flight link trick · KABE", "https://www.flightaware.com/live/flight/KABE"],
-    ["Flight link trick · airport path", "https://www.flightaware.com/live/flight/airport/KABE"],
-  ];
+  const tabs = ["enroute", "scheduled_arrivals", "scheduledarrivals", "scheduled-arrivals", "scheduled_to_arrive", "scheduledArrivals", "inbound", "upcoming_arrivals"];
   const list = document.getElementById("links");
-  links.forEach(([label, href]) => {
+  tabs.forEach((tab) => {
+    const href = `flightaware://airport/KABE/${tab}`;
     const item = document.createElement("li");
     const link = document.createElement("a");
     link.href = href;
-    link.innerHTML = `<span><b></b><code></code></span>`;
-    link.querySelector("b").textContent = label;
+    link.innerHTML = "<span><b></b><code></code></span>";
+    link.querySelector("b").textContent = tab;
     link.querySelector("code").textContent = href;
     item.appendChild(link);
     list.appendChild(item);

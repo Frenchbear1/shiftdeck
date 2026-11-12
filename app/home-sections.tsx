@@ -4,7 +4,6 @@ import {
   ArrowLeftRight,
   CalendarDays,
   CalendarRange,
-  ExternalLink,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -529,11 +528,18 @@ export function ScheduleViews({
 
 /* ---------- flights ---------- */
 
-/** FlightAware's airport page, opened on its "Scheduled to Arrive" list. */
-export const flightAwareArrivalsUrl = (airport: string) =>
-  `https://www.flightaware.com/live/airport/${encodeURIComponent(
-    airport.trim().toUpperCase() || "ABE",
-  )}/enroute`;
+/**
+ * Opens the FlightAware app (its own link format, not the website) on the
+ * home airport. Three-letter US codes become ICAO ("ABE" → "KABE").
+ */
+export const flightAwareAirportAppUrl = (
+  airport: string,
+  tab: "arrivals" | "enroute",
+) => {
+  const code = airport.trim().toUpperCase() || "ABE";
+  const icao = /^[A-Z]{3}$/.test(code) ? `K${code}` : code;
+  return `flightaware://airport/${encodeURIComponent(icao)}/${tab}`;
+};
 
 export function FlightList({
   flights,
@@ -597,19 +603,25 @@ export function FlightList({
         )}
       </div>
 
-      <a
-        className="flightaware-link"
-        href={flightAwareArrivalsUrl(airport)}
-        target="_self"
-        aria-label={`Open ${airport} scheduled arrivals in FlightAware`}
-      >
-        <Plane />
-        <span>
-          <b>FlightAware</b>
-          <small>{airport} · Scheduled to arrive</small>
+      <div className="flightaware-links" role="group" aria-label={`${airport} in FlightAware`}>
+        <span className="flightaware-badge" aria-hidden="true">
+          <Plane />
         </span>
-        <ExternalLink />
-      </a>
+        <a
+          href={flightAwareAirportAppUrl(airport, "arrivals")}
+          aria-label={`Open ${airport} arrived flights in FlightAware`}
+        >
+          <small>{airport}</small>
+          <b>Arrived</b>
+        </a>
+        <a
+          href={flightAwareAirportAppUrl(airport, "enroute")}
+          aria-label={`Open ${airport} scheduled to arrive flights in FlightAware`}
+        >
+          <small>{airport}</small>
+          <b>Scheduled to arrive</b>
+        </a>
+      </div>
 
       {visible.length ? (
         <ul className="flight-rows">

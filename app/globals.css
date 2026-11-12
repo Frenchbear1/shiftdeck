@@ -2429,54 +2429,55 @@ select:focus-visible {
   background: var(--surface-3);
 }
 
-.flightaware-link {
+.flightaware-links {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 6px;
   margin-bottom: 8px;
-  padding: 8px 12px 8px 8px;
+}
+
+.flightaware-badge {
+  display: grid;
+  place-items: center;
+  color: white;
+  background: var(--blue);
+  border-radius: 11px;
+}
+
+.flightaware-badge svg {
+  width: 17px;
+  height: 17px;
+}
+
+.flightaware-links a {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  padding: 7px 11px;
   color: var(--text);
   background: var(--blue-soft);
   border: 1px solid color-mix(in srgb, var(--blue) 22%, transparent);
-  border-radius: 12px;
+  border-radius: 11px;
+  line-height: 1.2;
   text-decoration: none;
   transition: transform 120ms ease, background 150ms ease;
 }
 
-.flightaware-link:active {
-  transform: scale(.98);
+.flightaware-links a:active {
+  transform: scale(.97);
 }
 
-.flightaware-link > svg:first-child {
-  width: 30px;
-  height: 30px;
-  padding: 7px;
-  color: white;
-  background: var(--blue);
-  border-radius: 9px;
-}
-
-.flightaware-link span {
-  display: grid;
-  min-width: 0;
-  line-height: 1.2;
-}
-
-.flightaware-link b {
-  font-size: 14px;
-}
-
-.flightaware-link small {
+.flightaware-links small {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 700;
 }
 
-.flightaware-link > svg:last-child {
-  width: 16px;
-  height: 16px;
-  color: var(--blue);
+.flightaware-links b {
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .flight-rows {
