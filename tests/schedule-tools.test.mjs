@@ -173,8 +173,8 @@ test("merges misspelled coworker names and suggests likely duplicates", async ()
     { name: "Nicole Watson", count: 5 },
   ];
   assert.deepEqual(likelyDuplicateNames(names), [
-    { from: "Ody Hermany", to: "Kody Hermany" },
     { from: "Jason Hudek", to: "Jason Hudak" },
+    { from: "Ody Hermany", to: "Kody Hermany" },
   ]);
   assert.deepEqual(
     likelyDuplicateNames(names, new Set([mergePairKey("Kody Hermany", "Ody Hermany")])),

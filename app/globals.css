@@ -3368,26 +3368,10 @@ select:focus-visible {
   }
 }
 
-/* ---------- name merging (settings) ---------- */
+/* ---------- name merging ---------- */
 
-.name-merge {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-}
-
-.name-merge-head span {
-  display: block;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.name-merge-head small {
-  color: var(--muted);
-  font-size: 12px;
+.name-merge-sheet {
+  width: min(480px, 100%);
 }
 
 .merge-suggestions,
@@ -3465,11 +3449,8 @@ select:focus-visible {
   gap: 8px;
 }
 
-.settings-sheet .merge-actions .button,
-.settings-sheet .merge-manual .button {
-  width: auto;
+.merge-actions .button {
   min-height: 36px;
-  margin-top: 0;
   font-size: 13px;
 }
 
@@ -3480,7 +3461,7 @@ select:focus-visible {
   }
 }
 
-.name-merge .button svg {
+.merge-actions .button svg {
   width: 16px;
   height: 16px;
 }
@@ -3495,40 +3476,17 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.merge-manual {
+.merge-done-block {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
+  gap: 4px;
 }
 
-.merge-manual label {
-  position: relative;
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.merge-manual label > span {
+.merge-done-title {
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.merge-manual label > svg {
-  width: 15px;
-  position: absolute;
-  right: 10px;
-  bottom: 12px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.merge-manual select {
-  padding-right: 28px !important;
-}
-
-.merge-manual .button {
-  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
 }
 
 .merge-done li {

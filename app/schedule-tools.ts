@@ -610,13 +610,23 @@ export const mergePairKey = (a: string, b: string) =>
 
 /**
  * Pairs of names that are probably the same person read two ways, like
- * "Ody Hermany" and "Kody Hermany". The name seen more often is kept.
+ * "Ody Hermany" and "Kody Hermany": one part of the name matches and the
+ * other is off by a letter or two. Closest pairs come first, and the name
+ * seen more often is the one kept.
  */
 export function likelyDuplicateNames(
   names: Array<{ name: string; count: number }>,
   dismissed: Set<string> = new Set(),
 ) {
-  const pairs: Array<{ from: string; to: string }> = [];
+  const close = (a: string, b: string) => {
+    if (!a || !b) return false;
+    if (editDistance(a, b) <= (Math.min(a.length, b.length) >= 5 ? 2 : 1)) return true;
+    return (
+      Math.min(a.length, b.length) >= 2 &&
+      (a.endsWith(b) || b.endsWith(a) || a.startsWith(b) || b.startsWith(a))
+    );
+  };
+  const pairs: Array<{ from: string; to: string; distance: number }> = [];
   for (let i = 0; i < names.length; i += 1) {
     for (let j = i + 1; j < names.length; j += 1) {
       const a = names[i];
@@ -630,26 +640,21 @@ export function likelyDuplicateNames(
       const lastB = nameKey(partsB.slice(1).join(" "));
       const fullA = nameKey(a.name);
       const fullB = nameKey(b.name);
-      const sameLast = Boolean(lastA) && lastA === lastB;
-      const firstClose =
-        Boolean(firstA && firstB) &&
-        (editDistance(firstA, firstB) <= 1 ||
-          (Math.min(firstA.length, firstB.length) >= 2 &&
-            (firstA.endsWith(firstB) ||
-              firstB.endsWith(firstA) ||
-              firstA.startsWith(firstB) ||
-              firstB.startsWith(firstA))));
-      const lastClose =
-        Boolean(lastA && lastB) &&
-        firstA === firstB &&
-        editDistance(lastA, lastB) <= Math.max(1, Math.floor(Math.min(lastA.length, lastB.length) / 4));
-      const wholeClose =
-        Math.min(fullA.length, fullB.length) >= 8 && editDistance(fullA, fullB) <= 2;
-      if (!((sameLast && firstClose) || lastClose || wholeClose)) continue;
+      const matches =
+        (lastA && lastA === lastB && close(firstA, firstB)) ||
+        (firstA && firstA === firstB && close(lastA, lastB)) ||
+        (Math.min(fullA.length, fullB.length) >= 8 && editDistance(fullA, fullB) <= 2);
+      if (!matches) continue;
       const keepA =
         a.count > b.count || (a.count === b.count && a.name.length >= b.name.length);
-      pairs.push(keepA ? { from: b.name, to: a.name } : { from: a.name, to: b.name });
+      pairs.push({
+        from: keepA ? b.name : a.name,
+        to: keepA ? a.name : b.name,
+        distance: editDistance(fullA, fullB),
+      });
     }
   }
-  return pairs;
+  return pairs
+    .sort((x, y) => x.distance - y.distance || x.to.localeCompare(y.to))
+    .map(({ from, to }) => ({ from, to }));
 }

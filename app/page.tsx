@@ -65,7 +65,7 @@ import {
   isGroundSecurityCoordinator,
   ScheduleViews,
   SwapSheet,
-  NameMergeSection,
+  NameMergeSheet,
   TodayHero,
   backdropClose,
 } from "./home-sections";
@@ -631,6 +631,7 @@ export default function HomePage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [nameMergeOpen, setNameMergeOpen] = useState(false);
   const [shiftEditor, setShiftEditor] = useState<{
     mode: "add" | "edit";
     eventId?: string;
@@ -1969,6 +1970,7 @@ export default function HomePage() {
     setClearConfirmOpen(false);
     setSettingsOpen(false);
     setNotificationsOpen(false);
+    setNameMergeOpen(false);
     setShiftEditor(null);
     if (profileToRevoke) {
       void (async () => {
@@ -2873,19 +2875,27 @@ export default function HomePage() {
               </select>
               <ChevronDown />
             </label>
-            <NameMergeSection
-              names={workerNameCounts.map((entry) => entry.name)}
-              suggestions={mergeSuggestions}
-              merges={Object.entries(nameMerges).map(([key, to]) => ({
-                from:
-                  parsedShifts.find((shift) => nameKey(shift.worker) === key)?.worker ?? key,
-                to,
-              }))}
-              person={prefs.person}
-              onMerge={mergeNames}
-              onDismiss={dismissMergeSuggestion}
-              onUndo={undoNameMerge}
-            />
+            <div className="calendar-subscription-setting">
+              <div>
+                <span>Coworker names</span>
+                <b>
+                  {mergeSuggestions.length
+                    ? `${mergeSuggestions.length} possible duplicate${mergeSuggestions.length === 1 ? "" : "s"}`
+                    : Object.keys(nameMerges).length
+                      ? `${Object.keys(nameMerges).length} merged`
+                      : "No duplicates found"}
+                </b>
+              </div>
+              <button
+                className="button soft"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setNameMergeOpen(true);
+                }}
+              >
+                Merge names
+              </button>
+            </div>
             <div className="settings-grid">
               <SearchableSelect
                 label="Home airport"
@@ -2963,6 +2973,24 @@ export default function HomePage() {
             <button className="button primary" onClick={() => { setSettingsOpen(false); setToast("Preferences saved on this device"); }}><Check /> Save preferences</button>
           </section>
         </div>
+      )}
+
+      {nameMergeOpen && (
+        <NameMergeSheet
+          suggestions={mergeSuggestions}
+          merges={Object.entries(nameMerges).map(([key, to]) => ({
+            from: parsedShifts.find((shift) => nameKey(shift.worker) === key)?.worker ?? key,
+            to,
+          }))}
+          person={prefs.person}
+          onMerge={mergeNames}
+          onDismiss={dismissMergeSuggestion}
+          onUndo={undoNameMerge}
+          onClose={() => {
+            setNameMergeOpen(false);
+            setSettingsOpen(true);
+          }}
+        />
       )}
 
       {clearConfirmOpen && (
