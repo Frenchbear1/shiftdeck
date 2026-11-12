@@ -4,6 +4,7 @@ import {
   ArrowLeftRight,
   CalendarDays,
   CalendarRange,
+  ExternalLink,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -528,6 +529,12 @@ export function ScheduleViews({
 
 /* ---------- flights ---------- */
 
+/** FlightAware's airport page, opened on its "Scheduled to Arrive" list. */
+export const flightAwareArrivalsUrl = (airport: string) =>
+  `https://www.flightaware.com/live/airport/${encodeURIComponent(
+    airport.trim().toUpperCase() || "ABE",
+  )}/enroute`;
+
 export function FlightList({
   flights,
   shift,
@@ -535,6 +542,7 @@ export function FlightList({
   isToday,
   now,
   linkFor,
+  airport,
 }: {
   flights: Flight[];
   shift: Shift | null | undefined;
@@ -542,6 +550,7 @@ export function FlightList({
   isToday: boolean;
   now: Date;
   linkFor: (flight: Flight) => string;
+  airport: string;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [shownFor, setShownFor] = useState(date);
@@ -587,6 +596,20 @@ export function FlightList({
           </div>
         )}
       </div>
+
+      <a
+        className="flightaware-link"
+        href={flightAwareArrivalsUrl(airport)}
+        target="_self"
+        aria-label={`Open ${airport} scheduled arrivals in FlightAware`}
+      >
+        <Plane />
+        <span>
+          <b>FlightAware</b>
+          <small>{airport} · Scheduled to arrive</small>
+        </span>
+        <ExternalLink />
+      </a>
 
       {visible.length ? (
         <ul className="flight-rows">

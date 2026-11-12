@@ -2429,6 +2429,56 @@ select:focus-visible {
   background: var(--surface-3);
 }
 
+.flightaware-link {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 12px 8px 8px;
+  color: var(--text);
+  background: var(--blue-soft);
+  border: 1px solid color-mix(in srgb, var(--blue) 22%, transparent);
+  border-radius: 12px;
+  text-decoration: none;
+  transition: transform 120ms ease, background 150ms ease;
+}
+
+.flightaware-link:active {
+  transform: scale(.98);
+}
+
+.flightaware-link > svg:first-child {
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  color: white;
+  background: var(--blue);
+  border-radius: 9px;
+}
+
+.flightaware-link span {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.flightaware-link b {
+  font-size: 14px;
+}
+
+.flightaware-link small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.flightaware-link > svg:last-child {
+  width: 16px;
+  height: 16px;
+  color: var(--blue);
+}
+
 .flight-rows {
   display: grid;
   gap: 4px;

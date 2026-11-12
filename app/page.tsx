@@ -2460,6 +2460,7 @@ export default function HomePage() {
             isToday={selectedDate === todayDate}
             now={clockNow}
             linkFor={(flight) => flightAwareRouteUrl(flight, prefs.homeAirport)}
+            airport={cleanAirportCode(prefs.homeAirport)}
           />
           <CrewPanel
             shifts={dayShifts}
