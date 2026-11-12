@@ -2559,29 +2559,57 @@ export default function HomePage() {
       {notificationsOpen && (
         <div className="modal-layer" role="presentation" {...backdropClose(() => setNotificationsOpen(false))}>
           <section
-            className="export-sheet"
+            className="panel-sheet notify-sheet"
             role="dialog"
             aria-modal="true"
             aria-label="Notification settings"
-           
           >
-            <header>
+            <header className="sheet-head">
               <div>
-                <span className="eyebrow neutral">Notifications</span>
                 <h2>Shift alerts</h2>
+                <p>Reminders before each shift you work.</p>
               </div>
               <button onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><X /></button>
             </header>
-            <p className="subscription-copy">
-              {notificationPermission === "granted" && notificationProfile
-                ? "Notifications are on. Shift changes and alert times update automatically."
-                : "On iPhone, add Shiftdeck to your Home Screen and open it from the icon. Then tap Turn on notifications below."}
-            </p>
-            <div className="export-fields">
+            <div className="sheet-scroll">
+            <div
+              className={`notify-status ${
+                notificationPermission === "granted" && notificationProfile ? "on" : "off"
+              }`}
+            >
+              <span className="notify-status-icon">
+                <Bell />
+              </span>
+              <div>
+                <b>
+                  {notificationPermission === "granted" && notificationProfile
+                    ? "Notifications are on"
+                    : "Notifications are off"}
+                </b>
+                <small>
+                  {notificationPermission === "granted" && notificationProfile
+                    ? `${prefs.alerts.length} alert${prefs.alerts.length === 1 ? "" : "s"} per shift · updates automatically`
+                    : "On iPhone, open Shiftdeck from its Home Screen icon, then turn them on below."}
+                </small>
+              </div>
+              {notificationProfile && (
+                <button
+                  type="button"
+                  className="notify-test"
+                  onClick={() => void sendTestNotification()}
+                  disabled={notificationSyncState === "syncing"}
+                >
+                  Test
+                </button>
+              )}
+            </div>
+
+            <span className="notify-section-label">Shift details</span>
+            <div className="export-fields notify-card">
               <label>
                 <span>Default job title</span>
                 <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} placeholder="Work" />
-                <small>Imported shifts use this unless you edit the shift on Today.</small>
+                <small>Used for imported shifts unless you rename one.</small>
               </label>
               <label className="place-field">
                 <span>Location</span>
@@ -2756,76 +2784,100 @@ export default function HomePage() {
                   <small>Paste from Apple Maps</small>
                 </div>
               )}
-              <div className="notification-alerts">
-                <div className="notification-alerts-heading">
-                  <div>
-                    <span>Alerts</span>
-                    <small>Choose exactly when each alert arrives.</small>
-                  </div>
-                  <button
-                    type="button"
-                    className="button soft"
-                    onClick={addNotificationAlert}
-                  >
-                    <Plus /> Add alert
-                  </button>
-                </div>
-                <div className="notification-alert-list">
-                  {prefs.alerts.map((minutes, index) => {
-                    const unit = alertUnitFor(minutes);
-                    return (
-                      <div className="notification-alert-row" key={`alert-${index}`}>
-                        <input
-                          type="number"
-                          min="0"
-                          max={Math.floor(10080 / unit)}
-                          step="1"
-                          inputMode="numeric"
-                          aria-label={`Alert ${index + 1} amount`}
-                          value={alertAmountFor(minutes)}
-                          onChange={(event) =>
-                            updateNotificationAlert(
-                              index,
-                              Number(event.target.value),
-                              unit,
-                            )
-                          }
-                        />
-                        <label>
-                          <span className="sr-only">Alert {index + 1} unit</span>
-                          <select
-                            value={unit}
-                            onChange={(event) =>
-                              updateNotificationAlert(
-                                index,
-                                alertAmountFor(minutes),
-                                Number(event.target.value),
-                              )
-                            }
-                          >
-                            {ALERT_UNIT_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown />
-                        </label>
-                        <span>before</span>
+            </div>
+
+            <div className="notify-section-head">
+              <span className="notify-section-label">Alerts</span>
+              <small>{prefs.alerts.length} of 12</small>
+            </div>
+            <div className="notify-card notify-alerts">
+              {prefs.alerts.map((minutes, index) => {
+                const unit = alertUnitFor(minutes);
+                return (
+                  <div className="notify-alert" key={`alert-${index}`}>
+                    <input
+                      type="number"
+                      min="0"
+                      max={Math.floor(10080 / unit)}
+                      step="1"
+                      inputMode="numeric"
+                      aria-label={`Alert ${index + 1} amount`}
+                      value={alertAmountFor(minutes)}
+                      onChange={(event) =>
+                        updateNotificationAlert(index, Number(event.target.value), unit)
+                      }
+                    />
+                    <div className="notify-units" role="radiogroup" aria-label={`Alert ${index + 1} unit`}>
+                      {ALERT_UNIT_OPTIONS.map((option) => (
                         <button
                           type="button"
-                          aria-label={`Remove alert ${index + 1}`}
-                          disabled={prefs.alerts.length === 1}
-                          onClick={() => removeNotificationAlert(index)}
+                          role="radio"
+                          key={option.value}
+                          aria-checked={unit === option.value}
+                          className={unit === option.value ? "active" : ""}
+                          onClick={() =>
+                            updateNotificationAlert(index, alertAmountFor(minutes), option.value)
+                          }
                         >
-                          <Trash2 />
+                          {option.value === 1 ? "min" : option.value === 60 ? "hr" : "day"}
                         </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                      ))}
+                    </div>
+                    <span className="notify-before">before</span>
+                    <button
+                      type="button"
+                      className="notify-remove"
+                      aria-label={`Remove alert ${index + 1}`}
+                      disabled={prefs.alerts.length === 1}
+                      onClick={() => removeNotificationAlert(index)}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                );
+              })}
+              <div className="notify-presets">
+                {[
+                  { minutes: 15, label: "15 min" },
+                  { minutes: 30, label: "30 min" },
+                  { minutes: 60, label: "1 hr" },
+                  { minutes: 120, label: "2 hr" },
+                  { minutes: 1440, label: "1 day" },
+                ]
+                  .filter((preset) => !prefs.alerts.includes(preset.minutes))
+                  .map((preset) => (
+                    <button
+                      type="button"
+                      key={preset.minutes}
+                      disabled={prefs.alerts.length >= 12}
+                      onClick={() => savePrefs({ alerts: [...prefs.alerts, preset.minutes] })}
+                    >
+                      <Plus /> {preset.label}
+                    </button>
+                  ))}
+                <button
+                  type="button"
+                  className="custom"
+                  disabled={prefs.alerts.length >= 12}
+                  onClick={addNotificationAlert}
+                >
+                  <Plus /> Custom
+                </button>
               </div>
             </div>
+
+            {notificationProfile && (
+              <button
+                type="button"
+                className="notify-off"
+                onClick={() => void disconnectNotifications()}
+              >
+                Turn off notifications on this device
+              </button>
+            )}
+            </div>
+
+            <footer className="sheet-foot">
             <button
               className="button primary"
               onClick={() => void saveNotificationSettings()}
@@ -2840,23 +2892,7 @@ export default function HomePage() {
                   ? "Save changes"
                   : "Turn on notifications"}
             </button>
-            {notificationProfile && (
-              <div className="notification-actions">
-                <button
-                  className="button soft"
-                  onClick={() => void sendTestNotification()}
-                  disabled={notificationSyncState === "syncing"}
-                >
-                  <Bell /> Send test
-                </button>
-                <button
-                  className="button danger subtle"
-                  onClick={() => void disconnectNotifications()}
-                >
-                  Turn off
-                </button>
-              </div>
-            )}
+            </footer>
           </section>
         </div>
       )}
