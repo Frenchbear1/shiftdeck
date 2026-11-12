@@ -47,83 +47,59 @@ test("server-renders the blank Shiftdeck app shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Shiftdeck/);
-  assert.match(html, />Today</);
-  assert.match(html, />Workers</);
-  assert.match(html, />Flights</);
   assert.match(html, />Import</);
-  assert.match(html, /Nothing imported/);
+  assert.match(html, />Swap</);
+  assert.match(html, />Schedule</);
+  assert.match(html, /Flights/);
+  assert.doesNotMatch(html, /bottom-nav/);
+  assert.doesNotMatch(html, />Workers</);
   assert.match(html, /serviceWorker/);
   assert.match(html, /sw\.js/);
   assert.doesNotMatch(html, /Subscribed calendar/);
 });
 
-test("keeps Workers and Flights date navigation compact", async () => {
-  const [page, css] = await Promise.all([
+test("puts today, schedule views, flights, and crew on one screen", async () => {
+  const [page, sections, css] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/home-sections.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(
-    page,
-    /<h1>Workers<\/h1>[\s\S]{0,900}?selectedDate !== todayDate[\s\S]{0,500}?onClick=\{returnToToday\}[\s\S]{0,100}?>\s*Today/,
-  );
-  assert.match(
-    page,
-    /<h1>Flights<\/h1>[\s\S]{0,900}?selectedDate !== todayDate[\s\S]{0,500}?onClick=\{returnToToday\}[\s\S]{0,100}?>\s*Today/,
-  );
-  assert.match(css, /\.page-title-actions/);
-  assert.match(page, /const workersDateRail = useRef<HTMLDivElement>\(null\)/);
-  assert.match(page, /const flightsDateRail = useRef<HTMLDivElement>\(null\)/);
-  assert.match(page, /activeTab === "workers"\s*\? workersDateRail\.current/);
-  assert.match(page, /:\s*flightsDateRail\.current/);
-  assert.match(page, /renderDateRail\(false, true, "workers"\)/);
-  assert.match(page, /renderDateRail\(false, true, "flights"\)/);
-  assert.match(page, /useLayoutEffect\(\(\) =>/);
-  assert.match(page, /centerDateInRail\(rail, selectedDate, "auto"\)/);
-  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
-  assert.match(page, /pendingDateCenter\.current = \{ tab, date \}/);
-  assert.match(
-    page,
-    /const selectDate = \(date: string\)[\s\S]{0,180}?tab === "home" \|\| tab === "workers" \|\| tab === "flights"[\s\S]{0,120}?pendingDateCenter\.current = \{ tab, date \}/,
-  );
-  assert.match(
-    page,
-    /const openTodayTab = \(\)[\s\S]{0,100}?pendingDateCenter\.current = null/,
-  );
-  assert.doesNotMatch(page, /hasCenteredHomeOnLaunch/);
-  assert.doesNotMatch(
-    page,
-    /tab === "home" && selectedDate !== todayDate/,
-  );
-  assert.doesNotMatch(page, /<span>Showing<\/span>/);
-  assert.doesNotMatch(page, /<span>During your shift<\/span>/);
-  assert.doesNotMatch(css, /\.flight-summary/);
+  assert.doesNotMatch(page, /type Tab =/);
+  assert.doesNotMatch(page, /renderWorkers|renderFlights|renderTimeOff/);
+  assert.doesNotMatch(page, /Who overlaps your shift/);
+  assert.doesNotMatch(page, /Full roster/);
+  assert.match(page, /<TodayHero/);
+  assert.match(page, /<ScheduleViews/);
+  assert.match(page, /<FlightList/);
+  assert.match(page, /<CrewPanel/);
+  assert.match(page, /aria-label="Import schedule"/);
+  assert.match(page, /aria-label="Shift swap"/);
+  assert.match(sections, /SCHEDULE_RANGES\.map/);
+  assert.match(sections, /End times/);
+  assert.match(sections, /flightTag\(flight\)/);
+  assert.match(sections, /buildCrewTimeline\(shifts, person, myShift\)/);
+  assert.match(css, /\.range-month/);
+  assert.match(css, /\.with-ranges/);
+  assert.match(css, /\.flight-tag\.tag-ron/);
+  assert.doesNotMatch(css, /\.bottom-nav/);
+  assert.doesNotMatch(css, /\.roster-grid/);
 });
 
-test("contains the desktop timeline grid inside the shift plot", async () => {
-  const [page, css] = await Promise.all([
+test("imports with forward-only progress and a reused OCR worker", async () => {
+  const [page, reader] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/schedule-import.ts", import.meta.url), "utf8"),
   ]);
-
-  assert.match(
-    page,
-    /className="timeline-plot"[\s\S]{0,500}?className="timeline-grid"[\s\S]{0,500}?className="timeline-rows"/,
-  );
-  assert.match(css, /\.timeline-grid\s*\{[\s\S]{0,120}?inset:\s*0;/);
-  assert.doesNotMatch(css, /inset:\s*98px 26px 26px 172px/);
+  assert.match(page, /createImportProgress\(files\.length, setImportSnapshot\)/);
+  assert.doesNotMatch(page, /setImportProgress/);
+  assert.doesNotMatch(page, /createWorker/);
+  assert.match(reader, /let enginePromise/);
+  assert.match(reader, /isStrongScheduleRead/);
+  assert.match(reader, /\/\/ Keep whatever the other passes could read\./);
 });
 
-test("shows only workers whose shifts actually overlap", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-
-  assert.match(
-    page,
-    /const visible = dayShifts[\s\S]{0,220}?shift\.worker === prefs\.person \|\| shiftsOverlap\(myShift, shift\)/,
-  );
-});
-
-test("restores a saved page only during the same active shift", async () => {
+test("finds the shift that is active right now", async () => {
   const shifts = [
     {
       id: "david-evening",
@@ -169,16 +145,6 @@ test("restores a saved page only during the same active shift", async () => {
     )?.id,
     "david-overnight",
   );
-
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /ACTIVE_SHIFT_PAGE_KEY = "shiftdeck\.activeShiftPage"/);
-  assert.match(page, /let restoredTab: Tab = "home"/);
-  assert.match(
-    page,
-    /if \(!activeShift\)[\s\S]{0,120}?localStorage\.removeItem\(ACTIVE_SHIFT_PAGE_KEY\)/,
-  );
-  assert.match(page, /queueMicrotask\([\s\S]{0,140}?setTab\(restoredTab\)/);
-  assert.match(page, /saved\.shiftKey === shiftKey && isTab\(saved\.tab\)/);
 });
 
 test("caches the PWA shell and restores Today before background data", async () => {
@@ -409,13 +375,14 @@ test("uses durable, duplicate-safe PWA shift notifications", async () => {
   assert.match(parser, /isPlausibleWorkerName/);
   assert.match(parser, /NON_NAME_WORDS/);
   assert.match(page, /aria-label="Add a shift"/);
-  assert.match(page, /aria-label="Edit this shift"/);
+  assert.match(
+    await readFile(new URL("../app/home-sections.tsx", import.meta.url), "utf8"),
+    /aria-label="Edit this shift"/,
+  );
   assert.match(page, /customTitle/);
   assert.match(page, />Shift title</);
   assert.match(page, /returnToToday/);
-  assert.match(page, /centerDateInRail\(rail, selectedDate, "smooth"\)/);
   assert.match(css, /\.notification-alert-row/);
-  assert.match(css, /grid-auto-columns: calc\(\(100% - 32px\) \/ 5\)/);
 });
 
 test("restores a subtle Apple Calendar subscription with a work address", async () => {
