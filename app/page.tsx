@@ -2,36 +2,24 @@
 
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Bell,
-  CalendarDays,
   Check,
-  CheckCircle2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
   FileImage,
   FileText,
-  Home,
   MapPin,
   Moon,
-  Pencil,
-  Plane,
   Plus,
-  Search,
   Settings,
   Sun,
   Trash2,
   Upload,
-  UsersRound,
-  WandSparkles,
   X,
 } from "lucide-react";
 import {
   ChangeEvent,
-  useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -47,31 +35,41 @@ import {
   isPlausibleWorkerName,
   isSameSchedulePerson,
   isScheduleRevision,
-  mergeScheduleParses,
-  parseScheduleTsv,
   ParsedSchedule,
   resolveSchedulePersonName,
   SCHEDULE_PARSER_VERSION,
 } from "./schedule-parser";
 import {
-  activeShiftSessionKey,
-  activeWorkingShiftAt,
-} from "./schedule-time";
+  createImportProgress,
+  IMPORT_STAGES,
+  ImportSnapshot,
+  isScheduleRange,
+  ScheduleRange,
+  shiftsOverlap,
+  isFlightInShift,
+  toMinutes,
+} from "./schedule-tools";
+import {
+  readScheduleImage,
+  releaseScheduleReader,
+  warmScheduleReader,
+} from "./schedule-import";
+import {
+  CrewPanel,
+  DayStatus,
+  EmptyState,
+  FlightList,
+  isGroundSecurityCoordinator,
+  ScheduleViews,
+  SwapSheet,
+  TodayHero,
+} from "./home-sections";
 import {
   clearScheduleImages,
   deleteScheduleImage,
   loadScheduleImage,
   saveScheduleImage,
 } from "./upload-store";
-
-type Tab =
-  | "home"
-  | "workers"
-  | "flights"
-  | "timeoff"
-  | "import";
-
-type ScheduleTab = Extract<Tab, "home" | "workers" | "flights">;
 
 type CalendarEvent = {
   id: string;
@@ -146,12 +144,6 @@ type ShiftDraft = {
   title: string;
 };
 
-type TimeOffDraft = {
-  date: string;
-  start: string;
-  end: string;
-};
-
 type PlaceSuggestion = {
   id: string;
   label: string;
@@ -194,32 +186,12 @@ type AirlineData = {
   c: string;
 };
 
-type SwapCandidate = {
-  worker: string;
-  averageStart: number;
-  averageEnd: number;
-  score: number;
-  sampleCount: number;
-  sameShiftBand: boolean;
-  availability: "Off that day" | "Not scheduled";
-};
-
 const DEFAULT_SHIFT_TITLE = "Work";
 const DEFAULT_ALERT_MINUTES = 120;
 const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
-const ACTIVE_SHIFT_PAGE_KEY = "shiftdeck.activeShiftPage";
+const HOME_VIEW_KEY = "shiftdeck.homeView";
 
-type StoredActiveShiftPage = {
-  shiftKey: string;
-  tab: Tab;
-};
-
-const isTab = (value: unknown): value is Tab =>
-  value === "home" ||
-  value === "workers" ||
-  value === "flights" ||
-  value === "timeoff" ||
-  value === "import";
+type Sheet = "import" | "swap" | null;
 
 const DEFAULT_PREFS: Preferences = {
   person: "David LaBarre",
@@ -247,28 +219,6 @@ const alertUnitFor = (minutes: number) =>
       : 1;
 
 const alertAmountFor = (minutes: number) => minutes / alertUnitFor(minutes);
-
-const toMinutes = (time: string) => {
-  if (!time) return 0;
-  const [hours, minutes] = time.split(":").map(Number);
-  return hours * 60 + minutes;
-};
-
-const formatTime = (time: string) => {
-  if (!time) return "—";
-  const [hours, minutes] = time.split(":").map(Number);
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: minutes ? "2-digit" : undefined,
-  }).format(new Date(2026, 0, 1, hours, minutes));
-};
-
-const formatDate = (date: string, style: "short" | "long" = "short") =>
-  new Intl.DateTimeFormat("en-US", {
-    weekday: style === "long" ? "long" : "short",
-    month: style === "long" ? "long" : "short",
-    day: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
 
 const formatDocumentRange = (dates: string[]) => {
   if (!dates.length) return "Dates unavailable";
@@ -306,54 +256,11 @@ const formatFieldTime = (time: string) => {
   }).format(new Date(2026, 0, 1, hours, minutes));
 };
 
-const compactDay = (date: string) => {
-  const value = new Date(`${date}T12:00:00`);
-  return {
-    weekday: new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(value),
-    day: value.getDate(),
-    month: new Intl.DateTimeFormat("en-US", { month: "short" }).format(value),
-  };
-};
-
 const getWorkingShift = (shifts: Shift[], date: string, person: string) =>
   shifts.find(
     (shift) =>
       shift.date === date && shift.worker === person && shift.status === "working",
   );
-
-const normalizedInterval = (start: string, end: string, eveningBias = false) => {
-  let startMinutes = toMinutes(start);
-  let endMinutes = toMinutes(end);
-  if (eveningBias && startMinutes < 360) startMinutes += 1440;
-  if (endMinutes <= startMinutes) endMinutes += 1440;
-  return [startMinutes, endMinutes] as const;
-};
-
-const shiftsOverlap = (first: Shift, second: Shift) => {
-  const [aStart, aEnd] = normalizedInterval(first.start, first.end);
-  let [bStart, bEnd] = normalizedInterval(second.start, second.end);
-  if (aStart > 720 && bStart < 360) {
-    bStart += 1440;
-    bEnd += 1440;
-  }
-  return aStart < bEnd && bStart < aEnd;
-};
-
-const shiftBand = (minutes: number) => {
-  const normalized = ((minutes % 1440) + 1440) % 1440;
-  if (normalized < 660) return "morning";
-  if (normalized < 1080) return "afternoon";
-  return "evening";
-};
-
-const formatMinutes = (minutes: number) => {
-  const normalized = Math.round(minutes / 15) * 15 % 1440;
-  const hours = Math.floor(normalized / 60);
-  const mins = normalized % 60;
-  return formatTime(
-    `${`${hours}`.padStart(2, "0")}:${`${mins}`.padStart(2, "0")}`,
-  );
-};
 
 function parseCoordinatePair(value: string) {
   const match = value
@@ -393,94 +300,8 @@ const formatAppleCoordinates = (latitude: number, longitude: number) =>
 const cleanAirportCode = (value: string) =>
   (value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) || "ABE");
 
-const flightTimes = (flight: Flight) =>
-  [flight.arrival, flight.departure, flight.start, flight.end].filter(
-    (time): time is string => Boolean(time),
-  );
-
-const flightDisplay = (flight: Flight, homeAirport: string) => {
-  const home = cleanAirportCode(homeAirport);
-  if (flight.kind === "turnaround") {
-    return {
-      time: `${formatTime(flight.arrival ?? flight.start)} - ${formatTime(flight.departure ?? flight.end ?? flight.start)}`,
-      subtime: "arr / dep",
-      left: flight.inboundAirport ?? flight.origin,
-      leftLabel: "arrives from",
-      center: home,
-      centerLabel: "turn",
-      right: flight.outboundAirport ?? flight.destination ?? "TBD",
-      rightLabel: "departs to",
-      chip: "Turnaround",
-    };
-  }
-  if (flight.kind === "departure") {
-    return {
-      time: formatTime(flight.departure ?? flight.start),
-      subtime: "departure",
-      left: home,
-      leftLabel: "home",
-      center: "",
-      centerLabel: "",
-      right: flight.outboundAirport ?? flight.destination ?? "TBD",
-      rightLabel: "to",
-      chip: "Outbound",
-    };
-  }
-  return {
-    time: formatTime(flight.arrival ?? flight.start),
-    subtime: "arrival",
-    left: flight.inboundAirport ?? flight.origin,
-    leftLabel: "from",
-    center: "",
-    centerLabel: "",
-    right: home,
-    rightLabel: "home",
-    chip: "Inbound",
-  };
-};
-
 const calendarKeyFor = (person: string, date: string) =>
   `shift:${person.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${date}`;
-
-const personKey = (person: string) =>
-  person.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-
-const GSC_NAME_KEYS = new Set(
-  [
-    "Allison Osborne",
-    "Alyssa Dugan",
-    "Chris Williams",
-    "Christopher Williams",
-    "Connie Phillip",
-    "Devin Bauer",
-    "Dwight Gardner",
-    "Earl Peiffer",
-    "Jacob Hoffert",
-    "Jakisha Gonzalez",
-    "Jason Hudak",
-    "Joan Zandarski",
-    "Josephine Dutsch",
-    "Katrina Jackson",
-    "Kim Rawhouser",
-    "Kody Hermany",
-    "Steven Keiser",
-    "Suzete Campos",
-    "Tasha Peterson",
-    "Tyler Bastian",
-  ].map(personKey),
-);
-
-const isGroundSecurityCoordinator = (name: string) =>
-  GSC_NAME_KEYS.has(personKey(name));
-
-function PersonName({ name, label }: { name: string; label?: string }) {
-  return (
-    <span className="person-name-with-tag">
-      <span>{label ?? name}</span>
-      {isGroundSecurityCoordinator(name) && <span className="gsc-tag">GSC</span>}
-    </span>
-  );
-}
 
 const eventsFor = (shifts: Shift[], person: string) =>
   shifts
@@ -498,15 +319,6 @@ const eventsFor = (shifts: Shift[], person: string) =>
       title: DEFAULT_SHIFT_TITLE,
       customTitle: false,
     }));
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 const CALENDAR_SERVICE_ORIGIN =
   "https://shiftdeck-calendar.frenchbear1.workers.dev";
@@ -730,7 +542,10 @@ function flightAwareRouteUrl(flight: Flight, homeAirport: string) {
     matchField === "departure"
       ? flight.departure ?? flight.start
       : flight.arrival ?? flight.start;
-  const resolver = new URL(calendarServiceUrl("/api/flights/resolve"));
+  const resolver = new URL(
+    calendarServiceUrl("/api/flights/resolve"),
+    typeof window === "undefined" ? CALENDAR_SERVICE_ORIGIN : window.location.href,
+  );
   resolver.searchParams.set("origin", origin);
   resolver.searchParams.set("destination", destination);
   resolver.searchParams.set("date", flight.date);
@@ -790,7 +605,9 @@ function photonSuggestion(feature: PhotonFeature, index: number): PlaceSuggestio
 }
 
 export default function HomePage() {
-  const [tab, setTab] = useState<Tab>("home");
+  const [sheet, setSheet] = useState<Sheet>(null);
+  const [scheduleRange, setScheduleRange] = useState<ScheduleRange>("week");
+  const [showRanges, setShowRanges] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [selectedDate, setSelectedDate] = useState(() => localDateKey());
@@ -815,17 +632,17 @@ export default function HomePage() {
     end: "17:00",
     title: "Work",
   });
-  const [timeOffDraft, setTimeOffDraft] = useState<TimeOffDraft>({
-    date: "2026-07-26",
-    start: "09:00",
-    end: "17:00",
-  });
-  const [showAllFlights, setShowAllFlights] = useState(false);
   const [importState, setImportState] = useState<
-    "idle" | "reading" | "review" | "done" | "error"
+    "idle" | "reading" | "review" | "error"
   >("idle");
-  const [importProgress, setImportProgress] = useState(0);
+  const [importSnapshot, setImportSnapshot] = useState<ImportSnapshot>({
+    progress: 0,
+    stage: 0,
+    detail: "",
+  });
   const [importMessage, setImportMessage] = useState("");
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [dragActive, setDragActive] = useState(false);
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
   const [duplicateNotice, setDuplicateNotice] = useState("");
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
@@ -852,13 +669,9 @@ export default function HomePage() {
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [backgroundHydrated, setBackgroundHydrated] = useState(false);
-  const [startupTabReady, setStartupTabReady] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const fileInput = useRef<HTMLInputElement>(null);
-  const homeDateRail = useRef<HTMLDivElement>(null);
-  const workersDateRail = useRef<HTMLDivElement>(null);
-  const flightsDateRail = useRef<HTMLDivElement>(null);
-  const pendingDateCenter = useRef<{ tab: ScheduleTab; date: string } | null>(null);
+  const sheetRef = useRef<Sheet>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -979,6 +792,17 @@ export default function HomePage() {
         setEvents(fallbackEvents);
       }
       if (savedTheme === "dark") setTheme("dark");
+      try {
+        const savedView = JSON.parse(
+          localStorage.getItem(HOME_VIEW_KEY) ?? "{}",
+        ) as { range?: unknown; showRanges?: unknown };
+        if (isScheduleRange(savedView.range)) setScheduleRange(savedView.range);
+        if (typeof savedView.showRanges === "boolean") {
+          setShowRanges(savedView.showRanges);
+        }
+      } catch {
+        localStorage.removeItem(HOME_VIEW_KEY);
+      }
       setHydrated(true);
       backgroundTimer = window.setTimeout(() => {
         if (cancelled) return;
@@ -1247,15 +1071,15 @@ export default function HomePage() {
   }, [toast]);
 
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [tab]);
-
-  useEffect(() => {
     const updateClock = () => setClockNow(new Date());
     updateClock();
     const interval = window.setInterval(updateClock, 60_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    sheetRef.current = sheet;
+  }, [sheet]);
 
   const importedDateSet = useMemo(() => new Set(importedDates), [importedDates]);
 
@@ -1284,79 +1108,15 @@ export default function HomePage() {
     [baseImportedShifts, events, prefs.person],
   );
 
-  const activeShift = useMemo(
-    () => activeWorkingShiftAt(importedShifts, prefs.person, clockNow),
-    [clockNow, importedShifts, prefs.person],
-  );
-
-  useEffect(() => {
-    if (!hydrated || startupTabReady) return;
-    let cancelled = false;
-    let restoredTab: Tab = "home";
-    if (!activeShift) {
-      localStorage.removeItem(ACTIVE_SHIFT_PAGE_KEY);
-    } else {
-      const shiftKey = activeShiftSessionKey(activeShift);
-      const savedPage = localStorage.getItem(ACTIVE_SHIFT_PAGE_KEY);
-      if (savedPage) {
-        try {
-          const saved = JSON.parse(savedPage) as Partial<StoredActiveShiftPage>;
-          if (saved.shiftKey === shiftKey && isTab(saved.tab)) {
-            restoredTab = saved.tab;
-          } else {
-            localStorage.removeItem(ACTIVE_SHIFT_PAGE_KEY);
-          }
-        } catch {
-          localStorage.removeItem(ACTIVE_SHIFT_PAGE_KEY);
-        }
-      }
-    }
-    queueMicrotask(() => {
-      if (cancelled) return;
-      setTab(restoredTab);
-      setStartupTabReady(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeShift, hydrated, startupTabReady]);
-
-  useEffect(() => {
-    if (!hydrated || !startupTabReady || !activeShift) return;
-    localStorage.setItem(
-      ACTIVE_SHIFT_PAGE_KEY,
-      JSON.stringify({
-        shiftKey: activeShiftSessionKey(activeShift),
-        tab,
-      } satisfies StoredActiveShiftPage),
-    );
-  }, [activeShift, hydrated, startupTabReady, tab]);
-
   const todayDate = useMemo(
     () => workdayDateKey(clockNow, importedShifts, prefs.person),
     [clockNow, importedShifts, prefs.person],
   );
 
-  const centerDateInRail = useCallback(
-    (rail: HTMLDivElement | null, date: string, behavior: ScrollBehavior) => {
-      const dateCard = rail?.querySelector<HTMLElement>(
-        `[data-schedule-date="${date}"]`,
-      );
-
-      if (!rail || !dateCard) return;
-
-      const centeredLeft =
-        dateCard.offsetLeft - (rail.clientWidth - dateCard.offsetWidth) / 2;
-      rail.scrollTo({
-        left: Math.max(0, centeredLeft),
-        behavior,
-      });
-    },
-    [],
-  );
-
+  // Follow "today" as it rolls over (after an overnight shift ends), and
+  // land on it once saved data is restored.
   useEffect(() => {
-    if (!hydrated || tab !== "home") return;
+    if (!hydrated) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (!cancelled) setSelectedDate(todayDate);
@@ -1364,46 +1124,15 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, tab, todayDate]);
+  }, [hydrated, todayDate]);
 
-  useLayoutEffect(() => {
-    if (
-      !hydrated ||
-      !scheduleDates.includes(selectedDate)
-    ) {
-      return;
-    }
-
-    const activeTab: ScheduleTab | null =
-      tab === "home" || tab === "workers" || tab === "flights" ? tab : null;
-    if (!activeTab) return;
-
-    const rail =
-      activeTab === "home"
-        ? homeDateRail.current
-        : activeTab === "workers"
-          ? workersDateRail.current
-          : flightsDateRail.current;
-    if (!rail) return;
-
-    const centerRequest = pendingDateCenter.current;
-    const shouldAnimate =
-      centerRequest?.tab === activeTab && centerRequest.date === selectedDate;
-
-    if (!shouldAnimate) {
-      if (centerRequest?.tab !== activeTab) pendingDateCenter.current = null;
-      centerDateInRail(rail, selectedDate, "auto");
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      centerDateInRail(rail, selectedDate, "smooth");
-      if (pendingDateCenter.current === centerRequest) {
-        pendingDateCenter.current = null;
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [centerDateInRail, hydrated, scheduleDates, selectedDate, tab]);
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(
+      HOME_VIEW_KEY,
+      JSON.stringify({ range: scheduleRange, showRanges }),
+    );
+  }, [hydrated, scheduleRange, showRanges]);
 
   const importedFlights = useMemo(
     () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)),
@@ -1435,135 +1164,60 @@ export default function HomePage() {
     [importedShifts, selectedDate],
   );
 
-  const overlapping = useMemo(() => {
-    if (!myShift) return [];
-    return dayShifts
-      .filter(
-        (shift) =>
-          shift.worker !== prefs.person && shiftsOverlap(myShift, shift),
-      )
-      .sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
-  }, [dayShifts, myShift, prefs.person]);
-
-  const timeOffAnalysis = useMemo(() => {
-    const isLoaded = importedDateSet.has(timeOffDraft.date);
-    const shift = getWorkingShift(
-      importedShifts,
-      timeOffDraft.date,
-      prefs.person,
+  const myDayStatus = useMemo(() => {
+    const statuses = new Map<string, DayStatus>();
+    importedDates.forEach((date) => statuses.set(date, { status: "off" }));
+    baseImportedShifts.forEach((shift) => {
+      if (shift.status === "pto" && isSameSchedulePerson(shift.worker, prefs.person)) {
+        statuses.set(shift.date, { status: "pto" });
+      }
+    });
+    events.forEach((event) =>
+      statuses.set(event.date, {
+        status: "working",
+        start: event.start,
+        end: event.end,
+      }),
     );
-    const requestedWindow: Shift = {
-      id: "requested-time-off",
-      date: timeOffDraft.date,
-      worker: prefs.person,
-      start: timeOffDraft.start,
-      end: timeOffDraft.end,
-      status: "working",
-    };
-    const needsCoverage = Boolean(
-      isLoaded &&
-        shift &&
-        timeOffDraft.start &&
-        timeOffDraft.end &&
-        shiftsOverlap(shift, requestedWindow),
-    );
+    return statuses;
+  }, [baseImportedShifts, events, importedDates, prefs.person]);
 
-    if (!shift || !needsCoverage) {
-      return {
-        isLoaded,
-        shift,
-        needsCoverage,
-        recommended: [] as SwapCandidate[],
-        others: [] as SwapCandidate[],
-      };
-    }
+  const swapShifts = useMemo(
+    () => [
+      ...importedShifts,
+      ...baseImportedShifts
+        .filter(
+          (shift) =>
+            shift.status === "pto" &&
+            isSameSchedulePerson(shift.worker, prefs.person),
+        )
+        .map((shift) => ({ ...shift, worker: prefs.person })),
+    ],
+    [baseImportedShifts, importedShifts, prefs.person],
+  );
 
-    const [targetStart, targetEnd] = normalizedInterval(
-      shift.start,
-      shift.end,
-    );
-    const targetDuration = targetEnd - targetStart;
-    const candidates = availableWorkers
-      .filter((worker) => worker !== prefs.person)
-      .flatMap<SwapCandidate>((worker) => {
-        const targetDay = importedShifts.filter(
-          (candidateShift) =>
-            candidateShift.worker === worker &&
-            candidateShift.date === timeOffDraft.date,
-        );
-        if (
-          targetDay.some(
-            (candidateShift) =>
-              candidateShift.status === "working" ||
-              candidateShift.status === "pto",
+  const crewCount = useMemo(
+    () =>
+      new Set(
+        dayShifts
+          .filter(
+            (shift) =>
+              shift.worker !== prefs.person &&
+              (!myShift || shiftsOverlap(myShift, shift)),
           )
-        ) {
-          return [];
-        }
+          .map((shift) => shift.worker),
+      ).size,
+    [dayShifts, myShift, prefs.person],
+  );
 
-        const history = importedShifts.filter(
-          (candidateShift) =>
-            candidateShift.worker === worker &&
-            candidateShift.date !== timeOffDraft.date &&
-            candidateShift.status === "working",
-        );
-        if (!history.length) return [];
-
-        const intervals = history.map((candidateShift) =>
-          normalizedInterval(candidateShift.start, candidateShift.end),
-        );
-        const averageStart =
-          intervals.reduce((total, interval) => total + interval[0], 0) /
-          intervals.length;
-        const averageEnd =
-          intervals.reduce((total, interval) => total + interval[1], 0) /
-          intervals.length;
-        const averageDuration = averageEnd - averageStart;
-        const distance =
-          Math.abs(averageStart - targetStart) +
-          Math.abs(averageEnd - targetEnd) +
-          Math.abs(averageDuration - targetDuration) * 0.5;
-        const score = Math.max(0, Math.round(100 - distance / 18));
-        return [
-          {
-            worker,
-            averageStart,
-            averageEnd,
-            score,
-            sampleCount: history.length,
-            sameShiftBand:
-              shiftBand(averageStart) === shiftBand(targetStart),
-            availability: targetDay.length
-              ? "Off that day"
-              : "Not scheduled",
-          },
-        ];
-      })
-      .sort((first, second) => second.score - first.score);
-
-    const recommended = candidates
-      .filter((candidate) => candidate.sameShiftBand && candidate.score >= 60)
-      .slice(0, 3);
-    const recommendedNames = new Set(
-      recommended.map((candidate) => candidate.worker),
-    );
-
-    return {
-      isLoaded,
-      shift,
-      needsCoverage,
-      recommended,
-      others: candidates.filter(
-        (candidate) => !recommendedNames.has(candidate.worker),
-      ),
-    };
-  }, [
-    availableWorkers,
-    importedDateSet,
-    importedShifts,
-    prefs.person,
-    timeOffDraft,
-  ]);
+  const nextShift = useMemo(
+    () =>
+      [...events]
+        .filter((event) => event.date > selectedDate)
+        .sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`))[0] ??
+      null,
+    [events, selectedDate],
+  );
 
   const dayFlights = useMemo(
     () =>
@@ -1573,18 +1227,10 @@ export default function HomePage() {
     [importedFlights, selectedDate],
   );
 
-  const flightsDuringShift = useMemo(() => {
-    if (!myShift) return [];
-    const [shiftStart, shiftEnd] = normalizedInterval(
-      myShift.start,
-      myShift.end,
-    );
-    return dayFlights.filter((flight) => {
-      let time = toMinutes(flight.start);
-      if (shiftStart > 720 && time < 360) time += 1440;
-      return time >= shiftStart && time <= shiftEnd;
-    });
-  }, [dayFlights, myShift]);
+  const flightsDuringShift = useMemo(
+    () => dayFlights.filter((flight) => isFlightInShift(flight, myShift)),
+    [dayFlights, myShift],
+  );
 
   const notificationSyncPayload = useMemo<NotificationSyncPayload>(
     () => ({
@@ -1714,49 +1360,24 @@ export default function HomePage() {
   ]);
 
   const selectDate = (date: string) => {
-    if (tab === "home" || tab === "workers" || tab === "flights") {
-      pendingDateCenter.current = { tab, date };
-    }
     setSelectedDate(date);
-    setShowAllFlights(false);
-  };
-
-  const openTodayTab = () => {
-    pendingDateCenter.current = null;
-    setSelectedDate(todayDate);
-    setShowAllFlights(false);
-    setTab("home");
   };
 
   const returnToToday = () => {
     selectDate(todayDate);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const updateTimeOffDate = (date: string) => {
-    const shift = getWorkingShift(importedShifts, date, prefs.person);
-    setTimeOffDraft({
-      date,
-      start: shift?.start ?? "09:00",
-      end: shift?.end ?? "17:00",
-    });
+  const openSheet = (next: Exclude<Sheet, null>) => {
+    if (next === "import") void warmScheduleReader().catch(() => undefined);
+    setSheet(next);
   };
 
-  const openTimeOffTab = () => {
-    const date = importedDateSet.has(selectedDate)
-      ? selectedDate
-      : scheduleDates[0] ?? selectedDate;
-    updateTimeOffDate(date);
-    setTab("timeoff");
-  };
-
-  const jumpDate = (amount: number) => {
-    if (!scheduleDates.length) return;
-    const current = Math.max(0, scheduleDates.indexOf(selectedDate));
-    const next = Math.min(
-      scheduleDates.length - 1,
-      Math.max(0, current + amount),
-    );
-    selectDate(scheduleDates[next]);
+  const closeSheet = () => {
+    if (sheet === "import" && importState !== "reading") {
+      void releaseScheduleReader();
+    }
+    setSheet(null);
   };
 
   const savePrefs = (next: Partial<Preferences>) => {
@@ -1764,7 +1385,6 @@ export default function HomePage() {
     setPrefs(updated);
     if (next.person) {
       setEvents(eventsFor(importedShifts, next.person));
-      setShowAllFlights(false);
     }
   };
 
@@ -1848,49 +1468,6 @@ export default function HomePage() {
       .join("");
   };
 
-  const enhanceScheduleImage = async (file: File) => {
-    if (!("createImageBitmap" in window)) return file;
-    try {
-      const bitmap = await createImageBitmap(file);
-      const scale = Math.max(1, Math.min(2.2, 2200 / bitmap.width));
-      if (scale < 1.15) {
-        bitmap.close();
-        return file;
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(bitmap.width * scale);
-      canvas.height = Math.round(bitmap.height * scale);
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) {
-        bitmap.close();
-        return file;
-      }
-      context.imageSmoothingEnabled = true;
-      context.imageSmoothingQuality = "high";
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      bitmap.close();
-
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-      for (let offset = 0; offset < pixels.data.length; offset += 4) {
-        const gray = Math.round(
-          pixels.data[offset] * 0.299 +
-            pixels.data[offset + 1] * 0.587 +
-            pixels.data[offset + 2] * 0.114,
-        );
-        const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.3 + 128));
-        pixels.data[offset] = contrasted;
-        pixels.data[offset + 1] = contrasted;
-        pixels.data[offset + 2] = contrasted;
-      }
-      context.putImageData(pixels, 0, 0);
-      return await new Promise<Blob>((resolve) =>
-        canvas.toBlob((blob) => resolve(blob ?? file), "image/png"),
-      );
-    } catch {
-      return file;
-    }
-  };
-
   const loadParsedSchedules = (schedules: ParsedSchedule[]) => {
     const detectedDates = Array.from(
       new Set(schedules.flatMap((schedule) => schedule.dates)),
@@ -1945,7 +1522,12 @@ export default function HomePage() {
         );
       });
     }
-    if (detectedDates.length) selectDate(detectedDates[0]);
+    if (detectedDates.length) {
+      const upcoming = detectedDates.find((date) => date >= todayDate);
+      selectDate(
+        detectedDateSet.has(todayDate) ? todayDate : upcoming ?? detectedDates[0],
+      );
+    }
     setParsedShifts(nextParsedShifts);
     setParsedFlights(nextParsedFlights);
     setImportedDates(nextDates);
@@ -1954,95 +1536,55 @@ export default function HomePage() {
   };
 
   const processFiles = async (files: File[]) => {
-    if (!files.length) return;
+    if (!files.length || importState === "reading") return;
     setImportState("reading");
-    setImportProgress(4);
+    setImportMessage("");
+    setImportWarnings([]);
     setDuplicateNotice("");
     setLoadedFiles(files.map((file) => file.name));
+    const progress = createImportProgress(files.length, setImportSnapshot);
+    setImportSnapshot(progress.snapshot());
 
     const parsedSchedules: ParsedSchedule[] = [];
     const skippedFiles: string[] = [];
     let nextDocuments = [...scheduleDocuments];
     let updatedDocuments = 0;
+    const knownNames = [
+      prefs.person,
+      ...parsedShifts.map((shift) => shift.worker),
+      ...scheduleDocuments.flatMap((document) =>
+        document.shifts.map((shift) => shift.worker),
+      ),
+    ];
 
     try {
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        setImportMessage(`Checking ${file.name}`);
+        progress.detail(
+          files.length > 1 ? `${file.name} · ${index + 1} of ${files.length}` : file.name,
+        );
 
         try {
-          const hash = await hashFile(file);
-          let parsed: ParsedSchedule | null = null;
           const isPdf =
             file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-
-          if (isPdf) {
-            setImportMessage(`Reading charter flights in ${file.name}`);
-            const fileBase = index / files.length;
-            setImportProgress(Math.round((fileBase + 0.75 / files.length) * 88));
-            parsed = await parseCharterPdf(file);
-          } else {
-            setImportMessage(`Reading the schedule in ${file.name}`);
-            const { createWorker, PSM } = await import("tesseract.js");
-            const worker = await createWorker("eng", 1, {
-              logger: (status) => {
-                if (status.status === "recognizing text") {
-                  const fileBase = index / files.length;
-                  const fileShare = status.progress / files.length;
-                  setImportProgress(Math.round((fileBase + fileShare) * 88));
-                }
-              },
-            });
-            try {
-              const enhanced = await enhanceScheduleImage(file);
-              const attempts = [
-                { image: file as Blob, mode: PSM.SPARSE_TEXT },
-                { image: enhanced, mode: PSM.SPARSE_TEXT },
-                { image: enhanced, mode: PSM.AUTO },
-                { image: enhanced, mode: PSM.SINGLE_BLOCK },
-              ];
-              const readableAttempts: ParsedSchedule[] = [];
-
-              for (let attempt = 0; attempt < attempts.length; attempt += 1) {
-                if (attempt > 0) {
-                  setImportMessage(`Looking for more readable details in ${file.name}`);
-                }
-                try {
-                  await worker.setParameters({
-                    tessedit_pageseg_mode: attempts[attempt].mode,
-                    preserve_interword_spaces: "1",
-                  });
-                  const result = await worker.recognize(
-                    attempts[attempt].image,
-                    { rotateAuto: true },
-                    { text: true, tsv: true },
-                  );
-                  const attemptResult = result.data.tsv
-                    ? parseScheduleTsv(result.data.tsv, result.data.confidence)
-                    : null;
-                  if (attemptResult) readableAttempts.push(attemptResult);
-                } catch {
-                  // Keep results from the other OCR passes.
-                }
-              }
-              parsed = mergeScheduleParses(readableAttempts);
-            } finally {
-              await worker.terminate().catch(() => undefined);
-            }
-          }
+          const [hash, read] = await Promise.all([
+            hashFile(file),
+            isPdf
+              ? (progress.stage(1), parseCharterPdf(file))
+              : readScheduleImage(file, {
+                  onFraction: (fraction) => progress.file(index, fraction),
+                  onReading: () => progress.stage(1),
+                  onDoubleCheck: () => progress.stage(2),
+                }),
+          ]);
+          progress.file(index, 1);
+          let parsed: ParsedSchedule | null = read;
 
           if (!parsed) {
             skippedFiles.push(file.name);
             continue;
           }
 
-          const knownNames = [
-            prefs.person,
-            ...parsedShifts.map((shift) => shift.worker),
-            ...scheduleDocuments.flatMap((document) =>
-              document.shifts.map((shift) => shift.worker),
-            ),
-          ];
           parsed = {
             ...parsed,
             shifts: canonicalizeScheduleShifts(
@@ -2058,6 +1600,7 @@ export default function HomePage() {
               }),
             ),
           };
+          knownNames.push(...parsed.shifts.map((shift) => shift.worker));
           parsedSchedules.push(parsed);
 
           const replacementIndex = nextDocuments.findIndex((document) =>
@@ -2100,13 +1643,13 @@ export default function HomePage() {
         }
       }
 
+      progress.stage(3);
       if (!parsedSchedules.length) {
+        progress.finish();
         setImportMessage(
-          "I couldn’t find any readable names, work hours, or flights. Unrecognized details were skipped; try a clearer copy if you want to recover more.",
+          "No names, work hours, or flights could be read. Try a sharper, straight-on photo of the schedule.",
         );
-        setImportProgress(100);
         setImportState("error");
-        setToast("No readable schedule details found");
         return;
       }
 
@@ -2121,38 +1664,41 @@ export default function HomePage() {
       const parsedFlightCount = parsedSchedules.flatMap(
         (schedule) => schedule.flights,
       ).length;
-      const charterFlightCount = parsedSchedules
-        .flatMap((schedule) => schedule.flights)
-        .filter((flight) => flight.source === "charter").length;
-      const warnings = Array.from(
-        new Set(parsedSchedules.flatMap((schedule) => schedule.warnings)),
-      );
       localStorage.setItem(
         "shiftdeck.importHashes",
         JSON.stringify(nextDocuments.map((document) => document.hash)),
       );
-      setImportProgress(100);
+      progress.finish();
       setImportMessage(
-        `${updatedDocuments ? "Updated schedule replaced. " : ""}${
-          parsedShiftCount
-            ? `${count} of your shifts found, plus ${Math.max(0, parsedShiftCount - count)} coworker shifts and ${parsedFlightCount} flights.`
-            : `${charterFlightCount || parsedFlightCount} charter flights found.`
-        }${warnings.length ? ` ${warnings.join(" ")}` : ""}${
-          skippedFiles.length
-            ? ` Skipped ${skippedFiles.length} unreadable ${
-                skippedFiles.length === 1 ? "file" : "files"
-              } and kept everything else.`
-            : ""
-        }`,
+        parsedShiftCount
+          ? `${count} of your shifts · ${Math.max(0, parsedShiftCount - count)} coworker shifts · ${parsedFlightCount} flights`
+          : `${parsedFlightCount} charter flights`,
+      );
+      setImportWarnings(
+        [
+          ...(updatedDocuments
+            ? [`Replaced ${updatedDocuments === 1 ? "an older copy" : `${updatedDocuments} older copies`} of the same week.`]
+            : []),
+          ...Array.from(
+            new Set(parsedSchedules.flatMap((schedule) => schedule.warnings)),
+          ).filter((warning) => !/several scans/i.test(warning)),
+          ...(skippedFiles.length
+            ? [
+                `Couldn’t read ${skippedFiles.join(", ")} — everything else was kept.`,
+              ]
+            : []),
+        ],
       );
       setImportState("review");
       setToast("Schedule imported");
     } catch {
+      progress.finish();
       setImportState("error");
-      setImportProgress(100);
       setImportMessage(
-        "The readable schedule details could not be saved. Please try the import again.",
+        "The readable schedule details couldn’t be saved. Please try again.",
       );
+    } finally {
+      if (sheetRef.current !== "import") void releaseScheduleReader();
     }
   };
 
@@ -2266,12 +1812,6 @@ export default function HomePage() {
       Array.from(new Set([...current, shiftDraft.date])).sort(),
     );
     setSelectedDate(shiftDraft.date);
-    setImportState("review");
-    setImportMessage(
-      editing || existingOnDate
-        ? "Your shift was updated."
-        : "Your manual shift was added.",
-    );
     setShiftEditor(null);
     setToast(editing || existingOnDate ? "Shift updated" : "Shift added");
   };
@@ -2284,8 +1824,6 @@ export default function HomePage() {
     setEvents((current) =>
       current.filter((event) => event.id !== editing.id),
     );
-    setImportState("review");
-    setImportMessage("Your shift was removed.");
     setShiftEditor(null);
     setToast("Shift deleted");
   };
@@ -2321,8 +1859,9 @@ export default function HomePage() {
     void clearScheduleImages().catch(() => undefined);
     setEvents([]);
     setImportState("idle");
-    setImportProgress(0);
+    setImportSnapshot({ progress: 0, stage: 0, detail: "" });
     setImportMessage("");
+    setImportWarnings([]);
     setLoadedFiles([]);
     setDuplicateNotice("");
     setNotificationProfile(null);
@@ -2435,7 +1974,6 @@ export default function HomePage() {
         JSON.stringify(syncedProfile),
       );
       setNotificationSyncState("synced");
-      setImportState("done");
       setToast("Notifications are on — sending a test now");
       void requestTestNotification(syncedProfile).catch(() =>
         setToast("Notifications are on. Use Send test to check this device."),
@@ -2572,801 +2110,38 @@ export default function HomePage() {
     }
   };
 
-  const isFlightDuringShift = (flight: Flight) => {
-    if (!myShift) return false;
-    const [start, end] = normalizedInterval(myShift.start, myShift.end);
-    return flightTimes(flight).some((flightTime) => {
-      let time = toMinutes(flightTime);
-      if (start > 720 && time < 360) time += 1440;
-      return time >= start && time <= end;
-    });
-  };
-
-  const timeline = useMemo(() => {
-    if (!myShift) return null;
-    const [shiftStart, shiftEnd] = normalizedInterval(
-      myShift.start,
-      myShift.end,
-    );
-    const axisStart = shiftStart - 120;
-    const axisEnd = shiftEnd + 120;
-    const duration = axisEnd - axisStart;
-    const visible = dayShifts
-      .filter(
-        (shift) =>
-          shift.worker === prefs.person || shiftsOverlap(myShift, shift),
-      )
-      .map((shift) => {
-        let [start, end] = normalizedInterval(shift.start, shift.end);
-        if (axisStart > 720 && start < 360) {
-          start += 1440;
-          end += 1440;
-        }
-        if (end < axisStart || start > axisEnd) return null;
-        return {
-          ...shift,
-          left: ((Math.max(start, axisStart) - axisStart) / duration) * 100,
-          width:
-            ((Math.min(end, axisEnd) - Math.max(start, axisStart)) / duration) *
-            100,
-          relation:
-            shift.worker === prefs.person
-              ? "mine"
-              : start === shiftStart && end === shiftEnd
-                ? "same"
-                : start === shiftStart
-                  ? "start"
-                  : end === shiftEnd
-                    ? "end"
-                    : "overlap",
-        };
-      })
-      .filter(Boolean) as Array<
-      Shift & {
-        left: number;
-        width: number;
-        relation: "mine" | "same" | "start" | "end" | "overlap";
-      }
-    >;
-
-    const groups = Object.values(
-      visible.reduce<
-        Record<
-          string,
-          {
-            key: string;
-            shifts: typeof visible;
-            left: number;
-            width: number;
-            relation: (typeof visible)[number]["relation"];
-          }
-        >
-      >((accumulator, shift) => {
-        const key = `${shift.start}-${shift.end}-${shift.relation}`;
-        if (!accumulator[key]) {
-          accumulator[key] = {
-            key,
-            shifts: [],
-            left: shift.left,
-            width: shift.width,
-            relation: shift.relation,
-          };
-        }
-        accumulator[key].shifts.push(shift);
-        return accumulator;
-      }, {}),
-    ).sort(
-      (a, b) =>
-        a.shifts[0].worker === prefs.person
-          ? -1
-          : b.shifts[0].worker === prefs.person
-            ? 1
-            : a.left - b.left,
-    );
-
-    const labels = Array.from({ length: Math.floor(duration / 120) + 1 }).map(
-      (_, index) => {
-        const minutes = axisStart + index * 120;
-        const normalized = ((minutes % 1440) + 1440) % 1440;
-        return {
-          left: (index * 120 * 100) / duration,
-          label: formatTime(
-            `${`${Math.floor(normalized / 60)}`.padStart(2, "0")}:${`${normalized % 60}`.padStart(2, "0")}`,
-          ),
-        };
-      },
-    );
-    return { groups, labels };
-  }, [dayShifts, myShift, prefs.person]);
-
-  const renderDateRail = (
-    compact = false,
-    mobileTape = false,
-    rail: "home" | "workers" | "flights" = "home",
-  ) => (
-    <div
-      className={`date-rail ${compact ? "compact" : ""} ${mobileTape ? "mobile-tape" : ""}`}
-      ref={
-        rail === "home"
-          ? homeDateRail
-          : rail === "workers"
-            ? workersDateRail
-            : flightsDateRail
-      }
+  const renderImportSheet = () => (
+    <div className="modal-layer" role="presentation" onMouseDown={closeSheet}>
+    <section
+      className="panel-sheet import-sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Import schedule"
+      onMouseDown={(event) => event.stopPropagation()}
     >
-      {scheduleDates.map((date) => {
-        const day = compactDay(date);
-        const userShift = getWorkingShift(importedShifts, date, prefs.person);
-        return (
-          <button
-            className={`date-pill ${selectedDate === date ? "active" : ""}`}
-            key={date}
-            onClick={() => selectDate(date)}
-            aria-label={`Show ${formatDate(date, "long")}`}
-            data-schedule-date={date}
-          >
-            <span>{day.weekday}</span>
-            <strong>{day.day}</strong>
-            {!compact && <small>{userShift ? formatTime(userShift.start) : "Off"}</small>}
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  const renderHome = () => {
-    const isToday = selectedDate === todayDate;
-    const isLoadedDate = importedDateSet.has(selectedDate);
-    const shiftTitle = myEvent
-      ? myEvent.customTitle
-        ? myEvent.title.trim() || DEFAULT_SHIFT_TITLE
-        : DEFAULT_SHIFT_TITLE
-      : DEFAULT_SHIFT_TITLE;
-    const heroTitle = myEvent
-      ? `${formatTime(myEvent.start)} – ${formatTime(myEvent.end)}`
-      : isLoadedDate
-        ? isToday
-          ? "You’re off today"
-          : "You’re off"
-        : isToday
-          ? "No schedule for today"
-          : "No schedule loaded";
-
-    return (
-    <div className="page-stack">
-      <section className="hero-card">
-        <div className="hero-glow" />
-        <div className="hero-topline">
-          <div className="hero-shift-label">
-            {myEvent ? shiftTitle : formatDate(selectedDate, "long")}
-          </div>
-        </div>
-        {myEvent && (
-          <button className="hero-edit" onClick={openEditShift} aria-label="Edit this shift">
-            <Pencil />
-          </button>
-        )}
-        <h1
-          className={myEvent ? "hero-time-range" : undefined}
-        >
-          {heroTitle}
-        </h1>
-        <p>
-          {myEvent
-            ? formatDate(selectedDate, "long")
-            : isLoadedDate
-              ? "No shift scheduled"
-              : "Import a schedule to get started"}
-        </p>
-        <div className="hero-facts">
-          <div>
-            <b>{overlapping.length}</b>
-            <span>working with you</span>
-          </div>
-          <div>
-            <b>{flightsDuringShift.length}</b>
-            <span>flights in your shift</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="panel week-panel">
-        <div className="section-heading">
-          <div>
-            <h2>Your schedule</h2>
-          </div>
-          <div className="schedule-heading-actions">
-            {selectedDate !== todayDate && scheduleDates.includes(todayDate) && (
-              <button
-                type="button"
-                className="today-text-button"
-                onClick={returnToToday}
-              >
-                Today
-              </button>
-            )}
-            <span className="count-badge">
-              {scheduleDates.length} day{scheduleDates.length === 1 ? "" : "s"}
-            </span>
-          </div>
-        </div>
-        {hasSchedule ? (
-          <>
-            {renderDateRail(false, true, "home")}
-          </>
-        ) : (
-          <EmptyState
-            icon={<Upload />}
-            title="Nothing imported"
-            copy="Upload a schedule photo to populate the day cards."
-          />
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <h2>{myShift ? "Who overlaps your shift" : "No shift selected"}</h2>
-          </div>
-        </div>
-        {overlapping.length ? (
-          <div className="people-list">
-            {overlapping.slice(0, 5).map((shift, index) => (
-              <div className="person-row" key={shift.id}>
-                <span className={`person-avatar tone-${index % 4}`}>
-                  {initials(shift.worker)}
-                </span>
-                <div>
-                  <b><PersonName name={shift.worker} /></b>
-                  <small>
-                    {formatTime(shift.start)} – {formatTime(shift.end)}
-                  </small>
-                </div>
-                <span className="overlap-chip">
-                  {shift.start === myShift?.start ? "Starts with you" : "Overlaps"}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            icon={<Clock3 />}
-            title="A quiet one"
-            copy="Choose a day you work to see who overlaps."
-          />
-        )}
-      </section>
-    </div>
-    );
-  };
-
-  const renderWorkers = () => (
-    <div className="page-stack">
-      <header className="page-title">
+      <header className="sheet-head">
         <div>
-          <h1>Workers</h1>
+          <h2>Import</h2>
+          <p>Schedule photos or charter PDFs. Anything readable is kept.</p>
         </div>
-        <div className="page-title-actions">
-          {selectedDate !== todayDate && (
-            <button
-              type="button"
-              className="today-text-button"
-              onClick={returnToToday}
-            >
-              Today
-            </button>
-          )}
-          <div className="date-stepper desktop-date-stepper">
-            <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
-            <span>{formatDate(selectedDate)}</span>
-            <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
-          </div>
-        </div>
+        <button type="button" onClick={closeSheet} aria-label="Close import">
+          <X />
+        </button>
       </header>
-      {renderDateRail(false, true, "workers")}
-      {myShift && timeline ? (
-        <section className="panel timeline-panel">
-          <div className="desktop-timeline">
-            <div className="timeline-key">
-              <span><i className="key-mine" /> You</span>
-              <span><i className="key-same" /> Same hours</span>
-              <span><i className="key-overlap" /> Overlap</span>
-            </div>
-            <div className="timeline-axis">
-              {timeline.labels.map((label) => (
-                <span style={{ left: `${label.left}%` }} key={`${label.left}-${label.label}`}>
-                  {label.label}
-                </span>
-              ))}
-            </div>
-            <div className="timeline-plot">
-              <div className="timeline-grid">
-                {timeline.labels.map((label) => (
-                  <i style={{ left: `${label.left}%` }} key={label.left} />
-                ))}
-              </div>
-              <div className="timeline-rows">
-                {timeline.groups.map((group) => (
-                  <div className="timeline-row" key={group.key}>
-                    <div className="timeline-names">
-                      {group.shifts.map((shift) => (
-                        <span key={shift.id}>
-                          <PersonName
-                            name={shift.worker}
-                            label={shift.worker === prefs.person ? "You" : shift.worker}
-                          />
-                        </span>
-                      ))}
-                    </div>
-                    <div
-                      className={`shift-bar relation-${group.relation}`}
-                      style={{ left: `${group.left}%`, width: `${Math.max(group.width, 3)}%` }}
-                    >
-                      <span>
-                        {formatTime(group.shifts[0].start)}–{formatTime(group.shifts[0].end)}
-                      </span>
-                      {group.shifts.length > 1 && <b>{group.shifts.length} together</b>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="mobile-crew-list">
-            {timeline.groups.map((group) => (
-              <article className={`mobile-shift-card relation-${group.relation}`} key={group.key}>
-                <div className="mobile-shift-top">
-                  <span className="mobile-group-avatar">
-                    {group.shifts.length > 1 ? group.shifts.length : initials(group.shifts[0].worker)}
-                  </span>
-                  <div>
-                    <b className="mobile-worker-names">
-                      {group.shifts.map((shift, index) => (
-                        <span key={shift.id}>
-                          {index > 0 && ", "}
-                          <PersonName
-                            name={shift.worker}
-                            label={
-                              shift.worker === prefs.person
-                                ? "You"
-                                : shift.worker.split(" ")[0]
-                            }
-                          />
-                        </span>
-                      ))}
-                    </b>
-                    <small>
-                      {group.relation === "mine"
-                        ? "Your shift"
-                        : group.relation === "same"
-                          ? "Same hours as you"
-                          : group.relation === "start"
-                            ? "Starts with you"
-                            : group.relation === "end"
-                              ? "Leaves with you"
-                              : "Overlaps your shift"}
-                    </small>
-                  </div>
-                  <strong>
-                    {formatTime(group.shifts[0].start)}
-                    <i />
-                    {formatTime(group.shifts[0].end)}
-                  </strong>
-                </div>
-                <div className="mobile-shift-track">
-                  <i
-                    style={{
-                      marginLeft: `${group.left}%`,
-                      width: `${Math.max(group.width, 4)}%`,
-                    }}
-                  />
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : (
-        <section className="panel">
-          <EmptyState
-            icon={<Sun />}
-            title="You’re off this day"
-            copy="The full team roster is still listed below."
-          />
-        </section>
-      )}
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow neutral">Full roster</span>
-            <h2>{formatDate(selectedDate, "long")}</h2>
-          </div>
-          <span className="count-badge">{dayShifts.length} working</span>
-        </div>
-        <div className="roster-grid">
-          {importedShifts
-            .filter((shift) => shift.date === selectedDate)
-            .sort((a, b) => {
-              if (a.worker === prefs.person) return -1;
-              if (b.worker === prefs.person) return 1;
-              if (a.status !== b.status) return a.status === "working" ? -1 : 1;
-              return toMinutes(a.start) - toMinutes(b.start);
-            })
-            .map((shift, index) => (
-              <div className={`roster-card ${shift.worker === prefs.person ? "is-me" : ""}`} key={shift.id}>
-                <span className={`person-avatar tone-${index % 4}`}>{initials(shift.worker)}</span>
-                <div>
-                  <b>
-                    <PersonName
-                      name={shift.worker}
-                      label={
-                        shift.worker === prefs.person
-                          ? `${shift.worker} · You`
-                          : shift.worker
-                      }
-                    />
-                  </b>
-                  <small>
-                    {shift.status === "working"
-                      ? `${formatTime(shift.start)} – ${formatTime(shift.end)}`
-                      : shift.status === "pto"
-                        ? "PTO"
-                        : "Off"}
-                  </small>
-                </div>
-                {shift.note && <span className="note-chip">{shift.note}</span>}
-              </div>
-            ))}
-        </div>
-      </section>
-    </div>
-  );
-
-  const renderFlights = () => {
-    const visibleFlights = showAllFlights || !myShift ? dayFlights : flightsDuringShift;
-    const hiddenFlightCount = myShift
-      ? Math.max(0, dayFlights.length - flightsDuringShift.length)
-      : 0;
-
-    return (
-    <div className="page-stack">
-        <header className="page-title">
-          <div>
-            <h1>Flights</h1>
-          </div>
-          <div className="page-title-actions">
-            {selectedDate !== todayDate && (
-              <button
-                type="button"
-                className="today-text-button"
-                onClick={returnToToday}
-              >
-                Today
-              </button>
-            )}
-            <div className="date-stepper desktop-date-stepper">
-              <button onClick={() => jumpDate(-1)} aria-label="Previous day"><ChevronLeft /></button>
-              <span>{formatDate(selectedDate)}</span>
-              <button onClick={() => jumpDate(1)} aria-label="Next day"><ChevronRight /></button>
-            </div>
-          </div>
-        </header>
-        {renderDateRail(false, true, "flights")}
-      <section className="panel flight-panel">
-        <div className="section-heading flight-panel-heading">
-          <div>
-            <h2>{formatDate(selectedDate, "long")}</h2>
-          </div>
-          {hiddenFlightCount > 0 && (
-            <div className="flight-heading-actions">
-              <button className="button soft compact-toggle" onClick={() => setShowAllFlights((current) => !current)}>
-                {showAllFlights ? "Show shift only" : `Show all ${dayFlights.length}`}
-              </button>
-            </div>
-          )}
-        </div>
-        {(["Morning", "Afternoon", "Evening"] as const).map((period) => {
-          const flights = visibleFlights.filter((flight) => flight.period === period);
-          if (!flights.length) return null;
-          return (
-            <div className="flight-group" key={period}>
-              <div className="flight-group-title">
-                <span>{period}</span>
-                <i />
-                <small>{flights.length} flight{flights.length === 1 ? "" : "s"}</small>
-              </div>
-              <div className="flight-list">
-                {flights.map((flight) => {
-                  const during = isFlightDuringShift(flight);
-                  const display = flightDisplay(flight, prefs.homeAirport);
-                  return (
-                    <a
-                      className={`flight-card ${during ? "during" : "outside-shift"}`}
-                      href={flightAwareRouteUrl(flight, prefs.homeAirport)}
-                      target="_self"
-                      aria-label="Open this exact flight in FlightAware"
-                      key={flight.id}
-                    >
-                      <div className="flight-time">
-                        <strong>{display.time}</strong>
-                        {flight.trackingId && (
-                          <span>
-                            {[flight.operator, flight.trackingId]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        )}
-                      </div>
-                      <div className={`route ${display.center ? "turnaround-route" : ""}`}>
-                        <span><b>{display.left}</b></span>
-                        <div className="route-line">
-                          <i />
-                          {display.center ? <b>{display.center}</b> : <Plane size={16} />}
-                          <i />
-                        </div>
-                        <span>
-                          <b>{display.right}</b>
-                        </span>
-                      </div>
-                      <div className="route legacy-route">
-                        <span><b>{flight.origin}</b><small>{flight.destination ? "Origin" : "Station"}</small></span>
-                        <div className="route-line"><i /><Plane size={16} /><i /></div>
-                        <span className={!flight.destination ? "muted-destination" : ""}>
-                          <b>{flight.destination ?? "—"}</b>
-                          <small>{flight.destination ? "Destination" : "Single time"}</small>
-                        </span>
-                      </div>
-                      <div className="flight-status">
-                        {flight.source === "charter" && (
-                          <span className="source-chip">Charter</span>
-                        )}
-                        <span className="during-chip">{display.chip}</span>
-                        {during && <span className="during-chip"><Clock3 size={13} /> In shift</span>}
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-        {!visibleFlights.length && (
-          <EmptyState
-            icon={<Plane />}
-            title={myShift ? "No flights during your shift" : "No afternoon or evening flights"}
-            copy={hiddenFlightCount ? "Use Show all to see the rest of the board." : "Nothing was listed in the darker blue rows."}
-          />
-        )}
-      </section>
-    </div>
-    );
-  };
-
-  const renderSwapCandidate = (
-    candidate: SwapCandidate,
-    index: number,
-    featured = false,
-  ) => (
-    <article
-      className={`swap-candidate ${featured ? "featured" : ""}`}
-      key={candidate.worker}
-    >
-      <span className={`person-avatar tone-${index % 4}`}>
-        {initials(candidate.worker)}
-      </span>
-      <div className="swap-candidate-copy">
-        <div>
-          <b><PersonName name={candidate.worker} /></b>
-          <span>{candidate.availability}</span>
-        </div>
-        <small>
-          Usually {formatMinutes(candidate.averageStart)} –{" "}
-          {formatMinutes(candidate.averageEnd)}
-        </small>
-        <small>
-          Average of {candidate.sampleCount} shift
-          {candidate.sampleCount === 1 ? "" : "s"}
-        </small>
-      </div>
-      <div className="swap-score">
-        <strong>{candidate.score}%</strong>
-        <small>shift match</small>
-      </div>
-    </article>
-  );
-
-  const renderTimeOff = () => {
-    const requestedHours = `${formatTime(timeOffDraft.start)} – ${formatTime(timeOffDraft.end)}`;
-    const candidateCount =
-      timeOffAnalysis.recommended.length + timeOffAnalysis.others.length;
-
-    return (
-      <div className="page-stack">
-        <header className="page-title">
-          <div>
-            <h1>Time off</h1>
-          </div>
-        </header>
-
-        <section className="panel time-off-picker">
-          <div className="time-off-heading">
-            <span className="time-off-icon">
-              <WandSparkles />
-            </span>
-            <div>
-              <h2>When do you want off?</h2>
-              <p>Choose the hours you need covered.</p>
-            </div>
-          </div>
-          <div className="time-off-fields">
-            <label className="time-off-date">
-              <span>Date</span>
-              <div className="time-off-input-shell">
-                <input
-                  type="date"
-                  value={timeOffDraft.date}
-                  min={scheduleDates[0]}
-                  max={scheduleDates[scheduleDates.length - 1]}
-                  onChange={(event) => updateTimeOffDate(event.target.value)}
-                />
-                <span className="time-off-input-value" aria-hidden="true">
-                  {formatFieldDate(timeOffDraft.date)}
-                </span>
-              </div>
-            </label>
-            <div className="time-off-range">
-              <label>
-                <span>Start</span>
-                <div className="time-off-input-shell">
-                  <input
-                    type="time"
-                    value={timeOffDraft.start}
-                    onChange={(event) =>
-                      setTimeOffDraft((current) => ({
-                        ...current,
-                        start: event.target.value,
-                      }))
-                    }
-                  />
-                  <span className="time-off-input-value" aria-hidden="true">
-                    {formatFieldTime(timeOffDraft.start)}
-                  </span>
-                </div>
-              </label>
-              <i aria-hidden="true">–</i>
-              <label>
-                <span>Stop</span>
-                <div className="time-off-input-shell">
-                  <input
-                    type="time"
-                    value={timeOffDraft.end}
-                    onChange={(event) =>
-                      setTimeOffDraft((current) => ({
-                        ...current,
-                        end: event.target.value,
-                      }))
-                    }
-                  />
-                  <span className="time-off-input-value" aria-hidden="true">
-                    {formatFieldTime(timeOffDraft.end)}
-                  </span>
-                </div>
-              </label>
-            </div>
-          </div>
-        </section>
-
-        {!hasSchedule ? (
-          <section className="panel">
-            <EmptyState
-              icon={<Upload />}
-              title="Import a schedule first"
-              copy="Once your schedule is loaded, Shiftdeck can check your hours and rank possible swaps."
-            />
-          </section>
-        ) : !timeOffAnalysis.isLoaded ? (
-          <section className="time-off-status unavailable">
-            <CalendarDays />
-            <div>
-              <b>No schedule is loaded for this date</b>
-              <p>Choose one of the dates from your imported schedule.</p>
-            </div>
-          </section>
-        ) : !timeOffAnalysis.needsCoverage ? (
-          <section className="time-off-status clear">
-            <CheckCircle2 />
-            <div>
-              <b>Sweet — you’re already free.</b>
-              <p>
-                You aren’t scheduled during {requestedHours} on{" "}
-                {formatDate(timeOffDraft.date, "long")}.
-              </p>
-            </div>
-          </section>
-        ) : (
-          <>
-            <section className="time-off-status working">
-              <Clock3 />
-              <div>
-                <b>You’re scheduled that day</b>
-                <p>
-                  Your shift is {formatTime(timeOffAnalysis.shift!.start)} –{" "}
-                  {formatTime(timeOffAnalysis.shift!.end)}.
-                </p>
-              </div>
-            </section>
-
-            <section className="panel swap-panel">
-              <div className="section-heading">
-                <div>
-                  <h2>Recommended</h2>
-                  <p>Closest usual hours among coworkers who are free.</p>
-                </div>
-                <span className="count-badge">
-                  {candidateCount} free
-                </span>
-              </div>
-
-              {timeOffAnalysis.recommended.length ? (
-                <div className="swap-list">
-                  {timeOffAnalysis.recommended.map((candidate, index) =>
-                    renderSwapCandidate(candidate, index, true),
-                  )}
-                </div>
-              ) : (
-                <div className="no-close-match">
-                  No close shift matches are free that day.
-                </div>
-              )}
-
-              {timeOffAnalysis.others.length > 0 && (
-                <details className="other-swaps">
-                  <summary>
-                    <span>
-                      Other available coworkers
-                      <small>
-                        Different usual hours
-                      </small>
-                    </span>
-                    <ChevronDown />
-                  </summary>
-                  <div className="swap-list">
-                    {timeOffAnalysis.others.map((candidate, index) =>
-                      renderSwapCandidate(
-                        candidate,
-                        index + timeOffAnalysis.recommended.length,
-                      ),
-                    )}
-                  </div>
-                </details>
-              )}
-
-              {!candidateCount && (
-                <EmptyState
-                  icon={<UsersRound />}
-                  title="No one is free"
-                  copy="Everyone is either working or marked PTO on this date."
-                />
-              )}
-              <p className="swap-method">
-                Matches use each person’s average start and stop time across
-                the uploaded schedule. PTO is never suggested.
-              </p>
-            </section>
-          </>
-        )}
-      </div>
-    );
-  };
-
-  const renderImport = () => (
-    <div className="page-stack">
-      <header className="page-title">
-        <div>
-          <h1>Import</h1>
-        </div>
-      </header>
-
-      <section className={`upload-card ${importState === "reading" ? "is-reading" : ""}`}>
+      <div className="sheet-scroll">
+      <section
+        className={`upload-card ${importState === "reading" ? "is-reading" : ""} ${dragActive ? "is-dragging" : ""}`}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (importState !== "reading") setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+          void processFiles(Array.from(event.dataTransfer.files ?? []));
+        }}
+      >
         <input
           ref={fileInput}
           type="file"
@@ -3376,23 +2151,73 @@ export default function HomePage() {
           aria-label="Upload schedule files"
         />
         {importState === "reading" ? (
-          <div className="reading-state">
+          <div className="reading-state" aria-live="polite">
             <span className="scanner-icon"><FileImage /><i /></span>
-            <h2>Reading your schedule…</h2>
-            <p>{importMessage}</p>
-            <div className="progress-track"><i style={{ width: `${importProgress}%` }} /></div>
-            <span>{importProgress}%</span>
+            <ol className="import-steps">
+              {IMPORT_STAGES.map((label, index) => (
+                <li
+                  key={label}
+                  className={
+                    index < importSnapshot.stage
+                      ? "done"
+                      : index === importSnapshot.stage
+                        ? "active"
+                        : ""
+                  }
+                >
+                  <i>{index < importSnapshot.stage ? <Check /> : null}</i>
+                  <span>{label}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="progress-track">
+              <i style={{ transform: `scaleX(${importSnapshot.progress / 100})` }} />
+            </div>
+            <p className="import-detail">
+              <span>{importSnapshot.detail || "Preparing"}</span>
+              <b>{importSnapshot.progress}%</b>
+            </p>
           </div>
         ) : (
           <button className="upload-inner" onClick={() => fileInput.current?.click()}>
             <span className="upload-icon"><Upload /></span>
-            <h2>Drop schedule files here</h2>
-            <p>or choose files from your device</p>
-            <span className="button primary">Choose files</span>
-            <small>PDF, JPG, PNG or HEIC · Multiple files are okay</small>
+            <h2>{dragActive ? "Drop to import" : "Add schedule files"}</h2>
+            <p>Tap to choose, or drop them here</p>
+            <small>JPG, PNG, HEIC or PDF · several at once is fine</small>
           </button>
         )}
       </section>
+
+      {(importState === "review" || importState === "error") && (
+        <section className={`import-result ${importState === "error" ? "warning" : "success"}`}>
+          <span className="import-result-icon">
+            {importState === "error" ? <AlertTriangle /> : <Check />}
+          </span>
+          <div>
+            <b>{importState === "error" ? "Nothing readable found" : "Schedule imported"}</b>
+            <p>{importMessage}</p>
+            {importWarnings.length > 0 && (
+              <ul>
+                {importWarnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            )}
+            {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
+            {importState !== "error" && canEnableNotifications && !notificationProfile && (
+              <button
+                className="button soft calendar-export-button"
+                onClick={() => {
+                  setSheet(null);
+                  setNotificationsOpen(true);
+                }}
+              >
+                <Bell /> Turn on shift alerts
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       {scheduleDocuments.length > 0 && (
         <section className="upload-history">
@@ -3474,87 +2299,108 @@ export default function HomePage() {
         </div>
       )}
 
-      {(importState === "review" || importState === "done" || importState === "error") && (
-        <>
-          <section className={`notice ${importState === "error" ? "warning" : "success"}`}>
-            {importState === "error" ? <AlertTriangle /> : <Check />}
-            <div>
-              <b>
-                {importState === "done"
-                  ? "Notifications connected"
-                  : importState === "error"
-                    ? "Schedule not recognized"
-                    : "Schedule found"}
-              </b>
-              <p>{importMessage}</p>
-              {loadedFiles.length > 0 && <small>{loadedFiles.join(" · ")}</small>}
-              {importState !== "error" && canEnableNotifications ? (
-                <button
-                  className="button primary calendar-export-button"
-                  onClick={() => setNotificationsOpen(true)}
-                >
-                  <Bell />
-                  {notificationProfile ? "Notification settings" : "Turn on notifications"}
-                </button>
-              ) : importState !== "error" ? (
-                <small>Add a shift to turn on notifications.</small>
-              ) : null}
-            </div>
-          </section>
-        </>
-      )}
-
+      </div>
+    </section>
     </div>
   );
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <button className="brand" onClick={openTodayTab} aria-label="Shiftdeck home">
+      <header className="top-bar">
+        <button className="brand" onClick={returnToToday} aria-label="Shiftdeck, back to today">
           <span><img src="./apple-touch-icon.png" alt="" /></span>
           <b>Shiftdeck</b>
         </button>
-        <nav aria-label="Main navigation">
-          <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={openTodayTab} />
-          <NavButton icon={<UsersRound />} label="Workers" active={tab === "workers"} onClick={() => setTab("workers")} />
-          <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
-          <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
-          <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
-        </nav>
-        <div className="sidebar-bottom">
-          <button onClick={openAddShift}><Plus /><span>Add shift</span></button>
-          <button onClick={() => setSettingsOpen(true)}><Settings /><span>Settings</span></button>
-          <div className="profile-mini">
-            <span>{initials(prefs.person)}</span>
-            <div><b><PersonName name={prefs.person} /></b><small>Schedule owner</small></div>
-          </div>
+        <div className="top-actions">
+          <button type="button" onClick={() => openSheet("import")} aria-label="Import schedule">
+            <Upload />
+            <span>Import</span>
+          </button>
+          <button type="button" onClick={() => openSheet("swap")} aria-label="Shift swap">
+            <ArrowLeftRight />
+            <span>Swap</span>
+          </button>
+          <button type="button" onClick={openAddShift} aria-label="Add a shift">
+            <Plus />
+          </button>
+          <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
+            <Settings />
+          </button>
         </div>
-      </aside>
+      </header>
 
-      <main>
-        <header className="mobile-header">
-          <button className="brand" onClick={openTodayTab}><span><img src="./apple-touch-icon.png" alt="" /></span><b>Shiftdeck</b></button>
-          <div>
-            <button onClick={openAddShift} aria-label="Add a shift"><Plus /></button>
-            <button onClick={() => setSettingsOpen(true)} aria-label="Open settings"><Settings /></button>
-          </div>
-        </header>
-        <div className="content-wrap">
-          {tab === "home" && renderHome()}
-          {tab === "workers" && renderWorkers()}
-          {tab === "flights" && renderFlights()}
-          {tab === "timeoff" && renderTimeOff()}
-          {tab === "import" && renderImport()}
+      <main className="home">
+        <div className={`home-grid ${hydrated ? "is-ready" : ""}`}>
+          <TodayHero
+            date={selectedDate}
+            isToday={selectedDate === todayDate}
+            now={clockNow}
+            title={
+              myEvent?.customTitle
+                ? myEvent.title.trim() || DEFAULT_SHIFT_TITLE
+                : prefs.title.trim() || DEFAULT_SHIFT_TITLE
+            }
+            shift={myShift ? { start: myShift.start, end: myShift.end } : null}
+            loaded={importedDateSet.has(selectedDate)}
+            isPto={myDayStatus.get(selectedDate)?.status === "pto"}
+            crewCount={crewCount}
+            flightCount={myShift ? flightsDuringShift.length : dayFlights.length}
+            nextShift={nextShift}
+            onEdit={openEditShift}
+            onAdd={openAddShift}
+            onToday={returnToToday}
+          />
+          <ScheduleViews
+            range={scheduleRange}
+            onRange={setScheduleRange}
+            showRanges={showRanges}
+            onShowRanges={setShowRanges}
+            anchor={todayDate}
+            selectedDate={selectedDate}
+            onSelect={selectDate}
+            dayStatus={(date) => myDayStatus.get(date) ?? { status: "none" }}
+            hasSchedule={hasSchedule}
+          />
+          <FlightList
+            flights={dayFlights}
+            shift={myShift}
+            date={selectedDate}
+            isToday={selectedDate === todayDate}
+            now={clockNow}
+            linkFor={(flight) => flightAwareRouteUrl(flight, prefs.homeAirport)}
+          />
+          <CrewPanel
+            shifts={dayShifts}
+            person={prefs.person}
+            myShift={myShift}
+            isToday={selectedDate === todayDate}
+            now={clockNow}
+          />
+          {!hasSchedule && hydrated && (
+            <section className="panel first-run">
+              <EmptyState
+                icon={<Upload />}
+                title="Nothing imported yet"
+                copy="Snap the weekly schedule and Shiftdeck fills in your shifts, crew, and flights."
+              />
+              <button className="button primary" onClick={() => openSheet("import")}>
+                <Upload /> Import a schedule
+              </button>
+            </section>
+          )}
         </div>
       </main>
 
-      <nav className="bottom-nav" aria-label="Mobile navigation">
-        <NavButton icon={<Home />} label="Today" active={tab === "home"} onClick={openTodayTab} />
-        <NavButton icon={<UsersRound />} label="Workers" active={tab === "workers"} onClick={() => setTab("workers")} />
-        <NavButton icon={<Plane />} label="Flights" active={tab === "flights"} onClick={() => setTab("flights")} />
-        <NavButton icon={<CalendarDays />} label="Time off" active={tab === "timeoff"} onClick={openTimeOffTab} />
-        <NavButton icon={<Upload />} label="Import" active={tab === "import"} onClick={() => setTab("import")} />
-      </nav>
+      {sheet === "import" && renderImportSheet()}
+      {sheet === "swap" && (
+        <SwapSheet
+          shifts={swapShifts}
+          person={prefs.person}
+          dates={scheduleDates.filter((date) => date >= todayDate)}
+          initialOffDate={selectedDate}
+          onClose={closeSheet}
+        />
+      )}
 
       {shiftEditor && (
         <div className="modal-layer" role="presentation" onMouseDown={() => setShiftEditor(null)}>
@@ -4035,25 +2881,6 @@ export default function HomePage() {
   );
 }
 
-function NavButton({
-  icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button className={active ? "active" : ""} onClick={onClick}>
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
-}
-
 function SearchableSelect({
   label,
   value,
@@ -4135,23 +2962,5 @@ function SearchableSelect({
         )}
       </div>
     </label>
-  );
-}
-
-function EmptyState({
-  icon,
-  title,
-  copy,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  copy: string;
-}) {
-  return (
-    <div className="empty-state">
-      <span>{icon}</span>
-      <h3>{title}</h3>
-      <p>{copy}</p>
-    </div>
   );
 }

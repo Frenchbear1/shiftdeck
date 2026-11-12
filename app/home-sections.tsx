@@ -1,0 +1,933 @@
+"use client";
+
+import {
+  ArrowLeftRight,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Plane,
+  Plus,
+  Sun,
+  Undo2,
+  UsersRound,
+  X,
+} from "lucide-react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import type { Flight, Shift } from "./sample-data";
+import {
+  analyzeSwap,
+  buildCrewTimeline,
+  compactTime,
+  durationLabel,
+  flightMinutesOnShift,
+  flightPlace,
+  flightTag,
+  flightTime,
+  isFlightInShift,
+  minutesToClock,
+  offsetContaining,
+  SCHEDULE_RANGES,
+  ScheduleRange,
+  scheduleWindow,
+  toMinutes,
+} from "./schedule-tools";
+
+/* ---------- shared formatting + people ---------- */
+
+export const formatTime = (time: string) => {
+  if (!time) return "—";
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: minutes ? "2-digit" : undefined,
+  }).format(new Date(2026, 0, 1, hours, minutes));
+};
+
+export const formatDate = (date: string, style: "short" | "long" = "short") =>
+  new Intl.DateTimeFormat("en-US", {
+    weekday: style === "long" ? "long" : "short",
+    month: style === "long" ? "long" : "short",
+    day: "numeric",
+  }).format(new Date(`${date}T12:00:00`));
+
+const weekdayOf = (date: string) =>
+  new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(
+    new Date(`${date}T12:00:00`),
+  );
+
+const dayOfMonth = (date: string) => Number(date.slice(8, 10));
+
+const shortName = (name: string) => {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : name;
+};
+
+export const personKey = (person: string) =>
+  person.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const GSC_NAME_KEYS = new Set(
+  [
+    "Allison Osborne",
+    "Alyssa Dugan",
+    "Chris Williams",
+    "Christopher Williams",
+    "Connie Phillip",
+    "Devin Bauer",
+    "Dwight Gardner",
+    "Earl Peiffer",
+    "Jacob Hoffert",
+    "Jakisha Gonzalez",
+    "Jason Hudak",
+    "Joan Zandarski",
+    "Josephine Dutsch",
+    "Katrina Jackson",
+    "Kim Rawhouser",
+    "Kody Hermany",
+    "Steven Keiser",
+    "Suzete Campos",
+    "Tasha Peterson",
+    "Tyler Bastian",
+  ].map(personKey),
+);
+
+export const isGroundSecurityCoordinator = (name: string) =>
+  GSC_NAME_KEYS.has(personKey(name));
+
+export function PersonName({ name, label }: { name: string; label?: string }) {
+  return (
+    <span className="person-name-with-tag">
+      <span>{label ?? name}</span>
+      {isGroundSecurityCoordinator(name) && <span className="gsc-tag">GSC</span>}
+    </span>
+  );
+}
+
+export function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+export function EmptyState({
+  icon,
+  title,
+  copy,
+}: {
+  icon: ReactNode;
+  title: string;
+  copy: string;
+}) {
+  return (
+    <div className="empty-state">
+      <span>{icon}</span>
+      <h3>{title}</h3>
+      <p>{copy}</p>
+    </div>
+  );
+}
+
+const localDateTime = (date: string, time: string) => {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+};
+
+const shiftBounds = (date: string, start: string, end: string) => {
+  const from = localDateTime(date, start);
+  const to = localDateTime(date, end);
+  if (to <= from) to.setDate(to.getDate() + 1);
+  return [from, to] as const;
+};
+
+const spanLabel = (ms: number) => {
+  const total = Math.max(1, Math.round(ms / 60_000));
+  const days = Math.floor(total / 1440);
+  const hours = Math.floor((total % 1440) / 60);
+  const minutes = total % 60;
+  if (days) return `${days}d ${hours}h`;
+  if (!hours) return `${minutes}m`;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+};
+
+/* ---------- today hero ---------- */
+
+export type DayStatus = {
+  status: "working" | "off" | "pto" | "none";
+  start?: string;
+  end?: string;
+};
+
+export function TodayHero({
+  date,
+  isToday,
+  now,
+  title,
+  shift,
+  loaded,
+  isPto,
+  crewCount,
+  flightCount,
+  nextShift,
+  onEdit,
+  onAdd,
+  onToday,
+}: {
+  date: string;
+  isToday: boolean;
+  now: Date;
+  title: string;
+  shift: { start: string; end: string } | null;
+  loaded: boolean;
+  isPto: boolean;
+  crewCount: number;
+  flightCount: number;
+  nextShift: { date: string; start: string; end: string } | null;
+  onEdit: () => void;
+  onAdd: () => void;
+  onToday: () => void;
+}) {
+  const label = isToday ? `Today · ${formatDate(date)}` : formatDate(date, "long");
+  let status: { tone: string; text: string } | null = null;
+  let progress = 0;
+  if (shift) {
+    const [from, to] = shiftBounds(date, shift.start, shift.end);
+    if (now < from) {
+      status = { tone: "upcoming", text: `Starts in ${spanLabel(from.getTime() - now.getTime())}` };
+    } else if (now < to) {
+      progress = (now.getTime() - from.getTime()) / (to.getTime() - from.getTime());
+      status = { tone: "live", text: `On shift · ${spanLabel(to.getTime() - now.getTime())} left` };
+    } else {
+      progress = 1;
+      status = { tone: "done", text: isToday ? "Done for today" : "Worked" };
+    }
+  }
+
+  return (
+    <section className={`hero-card ${shift ? "is-working" : "is-off"}`} aria-live="polite">
+      <div className="hero-top">
+        <span className="hero-label">{label}</span>
+        <div className="hero-actions">
+          {!isToday && (
+            <button type="button" className="hero-chip" onClick={onToday}>
+              <Undo2 /> Today
+            </button>
+          )}
+          {shift ? (
+            <button type="button" className="hero-icon" onClick={onEdit} aria-label="Edit this shift">
+              <Pencil />
+            </button>
+          ) : (
+            loaded && (
+              <button type="button" className="hero-icon" onClick={onAdd} aria-label="Add a shift on this day">
+                <Plus />
+              </button>
+            )
+          )}
+        </div>
+      </div>
+
+      <div className="hero-body" key={`${date}-${shift?.start ?? "off"}-${shift?.end ?? ""}`}>
+        <h1 className={shift ? "hero-time" : "hero-off"}>
+          {shift ? (
+            <>
+              <span>{formatTime(shift.start)}</span>
+              <i aria-hidden="true">–</i>
+              <span>{formatTime(shift.end)}</span>
+            </>
+          ) : isPto ? (
+            "PTO"
+          ) : loaded ? (
+            isToday ? "Off today" : "Off"
+          ) : (
+            "No schedule"
+          )}
+        </h1>
+        <p className="hero-sub">
+          {shift
+            ? `${title} · ${durationLabel(shift.start, shift.end)}`
+            : loaded
+              ? "Nothing scheduled"
+              : "Import a schedule photo to fill this in"}
+        </p>
+
+        {shift && (
+          <div className="hero-progress" aria-hidden="true">
+            <div className="hero-track">
+              <i style={{ transform: `scaleX(${progress})` }} />
+              {status?.tone === "live" && <b style={{ left: `${progress * 100}%` }} />}
+            </div>
+            <div className="hero-track-labels">
+              <span>{compactTime(shift.start)}</span>
+              {status && <em className={`hero-status ${status.tone}`}>{status.text}</em>}
+              <span>{compactTime(shift.end)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="hero-facts">
+        <div>
+          <b>{crewCount}</b>
+          <span>{shift ? "with you" : "working"}</span>
+        </div>
+        <div>
+          <b>{flightCount}</b>
+          <span>{shift ? "in shift" : "flights"}</span>
+        </div>
+        <div className="hero-next">
+          {nextShift ? (
+            <>
+              <b>
+                {weekdayOf(nextShift.date)} {compactTime(nextShift.start)}
+              </b>
+              <span>next shift</span>
+            </>
+          ) : (
+            <>
+              <b>—</b>
+              <span>next shift</span>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- schedule views ---------- */
+
+export function ScheduleViews({
+  range,
+  onRange,
+  showRanges,
+  onShowRanges,
+  anchor,
+  selectedDate,
+  onSelect,
+  dayStatus,
+  hasSchedule,
+}: {
+  range: ScheduleRange;
+  onRange: (range: ScheduleRange) => void;
+  showRanges: boolean;
+  onShowRanges: (value: boolean) => void;
+  anchor: string;
+  selectedDate: string;
+  onSelect: (date: string) => void;
+  dayStatus: (date: string) => DayStatus;
+  hasSchedule: boolean;
+}) {
+  const [position, setPosition] = useState<{
+    offset: number;
+    direction: "next" | "prev" | "none";
+  }>(() => ({
+    offset: offsetContaining(range, anchor, selectedDate),
+    direction: "none",
+  }));
+  const { offset, direction } = position;
+  const lastRange = useRef(range);
+  const lastAnchor = useRef(anchor);
+  const lastSelected = useRef(selectedDate);
+
+  // Keep the selected day in view when the range, today, or the selection
+  // changes from outside (e.g. "Today" in the hero or a new import).
+  useEffect(() => {
+    const rangeChanged = lastRange.current !== range;
+    const anchorChanged = lastAnchor.current !== anchor;
+    const selectionChanged = lastSelected.current !== selectedDate;
+    lastRange.current = range;
+    lastAnchor.current = anchor;
+    lastSelected.current = selectedDate;
+    if (!rangeChanged && !anchorChanged && !selectionChanged) return;
+    const target = offsetContaining(range, anchor, selectedDate);
+    queueMicrotask(() => {
+      setPosition((current) => {
+        if (current.offset === target) {
+          return rangeChanged ? { offset: target, direction: "none" } : current;
+        }
+        if (!rangeChanged && !anchorChanged) {
+          const visible = scheduleWindow(range, anchor, current.offset).days.some(
+            (day) => day.date === selectedDate && day.inMonth,
+          );
+          if (visible) return current;
+        }
+        return {
+          offset: target,
+          direction: rangeChanged ? "none" : target > current.offset ? "next" : "prev",
+        };
+      });
+    });
+  }, [anchor, range, selectedDate]);
+
+  const view = useMemo(() => scheduleWindow(range, anchor, offset), [anchor, offset, range]);
+  const rangeIndex = SCHEDULE_RANGES.findIndex((option) => option.value === range);
+  const page = (amount: number) =>
+    setPosition((current) => ({
+      offset: current.offset + amount,
+      direction: amount > 0 ? "next" : "prev",
+    }));
+  const showsWeekdays = range !== "3d";
+
+  return (
+    <section className="panel schedule-panel">
+      <div className="panel-head">
+        <h2>Schedule</h2>
+        <label className="mini-switch">
+          <input
+            type="checkbox"
+            checked={showRanges}
+            onChange={(event) => onShowRanges(event.target.checked)}
+          />
+          <span aria-hidden="true"><i /></span>
+          End times
+        </label>
+      </div>
+
+      <div
+        className="segmented"
+        role="tablist"
+        aria-label="Schedule range"
+        style={{ ["--index" as string]: rangeIndex, ["--count" as string]: SCHEDULE_RANGES.length }}
+      >
+        <i aria-hidden="true" />
+        {SCHEDULE_RANGES.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={range === option.value}
+            className={range === option.value ? "active" : ""}
+            onClick={() => onRange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="window-nav">
+        <button type="button" onClick={() => page(-1)} aria-label="Previous">
+          <ChevronLeft />
+        </button>
+        <strong>{view.title}</strong>
+        <button type="button" onClick={() => page(1)} aria-label="Next">
+          <ChevronRight />
+        </button>
+      </div>
+
+      {!hasSchedule && (
+        <p className="schedule-hint">
+          <CalendarDays /> Import a schedule photo to fill in your days.
+        </p>
+      )}
+
+      <div
+        className={`schedule-grid range-${range} ${showRanges ? "with-ranges" : ""} slide-${direction}`}
+        key={`${range}-${offset}`}
+        style={{ ["--columns" as string]: view.columns }}
+      >
+        {showsWeekdays &&
+          view.days.slice(0, 7).map((day) => (
+            <span className="grid-weekday" key={`head-${day.date}`}>
+              {weekdayOf(day.date).slice(0, range === "month" ? 1 : 3)}
+            </span>
+          ))}
+        {view.days.map((day) => {
+          const info = dayStatus(day.date);
+          const isToday = day.date === anchor;
+          const isPast = day.date < anchor;
+          const classes = [
+            "day-cell",
+            `is-${info.status}`,
+            day.date === selectedDate ? "selected" : "",
+            isToday ? "today" : "",
+            isPast ? "past" : "",
+            day.inMonth ? "" : "outside",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return (
+            <button
+              type="button"
+              key={day.date}
+              className={classes}
+              onClick={() => onSelect(day.date)}
+              aria-pressed={day.date === selectedDate}
+              aria-label={`${formatDate(day.date, "long")}: ${
+                info.status === "working"
+                  ? `${formatTime(info.start!)} to ${formatTime(info.end!)}`
+                  : info.status === "pto"
+                    ? "PTO"
+                    : info.status === "off"
+                      ? "off"
+                      : "no schedule"
+              }`}
+            >
+              <span className="day-top">
+                {range === "3d" && <small>{isToday ? "Today" : weekdayOf(day.date)}</small>}
+                <b>{dayOfMonth(day.date)}</b>
+              </span>
+              <span className="day-time">
+                {info.status === "working" ? (
+                  showRanges ? (
+                    <>
+                      <span>{compactTime(info.start!)}</span>
+                      <span className="day-end">{compactTime(info.end!)}</span>
+                    </>
+                  ) : (
+                    <span>{compactTime(info.start!)}</span>
+                  )
+                ) : info.status === "pto" ? (
+                  <span>PTO</span>
+                ) : info.status === "off" ? (
+                  <span>Off</span>
+                ) : (
+                  <span aria-hidden="true">·</span>
+                )}
+              </span>
+              {range === "3d" && info.status === "working" && showRanges && (
+                <small className="day-length">{durationLabel(info.start!, info.end!)}</small>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/* ---------- flights ---------- */
+
+export function FlightList({
+  flights,
+  shift,
+  date,
+  isToday,
+  now,
+  linkFor,
+}: {
+  flights: Flight[];
+  shift: Shift | null | undefined;
+  date: string;
+  isToday: boolean;
+  now: Date;
+  linkFor: (flight: Flight) => string;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const [shownFor, setShownFor] = useState(date);
+  if (shownFor !== date) {
+    setShownFor(date);
+    setShowAll(false);
+  }
+
+  const sorted = useMemo(
+    () =>
+      [...flights].sort(
+        (a, b) => flightMinutesOnShift(a, shift) - flightMinutesOnShift(b, shift),
+      ),
+    [flights, shift],
+  );
+  const inShift = sorted.filter((flight) => isFlightInShift(flight, shift));
+  const canFilter = Boolean(shift) && inShift.length < sorted.length;
+  const visible = shift && !showAll ? inShift : sorted;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  return (
+    <section className="panel flights-panel">
+      <div className="panel-head">
+        <h2>
+          Flights <span className="count">{visible.length}</span>
+        </h2>
+        {canFilter && (
+          <div className="pill-toggle" role="group" aria-label="Which flights">
+            <button
+              type="button"
+              className={!showAll ? "active" : ""}
+              onClick={() => setShowAll(false)}
+            >
+              My shift
+            </button>
+            <button
+              type="button"
+              className={showAll ? "active" : ""}
+              onClick={() => setShowAll(true)}
+            >
+              All {sorted.length}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {visible.length ? (
+        <ul className="flight-rows">
+          {visible.map((flight) => {
+            const tag = flightTag(flight);
+            const during = isFlightInShift(flight, shift);
+            const time = flightTime(flight);
+            let minutes = toMinutes(time);
+            if (shift && toMinutes(shift.start) > 720 && minutes < 360) minutes += 1440;
+            const past = isToday && minutes + 20 < nowMinutes;
+            return (
+              <li key={flight.id}>
+                <a
+                  className={`flight-row ${during ? "in-shift" : ""} ${past ? "past" : ""}`}
+                  href={linkFor(flight)}
+                  target="_self"
+                  aria-label={`${tag === "Turn" ? "Turn" : tag === "RON" ? "RON" : "Departure"} ${
+                    tag === "Out" ? "to" : "from"
+                  } ${flightPlace(flight)} at ${formatTime(time)}. Open in FlightAware`}
+                >
+                  <time>{formatTime(time)}</time>
+                  <span className="flight-place">
+                    <small>{tag === "Out" ? "to" : "from"}</small>
+                    {flightPlace(flight)}
+                  </span>
+                  <span className={`flight-tag tag-${tag.toLowerCase()}`}>{tag}</span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="quiet-line">
+          <Plane />
+          {sorted.length
+            ? "No flights during your shift."
+            : "No flights listed for this day."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/* ---------- crew ---------- */
+
+export function CrewPanel({
+  shifts,
+  person,
+  myShift,
+  isToday,
+  now,
+}: {
+  shifts: Shift[];
+  person: string;
+  myShift: Shift | null | undefined;
+  isToday: boolean;
+  now: Date;
+}) {
+  const timeline = useMemo(
+    () => buildCrewTimeline(shifts, person, myShift),
+    [myShift, person, shifts],
+  );
+  const crewCount = timeline
+    ? timeline.rows
+        .filter((row) => row.relation !== "mine")
+        .reduce((total, row) => total + row.workers.length, 0)
+    : 0;
+
+  let nowLeft: number | null = null;
+  if (timeline && isToday) {
+    let minutes = now.getHours() * 60 + now.getMinutes();
+    if (timeline.axisStart > 720 && minutes < timeline.axisStart - 720) minutes += 1440;
+    const span = timeline.axisEnd - timeline.axisStart;
+    const left = ((minutes - timeline.axisStart) / span) * 100;
+    if (left >= 0 && left <= 100) nowLeft = left;
+  }
+
+  return (
+    <section className="panel crew-panel">
+      <div className="panel-head">
+        <h2>
+          {myShift ? "Crew" : "Working"} <span className="count">{crewCount}</span>
+        </h2>
+        {!myShift && timeline && <span className="panel-note">You’re off</span>}
+      </div>
+
+      {timeline ? (
+        <div
+          className={`crew-chart ${nowLeft === null ? "" : "has-now"} ${timeline.band ? "has-band" : ""}`}
+          style={{
+            ["--now" as string]: `${nowLeft ?? 0}%`,
+            ["--band-left" as string]: `${timeline.band?.left ?? 0}%`,
+            ["--band-width" as string]: `${timeline.band?.width ?? 0}%`,
+          }}
+        >
+          <div className="crew-axis" aria-hidden="true">
+            {timeline.ticks.map((tick) => (
+              <span key={tick.minutes} style={{ left: `${tick.left}%` }}>
+                {compactTime(minutesToClock(tick.minutes))}
+              </span>
+            ))}
+          </div>
+          <div className="crew-rows">
+            {timeline.rows.map((row) => (
+              <div className={`crew-row relation-${row.relation}`} key={row.key}>
+                <div className="crew-row-text">
+                  <span className="crew-names">
+                    {row.relation === "mine"
+                      ? "You"
+                      : row.workers.map((worker, index) => (
+                          <span key={worker}>
+                            {index > 0 && ", "}
+                            <PersonName name={worker} label={shortName(worker)} />
+                          </span>
+                        ))}
+                  </span>
+                  <span className="crew-hours">
+                    {compactTime(row.start)}–{compactTime(row.end)}
+                  </span>
+                </div>
+                <div className="crew-track">
+                  <i style={{ left: `${row.left}%`, width: `${Math.max(row.width, 2)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="quiet-line">
+          {myShift ? <UsersRound /> : <Sun />}
+          {myShift ? "Nobody else overlaps your shift." : "Nobody is scheduled this day."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/* ---------- swap sheet ---------- */
+
+export function SwapSheet({
+  shifts,
+  person,
+  dates,
+  initialOffDate,
+  onClose,
+}: {
+  shifts: Shift[];
+  person: string;
+  dates: string[];
+  initialOffDate: string;
+  onClose: () => void;
+}) {
+  const myDays = useMemo(() => {
+    const map = new Map<string, Shift>();
+    shifts.forEach((shift) => {
+      if (shift.worker === person) map.set(shift.date, shift);
+    });
+    return map;
+  }, [person, shifts]);
+  const workDays = dates.filter((date) => myDays.get(date)?.status === "working");
+  const freeDays = dates.filter((date) => {
+    const mine = myDays.get(date);
+    return !mine || mine.status === "off";
+  });
+
+  const [offDate, setOffDate] = useState(() =>
+    workDays.includes(initialOffDate) ? initialOffDate : workDays[0] ?? "",
+  );
+  const [swapDate, setSwapDate] = useState<string | null>(null);
+
+  const analysis = useMemo(
+    () =>
+      offDate
+        ? analyzeSwap({ shifts, person, offDate, swapDate, candidateDates: freeDays })
+        : null,
+    // freeDays is derived from shifts + dates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [offDate, person, shifts, swapDate, dates],
+  );
+
+  const myOffShift = offDate ? myDays.get(offDate) : undefined;
+
+  return (
+    <div className="modal-layer" role="presentation" onMouseDown={onClose}>
+      <section
+        className="panel-sheet swap-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Shift swap"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="sheet-head">
+          <div>
+            <h2>Shift swap</h2>
+            <p>Trade a day you work for a day you’re off.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close shift swap">
+            <X />
+          </button>
+        </header>
+
+        {!workDays.length ? (
+          <EmptyState
+            icon={<CalendarDays />}
+            title="No upcoming shifts"
+            copy="Import a schedule with days you’re working to find a swap."
+          />
+        ) : (
+          <div className="sheet-scroll">
+            <div className="swap-step">
+              <span className="step-label">
+                <b>1</b> Day you want off
+              </span>
+              <div className="chip-rail">
+                {workDays.map((date) => {
+                  const mine = myDays.get(date)!;
+                  return (
+                    <button
+                      type="button"
+                      key={date}
+                      className={`date-chip ${offDate === date ? "active" : ""}`}
+                      onClick={() => {
+                        setOffDate(date);
+                        if (swapDate === date) setSwapDate(null);
+                      }}
+                    >
+                      <small>{weekdayOf(date)}</small>
+                      <b>{dayOfMonth(date)}</b>
+                      <span>{compactTime(mine.start)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="swap-step">
+              <span className="step-label">
+                <b>2</b> Day you’ll work instead
+              </span>
+              <div className="chip-rail">
+                <button
+                  type="button"
+                  className={`date-chip any ${swapDate === null ? "active" : ""}`}
+                  onClick={() => setSwapDate(null)}
+                >
+                  <b>Any</b>
+                  <span>day off</span>
+                </button>
+                {freeDays.map((date) => (
+                  <button
+                    type="button"
+                    key={date}
+                    className={`date-chip ${swapDate === date ? "active" : ""}`}
+                    onClick={() => setSwapDate(date)}
+                  >
+                    <small>{weekdayOf(date)}</small>
+                    <b>{dayOfMonth(date)}</b>
+                    <span>Off</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {analysis && myOffShift && (
+              <div className="swap-results">
+                <p className="swap-summary">
+                  Giving up <b>{formatDate(offDate)}</b> ·{" "}
+                  {formatTime(myOffShift.start)} – {formatTime(myOffShift.end)}
+                  {swapDate && (
+                    <>
+                      {" "}for <b>{formatDate(swapDate)}</b>
+                    </>
+                  )}
+                </p>
+
+                {analysis.matches.length ? (
+                  <ul className="match-list">
+                    {analysis.matches.map((match, index) => (
+                      <li className={`match-card ${index === 0 ? "best" : ""}`} key={match.worker}>
+                        <div className="match-top">
+                          <span className={`person-avatar tone-${index % 4}`}>
+                            {initials(match.worker)}
+                          </span>
+                          <div className="match-name">
+                            <b>
+                              <PersonName name={match.worker} />
+                            </b>
+                            <small>
+                              <Check /> {match.offDayStatus === "off" ? "Off" : "Not scheduled"}{" "}
+                              {weekdayOf(offDate)}
+                            </small>
+                          </div>
+                          <span className="match-score" style={{ ["--score" as string]: match.score }}>
+                            <b>{match.score}</b>
+                            <small>match</small>
+                          </span>
+                        </div>
+                        <div className="match-days">
+                          {match.swapDays.slice(0, swapDate ? 1 : 4).map((day) => (
+                            <button
+                              type="button"
+                              key={day.date}
+                              className={swapDate === day.date ? "active" : ""}
+                              onClick={() => setSwapDate(day.date)}
+                              title="Use this day"
+                            >
+                              <ArrowLeftRight />
+                              <span>
+                                You work {weekdayOf(day.date)} {dayOfMonth(day.date)}
+                              </span>
+                              <b>
+                                {compactTime(day.start)}–{compactTime(day.end)}
+                              </b>
+                            </button>
+                          ))}
+                          {!swapDate && match.swapDays.length > 4 && (
+                            <small>+{match.swapDays.length - 4} more days</small>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyState
+                    icon={<UsersRound />}
+                    title="No even trade found"
+                    copy={
+                      swapDate
+                        ? "Nobody who is free that day works on the day you picked. Try Any."
+                        : "Nobody free that day works on one of your days off."
+                    }
+                  />
+                )}
+
+                {analysis.coverOnly.length > 0 && (
+                  <details className="cover-only">
+                    <summary>
+                      <span>
+                        Free to cover, no trade day
+                        <small>{analysis.coverOnly.length} people</small>
+                      </span>
+                      <ChevronDown />
+                    </summary>
+                    <ul>
+                      {analysis.coverOnly.map((match) => (
+                        <li key={match.worker}>
+                          <PersonName name={match.worker} />
+                          <small>
+                            Usually {compactTime(minutesToClock(match.usualStart))}–
+                            {compactTime(minutesToClock(match.usualEnd))}
+                          </small>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+
+                <p className="swap-method">
+                  Matches are free on your day off and working on a day you’re
+                  off. Scores favor a shift close to yours. PTO is never suggested.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
