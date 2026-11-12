@@ -3,10 +3,12 @@
 import {
   ArrowLeftRight,
   CalendarDays,
+  CalendarRange,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   Pencil,
   Plane,
   Plus,
@@ -34,6 +36,25 @@ import {
   scheduleWindow,
   toMinutes,
 } from "./schedule-tools";
+
+/* ---------- popups ---------- */
+
+let backdropPressed = false;
+
+/**
+ * Closes a popup when you tap the dimmed area around it. The press has to
+ * start and end on the backdrop, so dragging out of a text field or
+ * scrolling a sheet never closes it by accident.
+ */
+export const backdropClose = (close: () => void) => ({
+  onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+    backdropPressed = event.target === event.currentTarget;
+  },
+  onClick: (event: React.MouseEvent<HTMLElement>) => {
+    if (backdropPressed && event.target === event.currentTarget) close();
+    backdropPressed = false;
+  },
+});
 
 /* ---------- shared formatting + people ---------- */
 
@@ -171,9 +192,6 @@ export function TodayHero({
   shift,
   loaded,
   isPto,
-  crewCount,
-  flightCount,
-  nextShift,
   onEdit,
   onAdd,
   onToday,
@@ -185,9 +203,6 @@ export function TodayHero({
   shift: { start: string; end: string } | null;
   loaded: boolean;
   isPto: boolean;
-  crewCount: number;
-  flightCount: number;
-  nextShift: { date: string; start: string; end: string } | null;
   onEdit: () => void;
   onAdd: () => void;
   onToday: () => void;
@@ -223,11 +238,9 @@ export function TodayHero({
               <Pencil />
             </button>
           ) : (
-            loaded && (
-              <button type="button" className="hero-icon" onClick={onAdd} aria-label="Add a shift on this day">
-                <Plus />
-              </button>
-            )
+            <button type="button" className="hero-icon" onClick={onAdd} aria-label="Add a shift">
+              <Plus />
+            </button>
           )}
         </div>
       </div>
@@ -271,31 +284,6 @@ export function TodayHero({
         )}
       </div>
 
-      <div className="hero-facts">
-        <div>
-          <b>{crewCount}</b>
-          <span>{shift ? "with you" : "working"}</span>
-        </div>
-        <div>
-          <b>{flightCount}</b>
-          <span>{shift ? "in shift" : "flights"}</span>
-        </div>
-        <div className="hero-next">
-          {nextShift ? (
-            <>
-              <b>
-                {weekdayOf(nextShift.date)} {compactTime(nextShift.start)}
-              </b>
-              <span>next shift</span>
-            </>
-          ) : (
-            <>
-              <b>—</b>
-              <span>next shift</span>
-            </>
-          )}
-        </div>
-      </div>
     </section>
   );
 }
@@ -334,6 +322,26 @@ export function ScheduleViews({
   const lastRange = useRef(range);
   const lastAnchor = useRef(anchor);
   const lastSelected = useRef(selectedDate);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the view menu on any tap outside it, or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === "Escape") setMenuOpen(false);
+        return;
+      }
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menuOpen]);
 
   // Keep the selected day in view when the range, today, or the selection
   // changes from outside (e.g. "Today" in the hero or a new import).
@@ -366,7 +374,8 @@ export function ScheduleViews({
   }, [anchor, range, selectedDate]);
 
   const view = useMemo(() => scheduleWindow(range, anchor, offset), [anchor, offset, range]);
-  const rangeIndex = SCHEDULE_RANGES.findIndex((option) => option.value === range);
+  const rangeLabel =
+    SCHEDULE_RANGES.find((option) => option.value === range)?.label ?? "Week";
   const page = (amount: number) =>
     setPosition((current) => ({
       offset: current.offset + amount,
@@ -378,36 +387,52 @@ export function ScheduleViews({
     <section className="panel schedule-panel">
       <div className="panel-head">
         <h2>Schedule</h2>
-        <label className="mini-switch">
-          <input
-            type="checkbox"
-            checked={showRanges}
-            onChange={(event) => onShowRanges(event.target.checked)}
-          />
-          <span aria-hidden="true"><i /></span>
-          End times
-        </label>
-      </div>
-
-      <div
-        className="segmented"
-        role="tablist"
-        aria-label="Schedule range"
-        style={{ ["--index" as string]: rangeIndex, ["--count" as string]: SCHEDULE_RANGES.length }}
-      >
-        <i aria-hidden="true" />
-        {SCHEDULE_RANGES.map((option) => (
+        <div className="schedule-tools">
+          <div className="range-menu" ref={menuRef}>
+            <button
+              type="button"
+              className={`tool-button ${menuOpen ? "open" : ""}`}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={`View: ${rangeLabel}`}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <CalendarRange />
+              <span>{rangeLabel}</span>
+              <ChevronDown className="tool-chevron" />
+            </button>
+            {menuOpen && (
+              <div className="range-popup" role="menu">
+                {SCHEDULE_RANGES.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={range === option.value}
+                    className={range === option.value ? "active" : ""}
+                    onClick={() => {
+                      onRange(option.value);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <span>{option.label}</span>
+                    {range === option.value && <Check />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button
-            key={option.value}
             type="button"
-            role="tab"
-            aria-selected={range === option.value}
-            className={range === option.value ? "active" : ""}
-            onClick={() => onRange(option.value)}
+            className={`tool-button icon-only ${showRanges ? "on" : ""}`}
+            aria-pressed={showRanges}
+            aria-label="Show end times"
+            title="Show end times"
+            onClick={() => onShowRanges(!showRanges)}
           >
-            {option.label}
+            <Clock3 />
           </button>
-        ))}
+        </div>
       </div>
 
       <div className="window-nav">
@@ -745,13 +770,13 @@ export function SwapSheet({
   const myOffShift = offDate ? myDays.get(offDate) : undefined;
 
   return (
-    <div className="modal-layer" role="presentation" onMouseDown={onClose}>
+    <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
       <section
         className="panel-sheet swap-sheet"
         role="dialog"
         aria-modal="true"
         aria-label="Shift swap"
-        onMouseDown={(event) => event.stopPropagation()}
+       
       >
         <header className="sheet-head">
           <div>

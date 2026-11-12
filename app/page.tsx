@@ -45,8 +45,6 @@ import {
   ImportSnapshot,
   isScheduleRange,
   ScheduleRange,
-  shiftsOverlap,
-  isFlightInShift,
   toMinutes,
 } from "./schedule-tools";
 import {
@@ -63,6 +61,7 @@ import {
   ScheduleViews,
   SwapSheet,
   TodayHero,
+  backdropClose,
 } from "./home-sections";
 import {
   clearScheduleImages,
@@ -1196,40 +1195,12 @@ export default function HomePage() {
     [baseImportedShifts, importedShifts, prefs.person],
   );
 
-  const crewCount = useMemo(
-    () =>
-      new Set(
-        dayShifts
-          .filter(
-            (shift) =>
-              shift.worker !== prefs.person &&
-              (!myShift || shiftsOverlap(myShift, shift)),
-          )
-          .map((shift) => shift.worker),
-      ).size,
-    [dayShifts, myShift, prefs.person],
-  );
-
-  const nextShift = useMemo(
-    () =>
-      [...events]
-        .filter((event) => event.date > selectedDate)
-        .sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`))[0] ??
-      null,
-    [events, selectedDate],
-  );
-
   const dayFlights = useMemo(
     () =>
       importedFlights
         .filter((flight) => flight.date === selectedDate)
         .sort((a, b) => toMinutes(a.start) - toMinutes(b.start)),
     [importedFlights, selectedDate],
-  );
-
-  const flightsDuringShift = useMemo(
-    () => dayFlights.filter((flight) => isFlightInShift(flight, myShift)),
-    [dayFlights, myShift],
   );
 
   const notificationSyncPayload = useMemo<NotificationSyncPayload>(
@@ -2111,13 +2082,13 @@ export default function HomePage() {
   };
 
   const renderImportSheet = () => (
-    <div className="modal-layer" role="presentation" onMouseDown={closeSheet}>
+    <div className="modal-layer" role="presentation" {...backdropClose(closeSheet)}>
     <section
       className="panel-sheet import-sheet"
       role="dialog"
       aria-modal="true"
       aria-label="Import schedule"
-      onMouseDown={(event) => event.stopPropagation()}
+     
     >
       <header className="sheet-head">
         <div>
@@ -2320,9 +2291,6 @@ export default function HomePage() {
             <ArrowLeftRight />
             <span>Swap</span>
           </button>
-          <button type="button" onClick={openAddShift} aria-label="Add a shift">
-            <Plus />
-          </button>
           <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings />
           </button>
@@ -2343,9 +2311,6 @@ export default function HomePage() {
             shift={myShift ? { start: myShift.start, end: myShift.end } : null}
             loaded={importedDateSet.has(selectedDate)}
             isPto={myDayStatus.get(selectedDate)?.status === "pto"}
-            crewCount={crewCount}
-            flightCount={myShift ? flightsDuringShift.length : dayFlights.length}
-            nextShift={nextShift}
             onEdit={openEditShift}
             onAdd={openAddShift}
             onToday={returnToToday}
@@ -2403,8 +2368,8 @@ export default function HomePage() {
       )}
 
       {shiftEditor && (
-        <div className="modal-layer" role="presentation" onMouseDown={() => setShiftEditor(null)}>
-          <section className="shift-sheet" role="dialog" aria-modal="true" aria-label={shiftEditor.mode === "edit" ? "Edit shift" : "Add shift"} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-layer" role="presentation" {...backdropClose(() => setShiftEditor(null))}>
+          <section className="shift-sheet" role="dialog" aria-modal="true" aria-label={shiftEditor.mode === "edit" ? "Edit shift" : "Add shift"}>
             <header>
               <div><h2>{shiftEditor.mode === "edit" ? "Edit shift" : "Add a shift"}</h2></div>
               <button onClick={() => setShiftEditor(null)} aria-label="Close shift editor"><X /></button>
@@ -2464,13 +2429,13 @@ export default function HomePage() {
       )}
 
       {notificationsOpen && (
-        <div className="modal-layer" role="presentation" onMouseDown={() => setNotificationsOpen(false)}>
+        <div className="modal-layer" role="presentation" {...backdropClose(() => setNotificationsOpen(false))}>
           <section
             className="export-sheet"
             role="dialog"
             aria-modal="true"
             aria-label="Notification settings"
-            onMouseDown={(event) => event.stopPropagation()}
+           
           >
             <header>
               <div>
@@ -2769,8 +2734,8 @@ export default function HomePage() {
       )}
 
       {settingsOpen && (
-        <div className="modal-layer" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
-          <section className="settings-sheet" role="dialog" aria-modal="true" aria-label="Settings" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-layer" role="presentation" {...backdropClose(() => setSettingsOpen(false))}>
+          <section className="settings-sheet" role="dialog" aria-modal="true" aria-label="Settings">
             <header><div><h2>Settings</h2></div><button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button></header>
             <label>
               <span>Your name on the schedule</span>
@@ -2863,8 +2828,8 @@ export default function HomePage() {
       )}
 
       {clearConfirmOpen && (
-        <div className="modal-layer" role="presentation" onMouseDown={() => setClearConfirmOpen(false)}>
-          <section className="confirm-card" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-layer" role="presentation" {...backdropClose(() => setClearConfirmOpen(false))}>
+          <section className="confirm-card" role="alertdialog" aria-modal="true">
             <span className="confirm-icon danger"><Trash2 /></span>
             <h2>Clear all app data?</h2>
             <p>This resets saved settings and uploads on this device. It also turns off this device’s Shiftdeck notifications.</p>

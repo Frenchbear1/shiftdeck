@@ -50,6 +50,7 @@ test("server-renders the blank Shiftdeck app shell", async () => {
   assert.match(html, />Import</);
   assert.match(html, />Swap</);
   assert.match(html, />Schedule</);
+  assert.doesNotMatch(html, /aria-label="Add a shift"[^>]*>[\s\S]{0,80}aria-label="Open settings"/);
   assert.match(html, /Flights/);
   assert.doesNotMatch(html, /bottom-nav/);
   assert.doesNotMatch(html, />Workers</);
@@ -76,7 +77,9 @@ test("puts today, schedule views, flights, and crew on one screen", async () => 
   assert.match(page, /aria-label="Import schedule"/);
   assert.match(page, /aria-label="Shift swap"/);
   assert.match(sections, /SCHEDULE_RANGES\.map/);
-  assert.match(sections, /End times/);
+  assert.match(sections, /aria-label="Show end times"/);
+  assert.match(sections, /role="menuitemradio"/);
+  assert.doesNotMatch(sections, /hero-facts/);
   assert.match(sections, /flightTag\(flight\)/);
   assert.match(sections, /buildCrewTimeline\(shifts, person, myShift\)/);
   assert.match(css, /\.range-month/);
@@ -374,11 +377,12 @@ test("uses durable, duplicate-safe PWA shift notifications", async () => {
 
   assert.match(parser, /isPlausibleWorkerName/);
   assert.match(parser, /NON_NAME_WORDS/);
-  assert.match(page, /aria-label="Add a shift"/);
-  assert.match(
-    await readFile(new URL("../app/home-sections.tsx", import.meta.url), "utf8"),
-    /aria-label="Edit this shift"/,
+  const sections = await readFile(
+    new URL("../app/home-sections.tsx", import.meta.url),
+    "utf8",
   );
+  assert.match(sections, /aria-label="Add a shift"/);
+  assert.match(sections, /aria-label="Edit this shift"/);
   assert.match(page, /customTitle/);
   assert.match(page, />Shift title</);
   assert.match(page, /returnToToday/);
