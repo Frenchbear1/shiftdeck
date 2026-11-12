@@ -637,12 +637,22 @@ export function FlightList({
                   target="_self"
                   aria-label={`${tag === "Turn" ? "Turn" : tag === "RON" ? "RON" : "Departure"} ${
                     tag === "Out" ? "to" : "from"
-                  } ${flightPlace(flight)} at ${formatTime(time)}. Open in FlightAware`}
+                  } ${flightPlace(flight)}${
+                    tag === "Turn" && (flight.outboundAirport ?? flight.destination)
+                      ? ` to ${flight.outboundAirport ?? flight.destination}`
+                      : ""
+                  } at ${formatTime(time)}. Open in FlightAware`}
                 >
                   <time>{formatTime(time)}</time>
                   <span className="flight-place">
                     <small>{tag === "Out" ? "to" : "from"}</small>
                     {flightPlace(flight)}
+                    {tag === "Turn" && (flight.outboundAirport ?? flight.destination) && (
+                      <>
+                        <small className="place-to">to</small>
+                        {flight.outboundAirport ?? flight.destination}
+                      </>
+                    )}
                   </span>
                   <span className={`flight-tag tag-${tag.toLowerCase()}`}>{tag}</span>
                 </a>
