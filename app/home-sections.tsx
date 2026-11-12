@@ -604,9 +604,6 @@ export function FlightList({
       </div>
 
       <div className="flightaware-links" role="group" aria-label={`${airport} in FlightAware`}>
-        <span className="flightaware-badge" aria-hidden="true">
-          <Plane />
-        </span>
         <a
           href={flightAwareAirportAppUrl(airport, "arrivals")}
           aria-label={`Open ${airport} arrived flights in FlightAware`}

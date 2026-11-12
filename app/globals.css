@@ -2431,22 +2431,9 @@ select:focus-visible {
 
 .flightaware-links {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 8px;
-}
-
-.flightaware-badge {
-  display: grid;
-  place-items: center;
-  color: white;
-  background: var(--blue);
-  border-radius: 11px;
-}
-
-.flightaware-badge svg {
-  width: 17px;
-  height: 17px;
 }
 
 .flightaware-links a {
