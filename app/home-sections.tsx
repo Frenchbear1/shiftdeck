@@ -639,7 +639,20 @@ export function FlightList({
   const liveAge = liveUpdated
     ? Math.max(0, Math.round((now.getTime() - liveUpdated.getTime()) / 60_000))
     : null;
-  const available = live?.status?.available ?? "normal";
+  const status = live?.status ?? null;
+  // The saved status can be up to 2 minutes old, so end the cooldown on time here.
+  const cooldownOver =
+    status?.available === "cooldown" &&
+    (!status.nextAt || Date.parse(status.nextAt) <= now.getTime());
+  const available = !status
+    ? "normal"
+    : cooldownOver
+      ? status.used < status.dailyLimit
+        ? "normal"
+        : status.emergencyUsed < status.emergencyLimit
+          ? "emergency"
+          : "none"
+      : status.available;
   const locked = available === "cooldown" || available === "none" || available === "budget";
   const hintFor = (result: RefreshResult) =>
     result === "ok"
