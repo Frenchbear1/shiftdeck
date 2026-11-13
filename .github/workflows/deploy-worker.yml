@@ -1,0 +1,47 @@
+name: Deploy calendar worker
+
+# Uploads the Cloudflare worker (calendar feed, notifications, live flight
+# times) whenever its code changes on main. Needs two repo secrets:
+#   CLOUDFLARE_API_TOKEN  - token with "Edit Cloudflare Workers" permission
+#   CLOUDFLARE_ACCOUNT_ID - your Cloudflare account ID
+# Secrets set in the Cloudflare dashboard (like AEROAPI_KEY) are kept.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "wrangler.calendar.jsonc"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calendar-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy worker
+        run: npx wrangler deploy --config wrangler.calendar.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
