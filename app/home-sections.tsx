@@ -541,6 +541,28 @@ export const flightAwareAirportAppUrl = (
   return `flightaware://airport/${encodeURIComponent(icao)}/${tab}`;
 };
 
+export type FlightApp = "flightaware" | "flightradar24";
+
+export const FLIGHT_APP_NAMES: Record<FlightApp, string> = {
+  flightaware: "FlightAware",
+  flightradar24: "Flightradar24",
+};
+
+/**
+ * Flightradar24 web links open its app when installed. It uses IATA codes
+ * ("KABE" → "abe"), and its boards don't split arrived from en route.
+ */
+export const flightRadar24AirportUrl = (
+  airport: string,
+  board: "arrivals" | "departures",
+) => {
+  const code = airport.trim().toUpperCase() || "ABE";
+  const iata = /^K[A-Z]{3}$/.test(code) ? code.slice(1) : code;
+  return `https://www.flightradar24.com/data/airports/${encodeURIComponent(
+    iata.toLowerCase(),
+  )}/${board}`;
+};
+
 export function FlightList({
   flights,
   shift,
@@ -549,6 +571,7 @@ export function FlightList({
   now,
   linkFor,
   airport,
+  app = "flightaware",
 }: {
   flights: Flight[];
   shift: Shift | null | undefined;
@@ -557,6 +580,7 @@ export function FlightList({
   now: Date;
   linkFor: (flight: Flight) => string;
   airport: string;
+  app?: FlightApp;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [shownFor, setShownFor] = useState(date);
@@ -576,6 +600,7 @@ export function FlightList({
   const canFilter = Boolean(shift) && inShift.length < sorted.length;
   const visible = shift && !showAll ? inShift : sorted;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const appName = FLIGHT_APP_NAMES[app];
 
   return (
     <section className="panel flights-panel">
@@ -603,21 +628,42 @@ export function FlightList({
         )}
       </div>
 
-      <div className="flightaware-links" role="group" aria-label={`${airport} in FlightAware`}>
-        <a
-          href={flightAwareAirportAppUrl(airport, "arrivals")}
-          aria-label={`Open ${airport} arrived flights in FlightAware`}
-        >
-          <small>{airport}</small>
-          <b>Arrived</b>
-        </a>
-        <a
-          href={flightAwareAirportAppUrl(airport, "enroute")}
-          aria-label={`Open ${airport} scheduled to arrive flights in FlightAware`}
-        >
-          <small>{airport}</small>
-          <b>Scheduled to arrive</b>
-        </a>
+      <div className="flightaware-links" role="group" aria-label={`${airport} in ${appName}`}>
+        {app === "flightradar24" ? (
+          <>
+            <a
+              href={flightRadar24AirportUrl(airport, "arrivals")}
+              aria-label={`Open ${airport} arrivals in Flightradar24`}
+            >
+              <small>{airport}</small>
+              <b>Arrivals</b>
+            </a>
+            <a
+              href={flightRadar24AirportUrl(airport, "departures")}
+              aria-label={`Open ${airport} departures in Flightradar24`}
+            >
+              <small>{airport}</small>
+              <b>Departures</b>
+            </a>
+          </>
+        ) : (
+          <>
+            <a
+              href={flightAwareAirportAppUrl(airport, "arrivals")}
+              aria-label={`Open ${airport} arrived flights in FlightAware`}
+            >
+              <small>{airport}</small>
+              <b>Arrived</b>
+            </a>
+            <a
+              href={flightAwareAirportAppUrl(airport, "enroute")}
+              aria-label={`Open ${airport} scheduled to arrive flights in FlightAware`}
+            >
+              <small>{airport}</small>
+              <b>Scheduled to arrive</b>
+            </a>
+          </>
+        )}
       </div>
 
       {visible.length ? (
@@ -641,7 +687,7 @@ export function FlightList({
                     tag === "Turn" && (flight.outboundAirport ?? flight.destination)
                       ? ` to ${flight.outboundAirport ?? flight.destination}`
                       : ""
-                  } at ${formatTime(time)}. Open in FlightAware`}
+                  } at ${formatTime(time)}. Open in ${appName}`}
                 >
                   <time>{formatTime(time)}</time>
                   <span className="flight-place">

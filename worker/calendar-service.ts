@@ -7,7 +7,9 @@ import {
 } from "./calendar-revisions";
 import {
   FLIGHTAWARE_ORIGIN,
+  FLIGHTRADAR24_ORIGIN,
   matchFlightAwareResult,
+  matchFlightRadar24Result,
 } from "./flightaware";
 
 type D1Result<T = unknown> = {
@@ -213,9 +215,23 @@ async function resolveFlightAwareFlight(request: Request) {
   const time = cleanText(url.searchParams.get("time"), 5);
   const matchField =
     url.searchParams.get("match") === "departure" ? "departure" : "arrival";
+  const useFlightRadar24 = url.searchParams.get("app") === "flightradar24";
   const fallback = new URL("/live/findflight", FLIGHTAWARE_ORIGIN);
   fallback.searchParams.set("origin", origin);
   fallback.searchParams.set("destination", destination);
+  // Flightradar24 has no route search page, so an unmatched flight opens the
+  // home airport's board instead (arrivals board for arrivals, etc.).
+  const homeAirport = matchField === "arrival" ? destination : origin;
+  const appFallback = !useFlightRadar24
+    ? fallback.toString()
+    : !validAirport(homeAirport)
+      ? FLIGHTRADAR24_ORIGIN
+      : new URL(
+        `/data/airports/${encodeURIComponent(
+          (/^K[A-Z]{3}$/.test(homeAirport) ? homeAirport.slice(1) : homeAirport).toLowerCase(),
+        )}/${matchField === "arrival" ? "arrivals" : "departures"}`,
+        FLIGHTRADAR24_ORIGIN,
+      ).toString();
 
   if (
     !validAirport(origin) ||
@@ -225,11 +241,11 @@ async function resolveFlightAwareFlight(request: Request) {
   ) {
     return new Response(null, {
       status: 302,
-      headers: { Location: fallback.toString(), "Cache-Control": "no-store" },
+      headers: { Location: appFallback, "Cache-Control": "no-store" },
     });
   }
 
-  let destinationUrl = fallback.toString();
+  let destinationUrl = appFallback;
   try {
     const response = await fetch(fallback, {
       headers: {
@@ -240,7 +256,7 @@ async function resolveFlightAwareFlight(request: Request) {
     });
     if (response.ok) {
       destinationUrl =
-        matchFlightAwareResult(
+        (useFlightRadar24 ? matchFlightRadar24Result : matchFlightAwareResult)(
           await response.text(),
           date,
           time,

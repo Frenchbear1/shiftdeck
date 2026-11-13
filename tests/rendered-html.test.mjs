@@ -12,7 +12,10 @@ import {
   CALENDAR_FORMAT_VERSION,
   calendarSequenceFor,
 } from "../worker/calendar-revisions.ts";
-import { matchFlightAwareResult } from "../worker/flightaware.ts";
+import {
+  matchFlightAwareResult,
+  matchFlightRadar24Result,
+} from "../worker/flightaware.ts";
 import { normalizeNotificationPayload } from "../worker/push-service.ts";
 import {
   activeShiftSessionKey,
@@ -437,5 +440,14 @@ test("matches a FlightAware route result by weekday and arrival time", () => {
       "departure",
     ),
     "https://www.flightaware.com/live/flight/id/AAY178-1785130155-airline-982p%3a0",
+  );
+  assert.equal(
+    matchFlightRadar24Result(
+      flightAwareResults,
+      "2026-07-29",
+      "19:27",
+      "arrival",
+    ),
+    "https://www.flightradar24.com/data/flights/aay178",
   );
 });

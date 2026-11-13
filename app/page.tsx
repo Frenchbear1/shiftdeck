@@ -61,6 +61,7 @@ import {
   CrewPanel,
   DayStatus,
   EmptyState,
+  type FlightApp,
   FlightList,
   isGroundSecurityCoordinator,
   ScheduleViews,
@@ -96,6 +97,7 @@ type Preferences = {
   notes: string;
   homeAirport: string;
   airline: string;
+  flightApp: FlightApp;
 };
 
 type NotificationProfile = {
@@ -210,6 +212,7 @@ const DEFAULT_PREFS: Preferences = {
   notes: "",
   homeAirport: "ABE",
   airline: "Allegiant",
+  flightApp: "flightaware",
 };
 
 const ALERT_UNIT_OPTIONS = [
@@ -330,6 +333,7 @@ const eventsFor = (shifts: Shift[], person: string) =>
 const CALENDAR_SERVICE_ORIGIN =
   "https://shiftdeck-calendar.frenchbear1.workers.dev";
 const FLIGHTAWARE_ORIGIN = "https://www.flightaware.com";
+const FLIGHTRADAR24_ORIGIN = "https://www.flightradar24.com";
 
 function isCurrentCalendarSubscription(
   subscription: CalendarSubscription | null,
@@ -528,7 +532,17 @@ function workdayDateKey(now: Date, shifts: Shift[], person: string) {
   return now < rolloverTime ? previousDateKey : localDateKey(now);
 }
 
-function flightAwareRouteUrl(flight: Flight, homeAirport: string) {
+function flightAwareRouteUrl(
+  flight: Flight,
+  homeAirport: string,
+  app: FlightApp = "flightaware",
+) {
+  if (app === "flightradar24" && flight.source === "charter" && flight.trackingId) {
+    return new URL(
+      `/data/aircraft/${encodeURIComponent(flight.trackingId.toLowerCase())}`,
+      FLIGHTRADAR24_ORIGIN,
+    ).toString();
+  }
   if (flight.source === "charter" && flight.trackingId) {
     return new URL(
       `/live/flight/${encodeURIComponent(flight.trackingId)}`,
@@ -558,6 +572,7 @@ function flightAwareRouteUrl(flight: Flight, homeAirport: string) {
   resolver.searchParams.set("date", flight.date);
   resolver.searchParams.set("time", expectedTime);
   resolver.searchParams.set("match", matchField);
+  if (app === "flightradar24") resolver.searchParams.set("app", app);
   return resolver.toString();
 }
 
@@ -734,6 +749,8 @@ export default function HomePage() {
             notes: "",
             homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
             airline: saved.airline ?? DEFAULT_PREFS.airline,
+            flightApp:
+              saved.flightApp === "flightradar24" ? "flightradar24" : "flightaware",
           };
           setPrefs(parsedPrefs);
         } catch {
@@ -2459,8 +2476,11 @@ export default function HomePage() {
             date={selectedDate}
             isToday={selectedDate === todayDate}
             now={clockNow}
-            linkFor={(flight) => flightAwareRouteUrl(flight, prefs.homeAirport)}
+            linkFor={(flight) =>
+              flightAwareRouteUrl(flight, prefs.homeAirport, prefs.flightApp)
+            }
             airport={cleanAirportCode(prefs.homeAirport)}
+            app={prefs.flightApp}
           />
           <CrewPanel
             shifts={dayShifts}
@@ -2996,6 +3016,13 @@ export default function HomePage() {
               >
                 {calendarSubscription ? "Open" : "Add"}
               </button>
+            </div>
+            <div className="theme-setting">
+              <span>Flight app</span>
+              <div role="group" aria-label="Open flights in">
+                <button className={prefs.flightApp === "flightaware" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightaware" })}>FlightAware</button>
+                <button className={prefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightradar24" })}>Flightradar24</button>
+              </div>
             </div>
             <div className="theme-setting">
               <span>Appearance</span>

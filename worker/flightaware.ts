@@ -25,7 +25,9 @@ function flightAwareFlightUrl(value: string) {
   return path ? new URL(path, FLIGHTAWARE_ORIGIN).toString() : null;
 }
 
-export function matchFlightAwareResult(
+export const FLIGHTRADAR24_ORIGIN = "https://www.flightradar24.com";
+
+function matchedFlightIdent(
   html: string,
   date: string,
   time: string,
@@ -42,8 +44,35 @@ export function matchFlightAwareResult(
       flightAwareWeekday(dayValue) === expectedDay &&
       flightAwareClock(timeValue) === time
     ) {
-      return flightAwareFlightUrl(result[5]);
+      return result[5];
     }
   }
   return null;
+}
+
+export function matchFlightAwareResult(
+  html: string,
+  date: string,
+  time: string,
+  matchField: "arrival" | "departure",
+) {
+  const ident = matchedFlightIdent(html, date, time, matchField);
+  return ident ? flightAwareFlightUrl(ident) : null;
+}
+
+/** Same match, but opens the flight in Flightradar24 ("AAY178" → /data/flights/aay178). */
+export function matchFlightRadar24Result(
+  html: string,
+  date: string,
+  time: string,
+  matchField: "arrival" | "departure",
+) {
+  const ident = matchedFlightIdent(html, date, time, matchField);
+  const code = ident?.match(/>\s*([A-Za-z0-9]{2,8})\s*</)?.[1];
+  return code
+    ? new URL(
+        `/data/flights/${encodeURIComponent(code.toLowerCase())}`,
+        FLIGHTRADAR24_ORIGIN,
+      ).toString()
+    : null;
 }
