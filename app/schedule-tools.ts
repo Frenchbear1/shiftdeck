@@ -280,6 +280,31 @@ export const isFlightInShift = (
   );
 };
 
+/** How long after the shift a delayed flight that was scheduled during it still counts. */
+export const SHIFT_DELAY_GRACE_MINUTES = 6 * 60;
+
+/**
+ * "My shift": the flight's live time is in the shift (arrivals up to 45 min
+ * early), or it was scheduled in the shift and is delayed no more than 6 hours
+ * past the end. Later than that, it's cancelled or another day's flight.
+ */
+export const flightBelongsToShift = (
+  scheduled: Flight,
+  effective: Flight,
+  shift: Shift | null | undefined,
+  liveIso: string | null,
+) => {
+  if (isFlightInShift(effective, shift, SHIFT_ARRIVAL_LEAD_MINUTES)) return true;
+  if (!shift || !isFlightInShift(scheduled, shift, SHIFT_ARRIVAL_LEAD_MINUTES)) return false;
+  const liveTime = Date.parse(liveIso ?? "");
+  if (!Number.isFinite(liveTime) || !shift.start || !shift.end) return true;
+  const end = new Date(`${shift.date}T00:00:00`);
+  const [hours, minutes] = shift.end.split(":").map(Number);
+  end.setHours(hours, minutes, 0, 0);
+  if (toMinutes(shift.end) <= toMinutes(shift.start)) end.setDate(end.getDate() + 1);
+  return liveTime - end.getTime() <= SHIFT_DELAY_GRACE_MINUTES * 60_000;
+};
+
 /* ---------- crew timeline ---------- */
 
 export type CrewRelation = "mine" | "same" | "overlap";

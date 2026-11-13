@@ -5,6 +5,7 @@ import {
   buildCrewTimeline,
   compactTime,
   flightTag,
+  flightBelongsToShift,
   isFlightInShift,
   offsetContaining,
   scheduleWindow,
@@ -205,4 +206,33 @@ test("My shift includes arrivals that landed up to 45 minutes before the start",
   const night = shift("Kenneth Swain", "2026-11-13", "21:00", "01:00");
   assert.equal(isFlightInShift(arrival("20:30"), night, 45), true);
   assert.equal(isFlightInShift(arrival("00:40"), night, 45), true);
+});
+
+test("My shift keeps flights scheduled in it until they're 6+ hours late", () => {
+  process.env.TZ = "America/New_York";
+  const myShift = shift("Kenneth Swain", "2026-11-13", "17:00", "21:00");
+  const flight = {
+    id: "f",
+    date: "2026-11-13",
+    period: "Evening",
+    kind: "arrival",
+    raw: "",
+    origin: "PIE",
+    arrival: "19:27",
+    start: "19:27",
+  };
+  const moved = (time) => ({ ...flight, arrival: time, start: time });
+  // Delayed to 11:50 PM: past the shift, but under 6 hours late → still mine.
+  assert.equal(
+    flightBelongsToShift(flight, moved("23:50"), myShift, "2026-11-13T23:50:00-05:00"),
+    true,
+  );
+  // Delayed to 3:30 AM next day: more than 6 hours after 9 PM → not mine.
+  assert.equal(
+    flightBelongsToShift(flight, moved("03:30"), myShift, "2026-11-14T03:30:00-05:00"),
+    false,
+  );
+  // Scheduled outside the shift and still outside → not mine.
+  const early = { ...flight, arrival: "12:00", start: "12:00" };
+  assert.equal(flightBelongsToShift(early, early, myShift, null), false);
 });

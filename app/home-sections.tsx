@@ -27,17 +27,16 @@ import {
   buildCrewTimeline,
   compactTime,
   durationLabel,
+  flightBelongsToShift,
   flightMinutesOnShift,
   flightPlace,
   flightTag,
   flightTime,
-  isFlightInShift,
   minutesToClock,
   offsetContaining,
   SCHEDULE_RANGES,
   ScheduleRange,
   scheduleWindow,
-  SHIFT_ARRIVAL_LEAD_MINUTES,
   toMinutes,
 } from "./schedule-tools";
 
@@ -632,9 +631,16 @@ export function FlightList({
     (a, b) =>
       flightMinutesOnShift(effectiveOf(a), shift) - flightMinutesOnShift(effectiveOf(b), shift),
   );
-  const inShift = sorted.filter((flight) =>
-    isFlightInShift(effectiveOf(flight), shift, SHIFT_ARRIVAL_LEAD_MINUTES),
-  );
+  const belongsToShift = (flight: Flight) => {
+    const live = liveById.get(flight.id)?.match?.live;
+    return flightBelongsToShift(
+      flight,
+      effectiveOf(flight),
+      shift,
+      live?.estimated ?? live?.scheduled ?? null,
+    );
+  };
+  const inShift = sorted.filter(belongsToShift);
   const canFilter = Boolean(shift) && inShift.length < sorted.length;
   const visible = shift && !showAll ? inShift : sorted;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -842,7 +848,7 @@ export function FlightList({
           {visible.map((flight) => {
             const tag = flightTag(flight);
             const expanded = rowOpen[flight.id] ?? showDetails;
-            const during = isFlightInShift(effectiveOf(flight), shift, SHIFT_ARRIVAL_LEAD_MINUTES);
+            const during = belongsToShift(flight);
             const scheduledTime = flightTime(flight);
             const match = liveById.get(flight.id)?.match ?? null;
             const time = match?.time ?? scheduledTime;
