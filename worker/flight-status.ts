@@ -131,7 +131,10 @@ async function aeroGet(path: string, key: string) {
   const response = await fetch(`${AEROAPI}${path}`, {
     headers: { "x-apikey": key, Accept: "application/json" },
   });
-  if (!response.ok) throw new Error(`AeroAPI ${response.status}`);
+  if (!response.ok) {
+    const body = (await response.text()).slice(0, 300);
+    throw new Error(`AeroAPI ${response.status}: ${body}`);
+  }
   return (await response.json()) as Record<string, unknown> & {
     num_pages?: number;
   };
@@ -245,7 +248,10 @@ export async function handleFlightStatusRequest(
     ]);
     const after = await readState(db, airport, now, env);
     return reply(payload, after.status);
-  } catch {
-    return reply(state.cached, state.status, { refused: "error" }, 502);
+  } catch (error) {
+    // The reason never includes the API key (it is only sent as a header).
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("Live flight refresh failed:", detail);
+    return reply(state.cached, state.status, { refused: "error", detail }, 502);
   }
 }
