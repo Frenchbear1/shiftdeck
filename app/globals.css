@@ -4312,3 +4312,310 @@ select:focus-visible {
   width: 13px;
   height: 13px;
 }
+
+/* ---------- shift weather ---------- */
+
+.weather-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.weather-panel .panel-head {
+  margin-bottom: 0;
+}
+
+.wx-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  overflow: hidden;
+  padding: 18px;
+  color: #fff;
+  border-radius: 17px;
+  isolation: isolate;
+}
+
+.wx-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -30% -60% auto;
+  width: 220px;
+  height: 220px;
+  background: radial-gradient(circle, rgba(255,255,255,.22), transparent 65%);
+  z-index: -1;
+}
+
+.wx-clear-day { background: linear-gradient(135deg, #3d8bfd, #57b8ff 55%, #ffc56b); }
+.wx-clear-night { background: linear-gradient(135deg, #141b3d, #2b3a78 60%, #5b4b9e); }
+.wx-cloud { background: linear-gradient(135deg, #4f5d73, #7b8aa3); }
+.wx-rain { background: linear-gradient(135deg, #24476b, #3c6f9c 60%, #5c8fb8); }
+.wx-snow { background: linear-gradient(135deg, #5b7ea6, #9cb8d6 60%, #d9e6f2); color: #12263f; }
+.wx-storm { background: linear-gradient(135deg, #2a1f3d, #4a3466 55%, #a0603a); }
+
+.wx-hero-main {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.wx-hero-icon svg {
+  width: 46px;
+  height: 46px;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.18));
+}
+
+.wx-hero-main div {
+  display: grid;
+  gap: 1px;
+}
+
+.wx-hero-main small,
+.wx-compass span {
+  opacity: .82;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.wx-hero-main b {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-hero-main span {
+  font-size: 13.5px;
+  font-weight: 650;
+  opacity: .92;
+}
+
+.wx-compass {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.wx-dial {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 3px;
+  background: rgba(255,255,255,.14);
+  border: 1.5px solid rgba(255,255,255,.35);
+  border-radius: 50%;
+  backdrop-filter: blur(6px);
+}
+
+.wx-dial i {
+  position: absolute;
+  top: 3px;
+  font-size: 8.5px;
+  font-style: normal;
+  font-weight: 800;
+  opacity: .8;
+}
+
+.wx-arrow {
+  flex: none;
+  fill: currentColor;
+  transition: transform 300ms var(--ease-out);
+}
+
+.wx-compass b {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.wx-compass b small {
+  font-size: 10px;
+  opacity: .8;
+}
+
+.wx-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 11px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.wx-alert svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.wx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wx-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  color: var(--text);
+  background: var(--surface-2);
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.wx-chips svg {
+  width: 14px;
+  height: 14px;
+  color: var(--blue);
+}
+
+.wx-hours {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+
+.wx-hours::-webkit-scrollbar {
+  display: none;
+}
+
+.wx-hour {
+  min-width: 50px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  scroll-snap-align: start;
+}
+
+.wx-hour small {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 750;
+}
+
+.wx-hour > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--blue);
+}
+
+.wx-hour b {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-hour-wind {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.wx-hour-rain {
+  position: relative;
+  width: 6px;
+  height: 22px;
+  overflow: hidden;
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+
+.wx-hour-rain i {
+  position: absolute;
+  inset: auto 0 0;
+  background: #4ba3f5;
+  border-radius: inherit;
+}
+
+.wx-compact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  padding: 11px 14px;
+  color: #fff;
+  border-radius: 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-compact-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.wx-compact b {
+  font-size: 18px;
+}
+
+.wx-compact b small {
+  font-size: 11px;
+  font-weight: 650;
+  opacity: .85;
+}
+
+.wx-compact-wind,
+.wx-compact-rain {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wx-compact-wind small {
+  opacity: .85;
+}
+
+.wx-compact-rain svg {
+  width: 14px;
+  height: 14px;
+}
+
+.wx-compact-storm {
+  margin-left: auto;
+}
+
+.wx-compact-storm svg {
+  width: 18px;
+  height: 18px;
+}
+
+.wx-credit {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.wx-compact > * {
+  flex: none;
+}
+
+/* Fade the right edge so it's clear the hours scroll. */
+.wx-hours {
+  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
+  mask-image: linear-gradient(to right, #000 85%, transparent);
+}

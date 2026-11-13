@@ -73,6 +73,7 @@ import {
 import { ShiftEditorSheet } from "./shift-editor";
 import { useLiveFlights } from "./live-flights";
 import { LiveStatusSetting } from "./live-status-setting";
+import { WeatherPanel } from "./weather-panel";
 import {
   clearScheduleImages,
   deleteScheduleImage,
@@ -2373,6 +2374,7 @@ export default function HomePage() {
             onRefresh={liveFlights.refresh}
             refreshing={liveFlights.refreshing}
           />
+          <WeatherPanel shift={myShift} />
           <CrewPanel
             shifts={dayShifts}
             person={prefs.person}
