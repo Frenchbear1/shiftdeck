@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Flight, Shift } from "./sample-data";
-import { LiveFlights, matchLiveFlight, RefreshResult } from "./live-flights";
+import { LiveFlights, LiveMatch, matchLiveFlight, RefreshResult } from "./live-flights";
 import {
   analyzeSwap,
   buildCrewTimeline,
@@ -36,6 +36,7 @@ import {
   SCHEDULE_RANGES,
   ScheduleRange,
   scheduleWindow,
+  SHIFT_ARRIVAL_LEAD_MINUTES,
   toMinutes,
 } from "./schedule-tools";
 
@@ -598,14 +599,41 @@ export function FlightList({
     setShowAll(false);
   }
 
-  const sorted = useMemo(
-    () =>
-      [...flights].sort(
-        (a, b) => flightMinutesOnShift(a, shift) - flightMinutesOnShift(b, shift),
-      ),
-    [flights, shift],
+  // Live times (when we have them) decide order and "My shift", so a delayed
+  // flight moves into or out of your shift with its new time.
+  const liveById = useMemo(() => {
+    const result = new Map<string, { match: LiveMatch | null; effective: Flight }>();
+    for (const flight of flights) {
+      const match = matchLiveFlight(flight, flightTime(flight), live);
+      const effective = { ...flight };
+      if (match) {
+        if (flight.kind === "departure") effective.departure = match.time;
+        else effective.arrival = match.time;
+        effective.start = match.time;
+      }
+      if (flight.kind === "turnaround" && flight.departure) {
+        const out = matchLiveFlight(
+          { ...flight, kind: "departure" },
+          flight.departure,
+          live,
+        );
+        if (out) {
+          effective.departure = out.time;
+          effective.end = out.time;
+        }
+      }
+      result.set(flight.id, { match, effective });
+    }
+    return result;
+  }, [flights, live]);
+  const effectiveOf = (flight: Flight) => liveById.get(flight.id)?.effective ?? flight;
+  const sorted = [...flights].sort(
+    (a, b) =>
+      flightMinutesOnShift(effectiveOf(a), shift) - flightMinutesOnShift(effectiveOf(b), shift),
   );
-  const inShift = sorted.filter((flight) => isFlightInShift(flight, shift));
+  const inShift = sorted.filter((flight) =>
+    isFlightInShift(effectiveOf(flight), shift, SHIFT_ARRIVAL_LEAD_MINUTES),
+  );
   const canFilter = Boolean(shift) && inShift.length < sorted.length;
   const visible = shift && !showAll ? inShift : sorted;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -808,9 +836,9 @@ export function FlightList({
         <ul className="flight-rows">
           {visible.map((flight) => {
             const tag = flightTag(flight);
-            const during = isFlightInShift(flight, shift);
+            const during = isFlightInShift(effectiveOf(flight), shift, SHIFT_ARRIVAL_LEAD_MINUTES);
             const scheduledTime = flightTime(flight);
-            const match = matchLiveFlight(flight, scheduledTime, live);
+            const match = liveById.get(flight.id)?.match ?? null;
             const time = match?.time ?? scheduledTime;
             let shift24 = toMinutes(time) - toMinutes(scheduledTime);
             if (shift24 > 720) shift24 -= 1440;

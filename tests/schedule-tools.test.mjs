@@ -5,6 +5,7 @@ import {
   buildCrewTimeline,
   compactTime,
   flightTag,
+  isFlightInShift,
   offsetContaining,
   scheduleWindow,
 } from "../app/schedule-tools.ts";
@@ -180,4 +181,28 @@ test("merges misspelled coworker names and suggests likely duplicates", async ()
     likelyDuplicateNames(names, new Set([mergePairKey("Kody Hermany", "Ody Hermany")])),
     [{ from: "Jason Hudek", to: "Jason Hudak" }],
   );
+});
+
+test("My shift includes arrivals that landed up to 45 minutes before the start", () => {
+  const myShift = shift("Kenneth Swain", "2026-11-13", "17:00", "21:00");
+  const arrival = (time) => ({
+    id: time,
+    date: "2026-11-13",
+    period: "Evening",
+    kind: "arrival",
+    raw: "",
+    origin: "PIE",
+    arrival: time,
+    start: time,
+  });
+  assert.equal(isFlightInShift(arrival("16:20"), myShift, 45), true);
+  assert.equal(isFlightInShift(arrival("16:10"), myShift, 45), false);
+  assert.equal(isFlightInShift(arrival("16:20"), myShift), false);
+  // Departures don't get the early window.
+  const departure = { ...arrival("16:20"), kind: "departure", arrival: undefined, departure: "16:20" };
+  assert.equal(isFlightInShift(departure, myShift, 45), false);
+  // Night shift that crosses midnight.
+  const night = shift("Kenneth Swain", "2026-11-13", "21:00", "01:00");
+  assert.equal(isFlightInShift(arrival("20:30"), night, 45), true);
+  assert.equal(isFlightInShift(arrival("00:40"), night, 45), true);
 });

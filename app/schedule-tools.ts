@@ -256,17 +256,28 @@ export const flightMinutesOnShift = (flight: Flight, shift?: Shift | null) => {
   return time;
 };
 
-export const isFlightInShift = (flight: Flight, shift?: Shift | null) => {
+/** Arrivals that landed this long before your start still count as "My shift". */
+export const SHIFT_ARRIVAL_LEAD_MINUTES = 45;
+
+export const isFlightInShift = (
+  flight: Flight,
+  shift?: Shift | null,
+  arrivalLeadMinutes = 0,
+) => {
   if (!shift) return false;
   const [start, end] = normalizedInterval(shift.start, shift.end);
-  const times = [flight.arrival, flight.departure, flight.start, flight.end].filter(
-    (time): time is string => Boolean(time),
-  );
-  return times.some((value) => {
+  const arrivals = [flight.arrival, flight.kind !== "departure" ? flight.start : undefined];
+  const others = [flight.departure, flight.end, flight.kind === "departure" ? flight.start : undefined];
+  const inWindow = (value: string | undefined, from: number) => {
+    if (!value) return false;
     let time = toMinutes(value);
     if (start > 720 && time < 360) time += 1440;
-    return time >= start && time <= end;
-  });
+    return time >= from && time <= end;
+  };
+  return (
+    arrivals.some((value) => inWindow(value, start - arrivalLeadMinutes)) ||
+    others.some((value) => inWindow(value, start))
+  );
 };
 
 /* ---------- crew timeline ---------- */
