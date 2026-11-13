@@ -99,7 +99,7 @@ async function ensureSchema(db: CalendarDatabase) {
   schemaReady = true;
 }
 
-function corsHeaders(request: Request) {
+export function corsHeaders(request: Request) {
   const origin = request.headers.get("Origin") ?? "";
   const allowed =
     ALLOWED_ORIGINS.has(origin) ||
@@ -113,7 +113,7 @@ function corsHeaders(request: Request) {
   };
 }
 
-function json(
+export function json(
   request: Request,
   value: unknown,
   status = 200,

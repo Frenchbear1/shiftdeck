@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Flight, Shift } from "./sample-data";
+import { matchLiveFlight, useLiveFlights } from "./live-flights";
 import {
   analyzeSwap,
   buildCrewTimeline,
@@ -572,6 +573,7 @@ export function FlightList({
   linkFor,
   airport,
   app = "flightaware",
+  liveUrl,
 }: {
   flights: Flight[];
   shift: Shift | null | undefined;
@@ -581,6 +583,8 @@ export function FlightList({
   linkFor: (flight: Flight) => string;
   airport: string;
   app?: FlightApp;
+  /** Worker URL for live times; leave out to show schedule times only. */
+  liveUrl?: string;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [shownFor, setShownFor] = useState(date);
@@ -601,6 +605,17 @@ export function FlightList({
   const visible = shift && !showAll ? inShift : sorted;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const appName = FLIGHT_APP_NAMES[app];
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow =
+    date ===
+    `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(
+      tomorrow.getDate(),
+    ).padStart(2, "0")}`;
+  const live = useLiveFlights(liveUrl ?? "", Boolean(liveUrl) && (isToday || isTomorrow));
+  const liveAge = live?.updatedAt
+    ? Math.max(0, Math.round((now.getTime() - Date.parse(live.updatedAt)) / 60_000))
+    : null;
 
   return (
     <section className="panel flights-panel">
@@ -666,12 +681,35 @@ export function FlightList({
         )}
       </div>
 
+      {liveAge !== null && (
+        <p className="flight-live-note">
+          <span aria-hidden="true" />
+          Live times from FlightAware ·{" "}
+          {liveAge < 1 ? "just now" : `${liveAge} min ago`}
+        </p>
+      )}
+
       {visible.length ? (
         <ul className="flight-rows">
           {visible.map((flight) => {
             const tag = flightTag(flight);
             const during = isFlightInShift(flight, shift);
-            const time = flightTime(flight);
+            const scheduledTime = flightTime(flight);
+            const match = matchLiveFlight(flight, scheduledTime, live);
+            const time = match?.time ?? scheduledTime;
+            let shift24 = toMinutes(time) - toMinutes(scheduledTime);
+            if (shift24 > 720) shift24 -= 1440;
+            if (shift24 < -720) shift24 += 1440;
+            const changed = Boolean(match) && Math.abs(shift24) >= 3;
+            const timeTone = match?.live.cancelled
+              ? "cancelled"
+              : !changed
+                ? ""
+                : shift24 > 30
+                  ? "late"
+                  : shift24 > 0
+                    ? "behind"
+                    : "early";
             let minutes = toMinutes(time);
             if (shift && toMinutes(shift.start) > 720 && minutes < 360) minutes += 1440;
             const past = isToday && minutes + 20 < nowMinutes;
@@ -687,9 +725,14 @@ export function FlightList({
                     tag === "Turn" && (flight.outboundAirport ?? flight.destination)
                       ? ` to ${flight.outboundAirport ?? flight.destination}`
                       : ""
-                  } at ${formatTime(time)}. Open in ${appName}`}
+                  } at ${formatTime(time)}${
+                    changed ? `, scheduled ${formatTime(scheduledTime)}` : ""
+                  }${match?.label ? `, ${match.label}` : ""}. Open in ${appName}`}
                 >
-                  <time>{formatTime(time)}</time>
+                  <span className={`flight-time ${timeTone}`}>
+                    <time>{formatTime(time)}</time>
+                    {changed && <s>{formatTime(scheduledTime)}</s>}
+                  </span>
                   <span className="flight-place">
                     <small>{tag === "Out" ? "to" : "from"}</small>
                     {flightPlace(flight)}
@@ -700,6 +743,9 @@ export function FlightList({
                       </>
                     )}
                   </span>
+                  {match?.label && (
+                    <span className={`flight-live ${timeTone}`}>{match.label}</span>
+                  )}
                   <span className={`flight-tag tag-${tag.toLowerCase()}`}>{tag}</span>
                 </a>
               </li>

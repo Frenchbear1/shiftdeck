@@ -3,12 +3,16 @@ import {
   handleCalendarRequest,
 } from "./calendar-service";
 import {
+  FlightStatusEnvironment,
+  handleFlightStatusRequest,
+} from "./flight-status";
+import {
   handlePushRequest,
   PushEnvironment,
   sendDueNotifications,
 } from "./push-service";
 
-interface Env extends PushEnvironment {
+interface Env extends PushEnvironment, FlightStatusEnvironment {
   DB: CalendarDatabase;
 }
 
@@ -16,6 +20,8 @@ const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const pushResponse = await handlePushRequest(request, env.DB, env);
     if (pushResponse) return pushResponse;
+    const liveResponse = await handleFlightStatusRequest(request, env.DB, env);
+    if (liveResponse) return liveResponse;
     const response = await handleCalendarRequest(request, env.DB);
     if (response) return response;
     return Response.json(

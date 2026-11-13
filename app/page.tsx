@@ -2364,6 +2364,9 @@ export default function HomePage() {
             }
             airport={cleanAirportCode(prefs.homeAirport)}
             app={prefs.flightApp}
+            liveUrl={calendarServiceUrl(
+              `/api/flights/live?airport=${encodeURIComponent(cleanAirportCode(prefs.homeAirport))}`,
+            )}
           />
           <CrewPanel
             shifts={dayShifts}
