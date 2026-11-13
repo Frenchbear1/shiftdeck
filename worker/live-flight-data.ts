@@ -90,10 +90,10 @@ export function toLiveFlight(
         : flight.estimated_out ?? flight.estimated_off ?? null,
     status: flight.status ?? "",
     cancelled: Boolean(flight.cancelled),
-    gate: (kind === "arrival" ? flight.gate_destination : flight.gate_origin) ?? null,
-    baggage: kind === "arrival" ? flight.baggage_claim ?? null : null,
-    aircraft: flight.aircraft_type ?? null,
-    registration: flight.registration ?? null,
+    gate: (kind === "arrival" ? flight.gate_destination : flight.gate_origin)?.trim() || null,
+    baggage: kind === "arrival" ? flight.baggage_claim?.trim() || null : null,
+    aircraft: flight.aircraft_type?.trim() || null,
+    registration: flight.registration?.trim() || null,
     delayMinutes: (() => {
       const seconds = kind === "arrival" ? flight.arrival_delay : flight.departure_delay;
       return typeof seconds === "number" ? Math.round(seconds / 60) : null;
