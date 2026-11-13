@@ -2483,7 +2483,7 @@ select:focus-visible {
   position: relative;
   min-height: 38px;
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr) auto auto;
+  grid-template-columns: 78px minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 8px;
   padding: 0 8px 0 12px;
@@ -4172,5 +4172,86 @@ select:focus-visible {
   border-radius: inherit;
 }
 
-.flight-row .flight-tag { grid-column: 4; }
+.flight-row .flight-tag { grid-column: 5; }
+.flight-row .flight-gate { grid-column: 4; }
 .flight-row .flight-live { grid-column: 3; }
+
+.flight-gate {
+  display: grid;
+  justify-items: center;
+  min-width: 34px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.flight-gate small {
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 750;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.flight-details-toggle {
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.flight-details-toggle.active {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.flight-details {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  margin: -2px 0 0;
+  padding: 0 0 9px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.flight-details.muted {
+  font-style: italic;
+}
+
+.flight-progress {
+  height: 4px;
+  overflow: hidden;
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+
+.flight-progress i {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  border-radius: inherit;
+}
+
+/* Tighter columns so Turn rows fit "from SFB to SFB" next to the gate. */
+.flight-row:has(.flight-gate) {
+  column-gap: 6px;
+}
+
+.flight-row:has(.flight-gate) .place-to {
+  margin-left: 5px;
+}
+
+.flight-row:has(.flight-details) {
+  padding-top: 8px;
+}

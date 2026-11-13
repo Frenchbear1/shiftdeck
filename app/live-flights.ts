@@ -14,6 +14,16 @@ export type LiveFlight = {
   status: string;
   cancelled: boolean;
   done?: boolean;
+  gate?: string | null;
+  baggage?: string | null;
+  aircraft?: string | null;
+  registration?: string | null;
+  delayMinutes?: number | null;
+  leftGateAt?: string | null;
+  tookOffAt?: string | null;
+  landedAt?: string | null;
+  atGateAt?: string | null;
+  progress?: number | null;
 };
 
 export type LiveStatus = {

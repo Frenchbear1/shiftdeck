@@ -12,6 +12,20 @@ export type LiveFlight = {
   cancelled: boolean;
   /** Set once the flight leaves AeroAPI's "scheduled" lists. */
   done?: boolean;
+  /** Gate at the home airport (arrival gate, or departure gate for "Out"). */
+  gate?: string | null;
+  baggage?: string | null;
+  aircraft?: string | null;
+  registration?: string | null;
+  /** Minutes late (+) or early (−) per FlightAware. */
+  delayMinutes?: number | null;
+  /** Arrivals: when it left the gate / took off at the origin. */
+  leftGateAt?: string | null;
+  tookOffAt?: string | null;
+  /** Arrivals: landed / reached the gate here. Departures: left the gate / took off here. */
+  landedAt?: string | null;
+  atGateAt?: string | null;
+  progress?: number | null;
 };
 
 export type AeroAirport = {
@@ -35,6 +49,18 @@ export type AeroFlight = {
   estimated_on?: string | null;
   scheduled_in?: string | null;
   estimated_in?: string | null;
+  actual_out?: string | null;
+  actual_off?: string | null;
+  actual_on?: string | null;
+  actual_in?: string | null;
+  gate_origin?: string | null;
+  gate_destination?: string | null;
+  baggage_claim?: string | null;
+  aircraft_type?: string | null;
+  registration?: string | null;
+  departure_delay?: number | null;
+  arrival_delay?: number | null;
+  progress_percent?: number | null;
   status?: string | null;
   cancelled?: boolean | null;
 };
@@ -64,6 +90,19 @@ export function toLiveFlight(
         : flight.estimated_out ?? flight.estimated_off ?? null,
     status: flight.status ?? "",
     cancelled: Boolean(flight.cancelled),
+    gate: (kind === "arrival" ? flight.gate_destination : flight.gate_origin) ?? null,
+    baggage: kind === "arrival" ? flight.baggage_claim ?? null : null,
+    aircraft: flight.aircraft_type ?? null,
+    registration: flight.registration ?? null,
+    delayMinutes: (() => {
+      const seconds = kind === "arrival" ? flight.arrival_delay : flight.departure_delay;
+      return typeof seconds === "number" ? Math.round(seconds / 60) : null;
+    })(),
+    leftGateAt: flight.actual_out ?? null,
+    tookOffAt: flight.actual_off ?? null,
+    landedAt: kind === "arrival" ? flight.actual_on ?? null : null,
+    atGateAt: kind === "arrival" ? flight.actual_in ?? null : null,
+    progress: typeof flight.progress_percent === "number" ? flight.progress_percent : null,
   };
 }
 

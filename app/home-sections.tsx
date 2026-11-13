@@ -611,6 +611,24 @@ export function FlightList({
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const appName = FLIGHT_APP_NAMES[app];
   const [confirmEmergency, setConfirmEmergency] = useState(false);
+  // Safe to read on first render: the toggle and details only appear once
+  // live data has loaded, after hydration.
+  const [showDetails, setShowDetails] = useState(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem(FLIGHT_DETAILS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleDetails = () =>
+    setShowDetails((current) => {
+      try {
+        localStorage.setItem(FLIGHT_DETAILS_KEY, current ? "0" : "1");
+      } catch {
+        // Private mode: keep it for this visit only.
+      }
+      return !current;
+    });
   const [liveHint, setLiveHint] = useState<string | null>(null);
   useEffect(() => {
     if (!liveHint) return;
@@ -721,6 +739,14 @@ export function FlightList({
           </p>
           <button
             type="button"
+            className={`flight-details-toggle ${showDetails ? "active" : ""}`}
+            onClick={toggleDetails}
+            aria-pressed={showDetails}
+          >
+            Details
+          </button>
+          <button
+            type="button"
             className={`flight-refresh ${locked ? "locked" : ""} ${refreshing ? "spinning" : ""}`}
             onClick={tapRefresh}
             aria-label={
@@ -822,7 +848,16 @@ export function FlightList({
                   {match?.label && (
                     <span className={`flight-live ${timeTone}`}>{match.label}</span>
                   )}
+                  {match?.live.gate && (
+                    <span className="flight-gate" aria-label={`Gate ${match.live.gate}`}>
+                      <small>Gate</small>
+                      {match.live.gate}
+                    </span>
+                  )}
                   <span className={`flight-tag tag-${tag.toLowerCase()}`}>{tag}</span>
+                  {showDetails && live && (
+                    <FlightDetails flight={flight} match={match} />
+                  )}
                 </a>
               </li>
             );
@@ -837,6 +872,105 @@ export function FlightList({
         </p>
       )}
     </section>
+  );
+}
+
+const FLIGHT_DETAILS_KEY = "shiftdeck.flightDetails";
+
+const clockFromIso = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return formatTime(
+    `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`,
+  );
+};
+
+const flightNumber = (ident: string) => {
+  const match = ident.match(/^([A-Z0-9]{2})(\d+)$/);
+  return match ? `${match[1]} ${match[2]}` : ident;
+};
+
+/** The extra lines a flight row shows when Details is on. */
+function FlightDetails({
+  flight,
+  match,
+}: {
+  flight: Flight;
+  match: ReturnType<typeof matchLiveFlight>;
+}) {
+  if (!match) {
+    return <span className="flight-details muted">No live info for this flight yet</span>;
+  }
+  const live = match.live;
+  const place = flightPlace(flight);
+  const facts = [
+    live.ident ? flightNumber(live.ident) : null,
+    [live.aircraft, live.registration].filter(Boolean).join(" · ") || null,
+    live.baggage ? `Bags: claim ${live.baggage}` : null,
+  ].filter(Boolean);
+
+  let progressLine: string | null = null;
+  if (live.cancelled) {
+    progressLine = "Cancelled";
+  } else if (live.kind === "arrival") {
+    const landed = clockFromIso(live.landedAt);
+    const atGate = clockFromIso(live.atGateAt);
+    const tookOff = clockFromIso(live.tookOffAt ?? live.leftGateAt);
+    if (landed || atGate) {
+      progressLine = [landed && `Landed ${landed}`, atGate && `at gate ${atGate}`]
+        .filter(Boolean)
+        .join(" · ");
+    } else if (live.done) {
+      progressLine = "Landed";
+    } else if (tookOff) {
+      progressLine = `Left ${place} ${tookOff}`;
+    } else {
+      progressLine = `Not left ${place} yet`;
+    }
+  } else {
+    const leftGate = clockFromIso(live.leftGateAt);
+    const tookOff = clockFromIso(live.tookOffAt);
+    progressLine = leftGate || tookOff
+      ? [leftGate && `Left gate ${leftGate}`, tookOff && `took off ${tookOff}`]
+          .filter(Boolean)
+          .join(" · ")
+      : live.done
+        ? "Left"
+        : null;
+  }
+
+  const delay = live.delayMinutes ?? match.delay;
+  const delayText =
+    live.cancelled || delay === null || Math.abs(delay) < 3
+      ? delay !== null && Math.abs(delay) < 3 && !live.cancelled
+        ? "On time"
+        : null
+      : delay > 0
+        ? `${delay} min late`
+        : `${-delay} min early`;
+  const flying =
+    live.kind === "arrival" &&
+    !live.done &&
+    !live.landedAt &&
+    typeof live.progress === "number" &&
+    live.progress > 0 &&
+    live.progress < 100;
+
+  return (
+    <span className="flight-details">
+      {facts.length > 0 && <span>{facts.join(" · ")}</span>}
+      {(progressLine || delayText) && (
+        <span>
+          {[progressLine, delayText].filter(Boolean).join(" · ")}
+        </span>
+      )}
+      {flying && (
+        <span className="flight-progress" aria-label={`${live.progress}% of the way`}>
+          <i style={{ width: `${live.progress}%` }} />
+        </span>
+      )}
+    </span>
   );
 }
 

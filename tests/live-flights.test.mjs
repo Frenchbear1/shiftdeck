@@ -16,6 +16,13 @@ const aeroArrival = {
   estimated_in: "2026-07-30T00:12:00Z",
   status: "En Route / Delayed",
   cancelled: false,
+  gate_destination: "4",
+  gate_origin: "B12",
+  aircraft_type: "A320",
+  registration: "N270NV",
+  arrival_delay: 2700,
+  actual_off: "2026-07-29T22:05:00Z",
+  progress_percent: 62,
 };
 
 test("turns AeroAPI flights into gate times", () => {
@@ -23,6 +30,11 @@ test("turns AeroAPI flights into gate times", () => {
   assert.equal(live.ident, "G4178");
   assert.deepEqual(live.other, ["PIE", "KPIE"]);
   assert.equal(live.estimated, "2026-07-30T00:12:00Z");
+  // Gate at ABE, not at the origin.
+  assert.equal(live.gate, "4");
+  assert.equal(live.delayMinutes, 45);
+  assert.equal(live.aircraft, "A320");
+  assert.equal(live.tookOffAt, "2026-07-29T22:05:00Z");
 });
 
 test("keeps flights that left the scheduled list as landed", () => {
