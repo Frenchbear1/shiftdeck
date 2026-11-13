@@ -387,7 +387,12 @@ test("uses durable, duplicate-safe PWA shift notifications", async () => {
   assert.match(sections, /aria-label="Add a shift"/);
   assert.match(sections, /aria-label="Edit this shift"/);
   assert.match(page, /customTitle/);
-  assert.match(page, />Shift title</);
+  const editor = await readFile(
+    new URL("../app/shift-editor.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(editor, /aria-label="Shift title"/);
+  assert.match(editor, /role="spinbutton"/);
   assert.match(page, /returnToToday/);
   assert.match(css, /\.notify-alert \{/);
 });

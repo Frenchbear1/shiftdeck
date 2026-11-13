@@ -70,6 +70,7 @@ import {
   TodayHero,
   backdropClose,
 } from "./home-sections";
+import { ShiftEditorSheet } from "./shift-editor";
 import {
   clearScheduleImages,
   deleteScheduleImage,
@@ -174,25 +175,6 @@ type ScheduleDocument = {
   mimeType?: string;
 };
 
-type AviationOption = {
-  value: string;
-  label: string;
-  search: string;
-};
-
-type AirportData = {
-  c: string;
-  n: string;
-  m: string;
-  r: string;
-};
-
-type AirlineData = {
-  n: string;
-  i: string;
-  c: string;
-};
-
 const DEFAULT_SHIFT_TITLE = "Work";
 const DEFAULT_ALERT_MINUTES = 120;
 const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
@@ -250,21 +232,6 @@ const formatUpdatedAt = (value: string) =>
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
-
-const formatFieldDate = (date: string) =>
-  new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
-
-const formatFieldTime = (time: string) => {
-  const [hours, minutes] = time.split(":").map(Number);
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(2026, 0, 1, hours, minutes));
-};
 
 const getWorkingShift = (shifts: Shift[], date: string, person: string) =>
   shifts.find(
@@ -387,16 +354,6 @@ async function syncCalendarFeed(
     throw error;
   }
   return (await response.json()) as { syncedAt: string };
-}
-
-async function revokeCalendarFeed(subscription: CalendarSubscription) {
-  await fetch(
-    calendarServiceUrl(`/api/calendar-feeds/${subscription.id}`),
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${subscription.writeToken}` },
-    },
-  );
 }
 
 function deviceName() {
@@ -641,8 +598,6 @@ export default function HomePage() {
   const [scheduleDocuments, setScheduleDocuments] = useState<ScheduleDocument[]>([]);
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
-  const [airportOptions, setAirportOptions] = useState<AviationOption[]>([]);
-  const [airlineOptions, setAirlineOptions] = useState<AviationOption[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -747,8 +702,8 @@ export default function HomePage() {
             locationLon:
               typeof saved.locationLon === "number" ? saved.locationLon : null,
             notes: "",
-            homeAirport: saved.homeAirport ?? DEFAULT_PREFS.homeAirport,
-            airline: saved.airline ?? DEFAULT_PREFS.airline,
+            homeAirport: DEFAULT_PREFS.homeAirport,
+            airline: DEFAULT_PREFS.airline,
             flightApp:
               saved.flightApp === "flightradar24" ? "flightradar24" : "flightaware",
           };
@@ -1083,36 +1038,6 @@ export default function HomePage() {
       localStorage.removeItem("shiftdeck.calendarSubscription");
     }
   }, [backgroundHydrated, calendarSubscription]);
-
-  useEffect(() => {
-    if (!settingsOpen || (airportOptions.length && airlineOptions.length)) return;
-    let cancelled = false;
-    void Promise.all([
-      fetch("./data/airports.json").then((response) => response.json() as Promise<AirportData[]>),
-      fetch("./data/airlines.json").then((response) => response.json() as Promise<AirlineData[]>),
-    ]).then(([airports, airlines]) => {
-      if (cancelled) return;
-      setAirportOptions(
-        airports.map((airport) => ({
-          value: airport.c,
-          label: `${airport.c} — ${airport.n}${airport.m ? ` · ${airport.m}` : ""}`,
-          search: `${airport.c} ${airport.n} ${airport.m} ${airport.r}`.toLowerCase(),
-        })),
-      );
-      setAirlineOptions(
-        airlines.map((airline) => ({
-          value: airline.n,
-          label: `${airline.n}${airline.i ? ` (${airline.i})` : airline.c ? ` (${airline.c})` : ""}`,
-          search: `${airline.n} ${airline.i} ${airline.c}`.toLowerCase(),
-        })),
-      );
-    }).catch(() => {
-      if (!cancelled) setToast("Airport and airline lists couldn’t be loaded");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [airportOptions.length, airlineOptions.length, settingsOpen]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1937,75 +1862,26 @@ export default function HomePage() {
     setToast("Shift deleted");
   };
 
-  const clearAllData = () => {
-    const profileToRevoke = notificationProfile;
-    const calendarToRevoke = calendarSubscription;
-    [
-      "shiftdeck.preferences",
-      "shiftdeck.theme",
-      "shiftdeck.importHashes",
-      "shiftdeck.exportedEvents",
-      "shiftdeck.calendarFeed",
-      "shiftdeck.calendarHistory",
-      "shiftdeck.calendarSubscription",
-      "shiftdeck.notificationProfile",
-      "shiftdeck.activeDates",
-      "shiftdeck.parsedShifts",
-      "shiftdeck.parsedFlights",
-      "shiftdeck.scheduleDocuments",
-      "shiftdeck.events",
-      NAME_MERGES_KEY,
-      NAME_MERGE_DISMISSED_KEY,
-      HOME_VIEW_KEY,
-    ].forEach((key) => localStorage.removeItem(key));
-    setPrefs(DEFAULT_PREFS);
-    setTheme("light");
-    setSelectedDate(localDateKey());
+  const clearAllImports = () => {
+    const removedDates = new Set(importedDates);
+    scheduleDocuments.forEach((document) =>
+      document.dates.forEach((date) => removedDates.add(date)),
+    );
+    setScheduleDocuments([]);
     setImportedDates([]);
     setParsedShifts([]);
     setParsedFlights([]);
-    setScheduleDocuments([]);
-    setExpandedDocument(null);
+    setEvents((current) =>
+      current.filter((event) => !removedDates.has(event.date)),
+    );
+    if (removedDates.has(selectedDate)) setSelectedDate(localDateKey());
     Object.values(documentPreviews).forEach((url) => URL.revokeObjectURL(url));
     setDocumentPreviews({});
+    setExpandedDocument(null);
     void clearScheduleImages().catch(() => undefined);
-    setEvents([]);
-    setNameMerges({});
-    setDismissedMerges([]);
-    setImportState("idle");
-    setImportSnapshot({ progress: 0, stage: 0, detail: "" });
-    setImportMessage("");
-    setImportWarnings([]);
-    setLoadedFiles([]);
-    setDuplicateNotice("");
-    setNotificationProfile(null);
-    setNotificationSyncState("idle");
-    setCalendarSubscription(null);
-    setCalendarSyncState("idle");
-    setCoordinatesOpen(false);
-    setCoordinateDraft("");
+    localStorage.setItem("shiftdeck.importHashes", "[]");
     setClearConfirmOpen(false);
-    setSettingsOpen(false);
-    setNotificationsOpen(false);
-    setNameMergeOpen(false);
-    setShiftEditor(null);
-    if (profileToRevoke) {
-      void (async () => {
-        await removePushSubscription(profileToRevoke).catch(() => undefined);
-        const registration = await navigator.serviceWorker?.ready.catch(
-          () => undefined,
-        );
-        const subscription = await registration?.pushManager
-          .getSubscription()
-          .catch(() => null);
-        await subscription?.unsubscribe().catch(() => undefined);
-        await revokeNotificationProfile(profileToRevoke).catch(() => undefined);
-      })();
-    }
-    if (calendarToRevoke) {
-      void revokeCalendarFeed(calendarToRevoke).catch(() => undefined);
-    }
-    setToast("All Shiftdeck data cleared from this device");
+    setToast("All imported schedules cleared");
   };
 
   const hasStructuredCalendarPlace =
@@ -2403,6 +2279,13 @@ export default function HomePage() {
               );
             })}
           </div>
+          <button
+            type="button"
+            className="button danger subtle upload-clear-all"
+            onClick={() => setClearConfirmOpen(true)}
+          >
+            <Trash2 /> Clear all imports
+          </button>
         </section>
       )}
 
@@ -2516,64 +2399,15 @@ export default function HomePage() {
       )}
 
       {shiftEditor && (
-        <div className="modal-layer" role="presentation" {...backdropClose(() => setShiftEditor(null))}>
-          <section className="shift-sheet" role="dialog" aria-modal="true" aria-label={shiftEditor.mode === "edit" ? "Edit shift" : "Add shift"}>
-            <header>
-              <div><h2>{shiftEditor.mode === "edit" ? "Edit shift" : "Add a shift"}</h2></div>
-              <button onClick={() => setShiftEditor(null)} aria-label="Close shift editor"><X /></button>
-            </header>
-            <div className="shift-fields">
-              <label className="shift-title-field">
-                <span>Shift title</span>
-                <input
-                  type="text"
-                  value={shiftDraft.title}
-                  onChange={(event) =>
-                    setShiftDraft((current) => ({
-                      ...current,
-                      title: event.target.value,
-                    }))
-                  }
-                  placeholder="Work"
-                />
-              </label>
-              <label>
-                <span>Date</span>
-                <div className="time-off-input-shell">
-                  <input type="date" value={shiftDraft.date} onChange={(event) => setShiftDraft((current) => ({ ...current, date: event.target.value }))} />
-                  <span className="time-off-input-value" aria-hidden="true">
-                    {formatFieldDate(shiftDraft.date)}
-                  </span>
-                </div>
-              </label>
-              <div className="time-range-fields">
-                <label>
-                  <span>Start</span>
-                  <div className="time-off-input-shell">
-                    <input type="time" value={shiftDraft.start} onChange={(event) => setShiftDraft((current) => ({ ...current, start: event.target.value }))} />
-                    <span className="time-off-input-value" aria-hidden="true">
-                      {formatFieldTime(shiftDraft.start)}
-                    </span>
-                  </div>
-                </label>
-                <span className="time-range-separator" aria-hidden="true">-</span>
-                <label>
-                  <span>Stop</span>
-                  <div className="time-off-input-shell">
-                    <input type="time" value={shiftDraft.end} onChange={(event) => setShiftDraft((current) => ({ ...current, end: event.target.value }))} />
-                    <span className="time-off-input-value" aria-hidden="true">
-                      {formatFieldTime(shiftDraft.end)}
-                    </span>
-                  </div>
-                </label>
-              </div>
-            </div>
-            <div className="shift-actions">
-              {shiftEditor.mode === "edit" && <button className="button danger subtle" onClick={deleteShift}><Trash2 /> Delete</button>}
-              <button className="button primary" onClick={saveShift}><Check /> {shiftEditor.mode === "edit" ? "Save changes" : "Add shift"}</button>
-            </div>
-          </section>
-        </div>
+        <ShiftEditorSheet
+          key={shiftEditor.eventId ?? "new"}
+          mode={shiftEditor.mode}
+          draft={shiftDraft}
+          setDraft={setShiftDraft}
+          onClose={() => setShiftEditor(null)}
+          onSave={saveShift}
+          onDelete={deleteShift}
+        />
       )}
 
       {notificationsOpen && (
@@ -2953,22 +2787,6 @@ export default function HomePage() {
                 Merge names
               </button>
             </div>
-            <div className="settings-grid">
-              <SearchableSelect
-                label="Home airport"
-                value={prefs.homeAirport}
-                options={airportOptions}
-                placeholder="Search code or city"
-                onSelect={(value) => savePrefs({ homeAirport: cleanAirportCode(value) })}
-              />
-              <SearchableSelect
-                label="Airline"
-                value={prefs.airline}
-                options={airlineOptions}
-                placeholder="Search airline or code"
-                onSelect={(value) => savePrefs({ airline: value })}
-              />
-            </div>
             <div className="calendar-subscription-setting">
               <div>
                 <span>Notifications</span>
@@ -3031,9 +2849,6 @@ export default function HomePage() {
                 <button className={theme === "dark" ? "active" : ""} onClick={() => changeTheme("dark")}><Moon /> Dark</button>
               </div>
             </div>
-            <div className="danger-zone">
-              <button className="button danger subtle" onClick={() => setClearConfirmOpen(true)}><Trash2 /> Clear all data</button>
-            </div>
             <button className="button primary" onClick={() => { setSettingsOpen(false); setToast("Preferences saved on this device"); }}><Check /> Save preferences</button>
           </section>
         </div>
@@ -3061,11 +2876,11 @@ export default function HomePage() {
         <div className="modal-layer" role="presentation" {...backdropClose(() => setClearConfirmOpen(false))}>
           <section className="confirm-card" role="alertdialog" aria-modal="true">
             <span className="confirm-icon danger"><Trash2 /></span>
-            <h2>Clear all app data?</h2>
-            <p>This resets saved settings and uploads on this device. It also turns off this device’s Shiftdeck notifications.</p>
+            <h2>Clear all imports?</h2>
+            <p>This deletes every uploaded schedule and the shifts and flights imported from them on this device. Your settings stay.</p>
             <div>
               <button className="button soft" onClick={() => setClearConfirmOpen(false)}>Cancel</button>
-              <button className="button danger" onClick={clearAllData}>Clear everything</button>
+              <button className="button danger" onClick={clearAllImports}>Clear imports</button>
             </div>
           </section>
         </div>
@@ -3073,89 +2888,5 @@ export default function HomePage() {
 
       {toast && <div className="toast"><Check /> {toast}</div>}
     </div>
-  );
-}
-
-function SearchableSelect({
-  label,
-  value,
-  options,
-  placeholder,
-  onSelect,
-}: {
-  label: string;
-  value: string;
-  options: AviationOption[];
-  placeholder: string;
-  onSelect: (value: string) => void;
-}) {
-  const [query, setQuery] = useState(value);
-  const [open, setOpen] = useState(false);
-  const normalizedQuery = query.trim().toLowerCase();
-  const matches = options
-    .filter((option) =>
-      !normalizedQuery ||
-      option.search.includes(normalizedQuery) ||
-      option.value.toLowerCase().startsWith(normalizedQuery),
-    )
-    .slice(0, 8);
-  const listId = `search-${label.toLowerCase().replace(/\s+/g, "-")}`;
-
-  const choose = (option: AviationOption) => {
-    onSelect(option.value);
-    setQuery(option.value);
-    setOpen(false);
-  };
-
-  return (
-    <label className="searchable-select">
-      <span>{label}</span>
-      <div>
-        <input
-          value={query}
-          onFocus={(event) => {
-            setOpen(true);
-            event.currentTarget.select();
-          }}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setOpen(true);
-          }}
-          onBlur={() => {
-            window.setTimeout(() => {
-              setOpen(false);
-              setQuery(value);
-            }, 120);
-          }}
-          placeholder={options.length ? placeholder : "Loading…"}
-          autoComplete="off"
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listId}
-        />
-        <ChevronDown />
-        {open && (
-          <div className="searchable-options" id={listId} role="listbox">
-            {matches.length ? (
-              matches.map((option) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={option.value === value}
-                  key={`${option.value}-${option.label}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => choose(option)}
-                >
-                  <span>{option.label}</span>
-                  {option.value === value && <Check />}
-                </button>
-              ))
-            ) : (
-              <span className="searchable-empty">No matches</span>
-            )}
-          </div>
-        )}
-      </div>
-    </label>
   );
 }
