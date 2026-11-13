@@ -2,6 +2,7 @@
 
 import {
   ArrowLeftRight,
+  ArrowUpRight,
   CalendarDays,
   CalendarRange,
   Check,
@@ -648,7 +649,10 @@ export function FlightList({
       return false;
     }
   });
-  const toggleDetails = () =>
+  // Tapping a row opens/closes just that row; the Details button sets all rows.
+  const [rowOpen, setRowOpen] = useState<Record<string, boolean>>({});
+  const toggleDetails = () => {
+    setRowOpen({});
     setShowDetails((current) => {
       try {
         localStorage.setItem(FLIGHT_DETAILS_KEY, current ? "0" : "1");
@@ -657,6 +661,7 @@ export function FlightList({
       }
       return !current;
     });
+  };
   const [liveHint, setLiveHint] = useState<string | null>(null);
   useEffect(() => {
     if (!liveHint) return;
@@ -836,6 +841,7 @@ export function FlightList({
         <ul className="flight-rows">
           {visible.map((flight) => {
             const tag = flightTag(flight);
+            const expanded = rowOpen[flight.id] ?? showDetails;
             const during = isFlightInShift(effectiveOf(flight), shift, SHIFT_ARRIVAL_LEAD_MINUTES);
             const scheduledTime = flightTime(flight);
             const match = liveById.get(flight.id)?.match ?? null;
@@ -857,11 +863,17 @@ export function FlightList({
             if (shift && toMinutes(shift.start) > 720 && minutes < 360) minutes += 1440;
             const past = isToday && minutes + 20 < nowMinutes;
             return (
-              <li key={flight.id}>
-                <a
-                  className={`flight-row ${during ? "in-shift" : ""} ${past ? "past" : ""}`}
-                  href={linkFor(flight)}
-                  target="_self"
+              <li
+                key={flight.id}
+                className={`flight-card ${expanded ? "expanded" : ""} ${during ? "in-shift" : ""} ${past ? "past" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="flight-row"
+                  aria-expanded={expanded}
+                  onClick={() =>
+                    setRowOpen((current) => ({ ...current, [flight.id]: !expanded }))
+                  }
                   aria-label={`${tag === "Turn" ? "Turn" : tag === "RON" ? "RON" : "Departure"} ${
                     tag === "Out" ? "to" : "from"
                   } ${flightPlace(flight)}${
@@ -870,7 +882,7 @@ export function FlightList({
                       : ""
                   } at ${formatTime(time)}${
                     changed ? `, scheduled ${formatTime(scheduledTime)}` : ""
-                  }${match?.label ? `, ${match.label}` : ""}. Open in ${appName}`}
+                  }${match?.label ? `, ${match.label}` : ""}. ${expanded ? "Hide" : "Show"} details`}
                 >
                   <span className={`flight-time ${timeTone}`}>
                     <time>{formatTime(time)}</time>
@@ -896,10 +908,21 @@ export function FlightList({
                     </span>
                   )}
                   <span className={`flight-tag tag-${tag.toLowerCase()}`}>{tag}</span>
-                  {showDetails && live && (
-                    <FlightDetails flight={flight} match={match} />
-                  )}
-                </a>
+                </button>
+                {expanded && (
+                  <div className="flight-expand">
+                    {live ? <FlightDetails flight={flight} match={match} /> : <span />}
+                    <a
+                      className="flight-open"
+                      href={linkFor(flight)}
+                      target="_self"
+                      aria-label={`Open in ${appName}`}
+                    >
+                      Open
+                      <ArrowUpRight />
+                    </a>
+                  </div>
+                )}
               </li>
             );
           })}
