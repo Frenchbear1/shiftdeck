@@ -1,19 +1,20 @@
 /**
- * Live arrival/departure times for the home airport, from FlightAware AeroAPI.
+ * Live arrival/departure times for the home airport, from FlightAware AeroAPI,
+ * shared by everyone who uses Shiftdeck (no accounts).
  *
- * GET /api/flights/live?airport=ABE
+ * GET  /api/flights/live?airport=ABE           → last saved times + usage status
+ *                                                 (never calls AeroAPI, free)
+ * POST /api/flights/live/refresh?airport=ABE   → asks AeroAPI once and saves it
+ *      body { "emergency": true } to use an emergency refresh
  *
- * Needs the AEROAPI_KEY secret (`npx wrangler secret put AEROAPI_KEY`).
- * Without it the endpoint answers { enabled: false } and the app keeps
- * showing schedule times.
+ * Limits are shared by every phone:
+ * - 10 refreshes a day, then 3 emergency refreshes (day = Allentown time)
+ * - 10 minutes between refreshes
+ * - stops for the month once spend reaches AEROAPI_MONTHLY_BUDGET_CENTS
+ *   (default 450, under AeroAPI Personal's $5 free allowance)
  *
- * Cost control (AeroAPI Personal tier gives $5 of free queries a month):
- * - one shared cache in D1, so every phone reads the same copy;
- * - each refresh is 2 queries (scheduled arrivals + scheduled departures,
- *   Allegiant only) at $0.005 each;
- * - refreshes every 5 min while a flight is close, otherwise every 20 min;
- * - stops calling AeroAPI once the month's spend reaches the budget
- *   (AEROAPI_MONTHLY_BUDGET_CENTS, default 450) and serves the last copy.
+ * Needs the AEROAPI_KEY secret. Without it the endpoint answers
+ * { enabled: false } and the app keeps showing schedule times.
  */
 import { CalendarDatabase, corsHeaders, json } from "./calendar-service";
 import {
@@ -33,8 +34,11 @@ type CachePayload = { fetchedAt: number; flights: LiveFlight[] };
 const AEROAPI = "https://aeroapi.flightaware.com/aeroapi";
 const AIRLINE = "AAY";
 const QUERY_COST_MILLICENTS = 500; // $0.005 per result set
-const NEAR_TTL = 5 * 60_000;
-const FAR_TTL = 20 * 60_000;
+const DAILY_LIMIT = 10;
+const EMERGENCY_LIMIT = 3;
+const COOLDOWN_MS = 10 * 60_000;
+const FREE_CENTS = 500;
+const TIME_ZONE = "America/New_York";
 
 let schemaReady = false;
 
@@ -47,17 +51,80 @@ async function ensureSchema(db: CalendarDatabase) {
     db.prepare(
       "CREATE TABLE IF NOT EXISTS aeroapi_usage (month TEXT PRIMARY KEY, millicents INTEGER NOT NULL DEFAULT 0)",
     ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS flight_refresh_days (day TEXT PRIMARY KEY, normal INTEGER NOT NULL DEFAULT 0, emergency INTEGER NOT NULL DEFAULT 0)",
+    ),
   ]);
   schemaReady = true;
 }
 
-function ttlFor(payload: CachePayload, now: number) {
-  const near = payload.flights.some((flight) => {
-    if (flight.done || flight.cancelled) return false;
-    const time = Date.parse(flight.estimated ?? flight.scheduled ?? "");
-    return time - now < 90 * 60_000 && time - now > -60 * 60_000;
-  });
-  return near ? NEAR_TTL : FAR_TTL;
+/** "2026-11-13" and "2026-11" in Allentown time. */
+function localKeys(now: number) {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(now));
+  return { day, month: day.slice(0, 7) };
+}
+
+async function readState(
+  db: CalendarDatabase,
+  airport: string,
+  now: number,
+  env: FlightStatusEnvironment,
+) {
+  const { day, month } = localKeys(now);
+  const [row, usage, counts] = await Promise.all([
+    db
+      .prepare("SELECT payload FROM flight_status_cache WHERE airport = ?")
+      .bind(airport)
+      .first<{ payload: string }>(),
+    db
+      .prepare("SELECT millicents FROM aeroapi_usage WHERE month = ?")
+      .bind(month)
+      .first<{ millicents: number }>(),
+    db
+      .prepare("SELECT normal, emergency FROM flight_refresh_days WHERE day = ?")
+      .bind(day)
+      .first<{ normal: number; emergency: number }>(),
+  ]);
+  let cached: CachePayload | null = null;
+  try {
+    cached = row ? (JSON.parse(row.payload) as CachePayload) : null;
+  } catch {
+    cached = null;
+  }
+  const budgetCents = Number(env.AEROAPI_MONTHLY_BUDGET_CENTS ?? "450") || 450;
+  const spentMillicents = usage?.millicents ?? 0;
+  const used = counts?.normal ?? 0;
+  const emergencyUsed = counts?.emergency ?? 0;
+  const nextAt = cached ? cached.fetchedAt + COOLDOWN_MS : 0;
+  const overBudget =
+    spentMillicents + 2 * QUERY_COST_MILLICENTS > budgetCents * 1000;
+  const status = {
+    dailyLimit: DAILY_LIMIT,
+    used,
+    emergencyLimit: EMERGENCY_LIMIT,
+    emergencyUsed,
+    cooldownMinutes: COOLDOWN_MS / 60_000,
+    nextAt: nextAt > now ? new Date(nextAt).toISOString() : null,
+    monthSpentCents: Math.round(spentMillicents / 1000),
+    monthFreeCents: FREE_CENTS,
+    budgetCents,
+    /** What tapping refresh would do right now. */
+    available: overBudget
+      ? "budget"
+      : nextAt > now
+        ? "cooldown"
+        : used < DAILY_LIMIT
+          ? "normal"
+          : emergencyUsed < EMERGENCY_LIMIT
+            ? "emergency"
+            : "none",
+  } as const;
+  return { cached, status, day, month };
 }
 
 async function aeroGet(path: string, key: string) {
@@ -76,14 +143,14 @@ export async function handleFlightStatusRequest(
   env: FlightStatusEnvironment,
 ) {
   const url = new URL(request.url);
-  if (url.pathname !== "/api/flights/live") return null;
+  const isRefresh = url.pathname === "/api/flights/live/refresh";
+  if (url.pathname !== "/api/flights/live" && !isRefresh) return null;
   if (request.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
       headers: corsHeaders(request) as Record<string, string>,
     });
   }
-  if (request.method !== "GET") return json(request, { error: "Method not allowed" }, 405);
   if (!env.AEROAPI_KEY || !db) return json(request, { enabled: false, flights: [] });
 
   const raw = (url.searchParams.get("airport") ?? "ABE").trim().toUpperCase();
@@ -94,37 +161,44 @@ export async function handleFlightStatusRequest(
 
   await ensureSchema(db);
   const now = Date.now();
-  const row = await db
-    .prepare("SELECT payload FROM flight_status_cache WHERE airport = ?")
-    .bind(airport)
-    .first<{ payload: string }>();
-  let cached: CachePayload | null = null;
-  try {
-    cached = row ? (JSON.parse(row.payload) as CachePayload) : null;
-  } catch {
-    cached = null;
+  const state = await readState(db, airport, now, env);
+  const reply = (
+    payload: CachePayload | null,
+    status: typeof state.status,
+    extra: Record<string, unknown> = {},
+    code = 200,
+  ) =>
+    json(
+      request,
+      {
+        enabled: true,
+        updatedAt: payload ? new Date(payload.fetchedAt).toISOString() : null,
+        flights: payload?.flights ?? [],
+        status,
+        ...extra,
+      },
+      code,
+      { "Cache-Control": "no-store" },
+    );
+
+  if (!isRefresh) {
+    if (request.method !== "GET") return json(request, { error: "Method not allowed" }, 405);
+    return reply(state.cached, state.status);
   }
-  const reply = (payload: CachePayload, stale = false) =>
-    json(request, {
-      enabled: true,
-      stale,
-      updatedAt: new Date(payload.fetchedAt).toISOString(),
-      flights: payload.flights,
-    });
+  if (request.method !== "POST") return json(request, { error: "Method not allowed" }, 405);
 
-  if (cached && now - cached.fetchedAt < ttlFor(cached, now)) return reply(cached);
-
-  const month = new Date(now).toISOString().slice(0, 7);
-  const budget =
-    Number(env.AEROAPI_MONTHLY_BUDGET_CENTS ?? "450") * 1000 || 450_000;
-  const usage = await db
-    .prepare("SELECT millicents FROM aeroapi_usage WHERE month = ?")
-    .bind(month)
-    .first<{ millicents: number }>();
-  if ((usage?.millicents ?? 0) + 2 * QUERY_COST_MILLICENTS > budget) {
-    return cached
-      ? reply(cached, true)
-      : json(request, { enabled: true, stale: true, flights: [] });
+  let emergency = false;
+  try {
+    emergency = Boolean(((await request.json()) as { emergency?: boolean }).emergency);
+  } catch {
+    emergency = false;
+  }
+  const { available } = state.status;
+  if (available === "cooldown" || available === "none" || available === "budget") {
+    return reply(state.cached, state.status, { refused: available }, 429);
+  }
+  if (available === "emergency" && !emergency) {
+    return reply(state.cached, state.status, { refused: "needs-emergency" }, 409);
   }
 
   const window = new URLSearchParams({
@@ -149,8 +223,9 @@ export async function handleFlightStatusRequest(
     ];
     const payload: CachePayload = {
       fetchedAt: now,
-      flights: mergeLiveFlights(cached?.flights ?? [], fresh, now),
+      flights: mergeLiveFlights(state.cached?.flights ?? [], fresh, now),
     };
+    const column = available === "emergency" ? "emergency" : "normal";
     await db.batch([
       db
         .prepare(
@@ -161,12 +236,16 @@ export async function handleFlightStatusRequest(
         .prepare(
           "INSERT INTO aeroapi_usage (month, millicents) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET millicents = millicents + excluded.millicents",
         )
-        .bind(month, pages * QUERY_COST_MILLICENTS),
+        .bind(state.month, pages * QUERY_COST_MILLICENTS),
+      db
+        .prepare(
+          `INSERT INTO flight_refresh_days (day, ${column}) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET ${column} = ${column} + 1`,
+        )
+        .bind(state.day),
     ]);
-    return reply(payload);
+    const after = await readState(db, airport, now, env);
+    return reply(payload, after.status);
   } catch {
-    return cached
-      ? reply(cached, true)
-      : json(request, { enabled: true, stale: true, flights: [] });
+    return reply(state.cached, state.status, { refused: "error" }, 502);
   }
 }

@@ -12,6 +12,7 @@ import {
   Pencil,
   Plane,
   Plus,
+  RefreshCw,
   Sun,
   Undo2,
   UsersRound,
@@ -19,7 +20,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Flight, Shift } from "./sample-data";
-import { matchLiveFlight, useLiveFlights } from "./live-flights";
+import { LiveFlights, matchLiveFlight, RefreshResult } from "./live-flights";
 import {
   analyzeSwap,
   buildCrewTimeline,
@@ -573,7 +574,9 @@ export function FlightList({
   linkFor,
   airport,
   app = "flightaware",
-  liveUrl,
+  live = null,
+  onRefresh,
+  refreshing = false,
 }: {
   flights: Flight[];
   shift: Shift | null | undefined;
@@ -583,8 +586,10 @@ export function FlightList({
   linkFor: (flight: Flight) => string;
   airport: string;
   app?: FlightApp;
-  /** Worker URL for live times; leave out to show schedule times only. */
-  liveUrl?: string;
+  /** Shared live times from the worker; null until FlightAware is set up. */
+  live?: LiveFlights | null;
+  onRefresh?: (emergency: boolean) => Promise<RefreshResult>;
+  refreshing?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [shownFor, setShownFor] = useState(date);
@@ -605,17 +610,37 @@ export function FlightList({
   const visible = shift && !showAll ? inShift : sorted;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const appName = FLIGHT_APP_NAMES[app];
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const isTomorrow =
-    date ===
-    `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(
-      tomorrow.getDate(),
-    ).padStart(2, "0")}`;
-  const live = useLiveFlights(liveUrl ?? "", Boolean(liveUrl) && (isToday || isTomorrow));
-  const liveAge = live?.updatedAt
-    ? Math.max(0, Math.round((now.getTime() - Date.parse(live.updatedAt)) / 60_000))
+  const [confirmEmergency, setConfirmEmergency] = useState(false);
+  const [liveHint, setLiveHint] = useState<string | null>(null);
+  useEffect(() => {
+    if (!liveHint) return;
+    const timer = window.setTimeout(() => setLiveHint(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [liveHint]);
+  const liveUpdated = live?.updatedAt ? new Date(live.updatedAt) : null;
+  const liveAge = liveUpdated
+    ? Math.max(0, Math.round((now.getTime() - liveUpdated.getTime()) / 60_000))
     : null;
+  const available = live?.status?.available ?? "normal";
+  const locked = available === "cooldown" || available === "none" || available === "budget";
+  const hintFor = (result: RefreshResult) =>
+    result === "ok"
+      ? null
+      : result === "error"
+        ? "Couldn’t reach FlightAware"
+        : "Refresh locked · details in Settings";
+  const runRefresh = async (emergency: boolean) => {
+    if (!onRefresh) return;
+    const result = await onRefresh(emergency);
+    if (result === "needs-emergency") setConfirmEmergency(true);
+    else setLiveHint(hintFor(result));
+  };
+  const tapRefresh = () => {
+    if (refreshing) return;
+    if (locked) setLiveHint("Refresh locked · details in Settings");
+    else if (available === "emergency") setConfirmEmergency(true);
+    else void runRefresh(false);
+  };
 
   return (
     <section className="panel flights-panel">
@@ -681,12 +706,63 @@ export function FlightList({
         )}
       </div>
 
-      {liveAge !== null && (
-        <p className="flight-live-note">
-          <span aria-hidden="true" />
-          Live times from FlightAware ·{" "}
-          {liveAge < 1 ? "just now" : `${liveAge} min ago`}
-        </p>
+      {live && (
+        <div className="flight-live-note">
+          <span className="flight-live-dot" aria-hidden="true" />
+          <p>
+            {liveHint ??
+              (liveUpdated
+                ? `Updated ${formatTime(
+                    `${String(liveUpdated.getHours()).padStart(2, "0")}:${String(
+                      liveUpdated.getMinutes(),
+                    ).padStart(2, "0")}`,
+                  )} · ${liveAge! < 1 ? "just now" : `${liveAge} min ago`}`
+                : "No live times yet")}
+          </p>
+          <button
+            type="button"
+            className={`flight-refresh ${locked ? "locked" : ""} ${refreshing ? "spinning" : ""}`}
+            onClick={tapRefresh}
+            aria-label={
+              locked
+                ? "Refresh locked, see Settings"
+                : available === "emergency"
+                  ? "Emergency refresh of live flight times"
+                  : "Refresh live flight times"
+            }
+          >
+            <RefreshCw />
+          </button>
+        </div>
+      )}
+
+      {confirmEmergency && (
+        <div className="modal-layer" role="presentation" {...backdropClose(() => setConfirmEmergency(false))}>
+          <section className="confirm-card" role="alertdialog" aria-modal="true" aria-label="Use an emergency refresh?">
+            <span className="confirm-icon"><RefreshCw /></span>
+            <h2>Use an emergency refresh?</h2>
+            <p>
+              Today’s {live?.status?.dailyLimit ?? 10} refreshes are used up.{" "}
+              {live?.status
+                ? `${live.status.emergencyLimit - live.status.emergencyUsed} emergency refresh${
+                    live.status.emergencyLimit - live.status.emergencyUsed === 1 ? "" : "es"
+                  } left for everyone today.`
+                : ""}
+            </p>
+            <div>
+              <button className="button soft" onClick={() => setConfirmEmergency(false)}>Cancel</button>
+              <button
+                className="button primary"
+                onClick={() => {
+                  setConfirmEmergency(false);
+                  void runRefresh(true);
+                }}
+              >
+                Use emergency refresh
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {visible.length ? (

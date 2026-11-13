@@ -71,6 +71,8 @@ import {
   backdropClose,
 } from "./home-sections";
 import { ShiftEditorSheet } from "./shift-editor";
+import { useLiveFlights } from "./live-flights";
+import { LiveStatusSetting } from "./live-status-setting";
 import {
   clearScheduleImages,
   deleteScheduleImage,
@@ -650,6 +652,9 @@ export default function HomePage() {
   const [hydrated, setHydrated] = useState(false);
   const [backgroundHydrated, setBackgroundHydrated] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
+  const liveFlights = useLiveFlights(
+    calendarServiceUrl(`/api/flights/live?airport=${DEFAULT_PREFS.homeAirport}`),
+  );
   const fileInput = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<Sheet>(null);
 
@@ -2364,9 +2369,9 @@ export default function HomePage() {
             }
             airport={cleanAirportCode(prefs.homeAirport)}
             app={prefs.flightApp}
-            liveUrl={calendarServiceUrl(
-              `/api/flights/live?airport=${encodeURIComponent(cleanAirportCode(prefs.homeAirport))}`,
-            )}
+            live={liveFlights.live}
+            onRefresh={liveFlights.refresh}
+            refreshing={liveFlights.refreshing}
           />
           <CrewPanel
             shifts={dayShifts}
@@ -2790,6 +2795,12 @@ export default function HomePage() {
                 Merge names
               </button>
             </div>
+            {liveFlights.live?.status && (
+              <LiveStatusSetting
+                status={liveFlights.live.status}
+                updatedAt={liveFlights.live.updatedAt}
+              />
+            )}
             <div className="calendar-subscription-setting">
               <div>
                 <span>Notifications</span>

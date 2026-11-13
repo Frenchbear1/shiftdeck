@@ -16,42 +16,68 @@ export type LiveFlight = {
   done?: boolean;
 };
 
+export type LiveStatus = {
+  dailyLimit: number;
+  used: number;
+  emergencyLimit: number;
+  emergencyUsed: number;
+  cooldownMinutes: number;
+  nextAt: string | null;
+  monthSpentCents: number;
+  monthFreeCents: number;
+  budgetCents: number;
+  /** What tapping refresh does right now. */
+  available: "normal" | "emergency" | "cooldown" | "none" | "budget";
+};
+
 export type LiveFlights = {
   updatedAt: string | null;
   flights: LiveFlight[];
+  status: LiveStatus | null;
 };
 
-const REFRESH_MS = 5 * 60_000;
+export type RefreshResult = "ok" | "needs-emergency" | "cooldown" | "none" | "budget" | "error";
+
+const READ_EVERY_MS = 2 * 60_000;
 
 /**
- * Polls the worker while `active` (viewing today/tomorrow) and the app is on
- * screen. The worker caches and rations AeroAPI, so polling here is cheap.
+ * Reads the shared copy of live times from the worker (free; it never calls
+ * FlightAware). Only `refresh` asks FlightAware, and the worker limits that
+ * for everyone combined.
  */
-export function useLiveFlights(url: string, active: boolean) {
+export function useLiveFlights(baseUrl: string) {
   const [live, setLive] = useState<LiveFlights | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const accept = (data: {
+    enabled?: boolean;
+    updatedAt?: string | null;
+    flights?: LiveFlight[];
+    status?: LiveStatus;
+  }) => {
+    if (!data.enabled || !Array.isArray(data.flights)) return;
+    setLive({
+      updatedAt: data.updatedAt ?? null,
+      flights: data.flights,
+      status: data.status ?? null,
+    });
+  };
 
   useEffect(() => {
-    if (!active) return;
     let cancelled = false;
     let timer: number | undefined;
     const load = async () => {
       window.clearTimeout(timer);
       if (document.visibilityState === "visible") {
         try {
-          const response = await fetch(url, { cache: "no-store" });
-          const data = (await response.json()) as {
-            enabled?: boolean;
-            updatedAt?: string;
-            flights?: LiveFlight[];
-          };
-          if (!cancelled && data.enabled && Array.isArray(data.flights)) {
-            setLive({ updatedAt: data.updatedAt ?? null, flights: data.flights });
-          }
+          const response = await fetch(baseUrl, { cache: "no-store" });
+          const data = await response.json();
+          if (!cancelled) accept(data);
         } catch {
           // Offline or worker not deployed yet: keep schedule times.
         }
       }
-      if (!cancelled) timer = window.setTimeout(load, REFRESH_MS);
+      if (!cancelled) timer = window.setTimeout(load, READ_EVERY_MS);
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") void load();
@@ -63,9 +89,31 @@ export function useLiveFlights(url: string, active: boolean) {
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [url, active]);
+  }, [baseUrl]);
 
-  return live;
+  const refresh = async (emergency = false): Promise<RefreshResult> => {
+    if (refreshing) return "cooldown";
+    setRefreshing(true);
+    try {
+      const url = new URL(baseUrl, window.location.href);
+      url.pathname = url.pathname.replace(/\/?$/, "/refresh");
+      const response = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emergency }),
+      });
+      const data = await response.json();
+      accept(data);
+      if (response.ok) return "ok";
+      return (data.refused as RefreshResult | undefined) ?? "error";
+    } catch {
+      return "error";
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  return { live, refresh, refreshing };
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");
