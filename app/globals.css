@@ -4972,3 +4972,39 @@ select:focus-visible {
 .map-zoom-track input {
   pointer-events: none;
 }
+
+.learning-compare {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 3px 10px;
+  margin: 3px 0;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.learning-compare span:nth-child(-n + 3) {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.learning-compare span:nth-child(7),
+.learning-compare span:nth-child(8),
+.learning-compare span:nth-child(9) {
+  color: var(--blue);
+}
+
+.live-status-setting .learning-compare span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.live-status-setting .learning-compare span:nth-child(-n + 3) {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.live-status-setting .learning-compare span:nth-child(n + 7) {
+  color: var(--blue);
+}

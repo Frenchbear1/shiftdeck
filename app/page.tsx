@@ -72,7 +72,7 @@ import {
 } from "./home-sections";
 import { ShiftEditorSheet } from "./shift-editor";
 import { useLiveFlights } from "./live-flights";
-import { LiveStatusSetting } from "./live-status-setting";
+import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
 import { LiveMapPanel } from "./live-map";
 import {
@@ -2807,6 +2807,9 @@ export default function HomePage() {
                 status={liveFlights.live.status}
                 updatedAt={liveFlights.live.updatedAt}
               />
+            )}
+            {liveFlights.live && (
+              <LearningSetting url={calendarServiceUrl("/api/flights/learning")} />
             )}
             <div className="calendar-subscription-setting">
               <div>

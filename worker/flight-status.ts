@@ -17,6 +17,7 @@
  * { enabled: false } and the app keeps showing schedule times.
  */
 import { CalendarDatabase, corsHeaders, json } from "./calendar-service";
+import { attachLiveEtas } from "./flight-learning";
 import {
   AeroFlight,
   LiveFlight,
@@ -186,7 +187,11 @@ export async function handleFlightStatusRequest(
 
   if (!isRefresh) {
     if (request.method !== "GET") return json(request, { error: "Method not allowed" }, 405);
-    return reply(state.cached, state.status);
+    // Add Shiftdeck's own live estimates (free tracking + history) between refreshes.
+    const withLive = state.cached
+      ? { ...state.cached, flights: await attachLiveEtas(db, state.cached.flights, now) }
+      : null;
+    return reply(withLive, state.status);
   }
   if (request.method !== "POST") return json(request, { error: "Method not allowed" }, 405);
 

@@ -26,6 +26,10 @@ export type LiveFlight = {
   landedAt?: string | null;
   atGateAt?: string | null;
   progress?: number | null;
+  /** Arrivals: FlightAware's runway (touchdown) estimate, separate from the gate one. */
+  estimatedOn?: string | null;
+  /** Arrivals: Shiftdeck's own live estimate from tracking + history (see flight-learning). */
+  liveEta?: { landing: string; gate: string; distanceNm: number; seenAt: string; method: string } | null;
 };
 
 export type AeroAirport = {
@@ -103,6 +107,7 @@ export function toLiveFlight(
     landedAt: kind === "arrival" ? flight.actual_on ?? null : null,
     atGateAt: kind === "arrival" ? flight.actual_in ?? null : null,
     progress: typeof flight.progress_percent === "number" ? flight.progress_percent : null,
+    estimatedOn: kind === "arrival" ? flight.estimated_on ?? null : null,
   };
 }
 

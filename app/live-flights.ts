@@ -24,6 +24,15 @@ export type LiveFlight = {
   landedAt?: string | null;
   atGateAt?: string | null;
   progress?: number | null;
+  estimatedOn?: string | null;
+  /** Shiftdeck's own estimate while it tracks the plane (free ADS-B + history). */
+  liveEta?: {
+    landing: string;
+    gate: string;
+    distanceNm: number;
+    seenAt: string;
+    method: "history" | "physics" | string;
+  } | null;
 };
 
 export type LiveStatus = {
@@ -48,7 +57,8 @@ export type LiveFlights = {
 
 export type RefreshResult = "ok" | "needs-emergency" | "cooldown" | "none" | "budget" | "error";
 
-const READ_EVERY_MS = 2 * 60_000;
+// Reading is free (it never calls FlightAware), and tracked flights change every minute.
+const READ_EVERY_MS = 60_000;
 
 /**
  * Reads the shared copy of live times from the worker (free; it never calls
@@ -142,6 +152,8 @@ export type LiveMatch = {
   /** Minutes later (+) or earlier (−) than the airline's schedule. */
   delay: number;
   label: string | null;
+  /** Set when the time comes from Shiftdeck's own tracking, not FlightAware. */
+  tracked: LiveFlight["liveEta"];
 };
 
 /** Finds the live record for the leg a flight row shows (its arrival, or departure for "Out"). */
@@ -178,18 +190,22 @@ export function matchLiveFlight(
   if (!best) return null;
 
   const match = best.live;
-  const current = new Date(match.estimated ?? match.scheduled ?? "");
+  // Our tracked estimate is newer than FlightAware's between refreshes.
+  const tracked = match.kind === "arrival" && !match.done ? match.liveEta ?? null : null;
+  const current = new Date(tracked?.gate ?? match.estimated ?? match.scheduled ?? "");
   const delay = Math.round(
     (current.getTime() - Date.parse(match.scheduled ?? "")) / 60_000,
   );
   const label = match.cancelled
     ? "Cancelled"
-    : match.done
+    : tracked
+      ? `${Math.max(1, Math.round(tracked.distanceNm))} nm out`
+      : match.done
       ? match.kind === "arrival"
         ? "Landed"
         : "Left"
       : /en route|taxiing|landed|arrived|departed/i.test(match.status)
         ? match.status.replace(/\s*\/.*$/, "")
         : null;
-  return { live: match, time: clockOf(current), delay, label };
+  return { live: match, time: clockOf(current), delay, label, tracked };
 }

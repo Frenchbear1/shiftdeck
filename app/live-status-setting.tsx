@@ -56,3 +56,93 @@ export function LiveStatusSetting({
     </div>
   );
 }
+
+type LearningResults = {
+  enabled: boolean;
+  since: string | null;
+  tracking: number;
+  storageKb: number;
+  flights: number;
+  seen: number;
+  firstSeenNm: number | null;
+  faErr30: number | null;
+  faErr15: number | null;
+  ourErr30: number | null;
+  ourErr15: number | null;
+  ourSamples: number;
+  runways: { runway: string; flights: number; taxiMin: number | null }[];
+};
+
+const minutes = (value: number | null) => (value === null ? "—" : `~${value} min`);
+
+/** What the flight-learning worker has figured out so far, shown in Settings. */
+export function LearningSetting({ url }: { url: string }) {
+  const [results, setResults] = useState<LearningResults | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(url, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: LearningResults) => {
+        if (!cancelled && data.enabled) setResults(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  if (!results) return null;
+  const since = results.since
+    ? new Date(results.since).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
+  const seenPct = results.flights ? Math.round((results.seen / results.flights) * 100) : 0;
+
+  return (
+    <div className="live-status-setting learning-setting">
+      <span>Flight learning{since ? ` · since ${since}` : ""}</span>
+      {results.flights === 0 ? (
+        <small>
+          Collecting{results.tracking ? ` · watching ${results.tracking} flight${results.tracking === 1 ? "" : "s"}` : ""}.
+          Results show here after the first few arrivals.
+        </small>
+      ) : (
+        <>
+          <b>
+            {results.flights} arrival{results.flights === 1 ? "" : "s"} logged · free tracking saw{" "}
+            {results.seen} ({seenPct}%)
+          </b>
+          {results.firstSeenNm !== null && (
+            <small>Usually first spotted ~{Math.round(results.firstSeenNm)} nm out</small>
+          )}
+          <div className="learning-compare">
+            <span />
+            <span>30 min out</span>
+            <span>15 min out</span>
+            <span>FlightAware</span>
+            <span>{minutes(results.faErr30)}</span>
+            <span>{minutes(results.faErr15)}</span>
+            <span>Shiftdeck</span>
+            <span>{minutes(results.ourErr30)}</span>
+            <span>{minutes(results.ourErr15)}</span>
+          </div>
+          <small>
+            How far off each landing estimate typically was
+            {results.ourSamples ? ` · Shiftdeck from ${results.ourSamples} tracked landing${results.ourSamples === 1 ? "" : "s"}` : ""}
+          </small>
+          {results.runways.length > 0 && (
+            <small>
+              {results.runways
+                .map(
+                  (runway) =>
+                    `Rwy ${runway.runway}: ${runway.flights}${runway.taxiMin !== null ? ` · taxi ~${runway.taxiMin} min` : ""}`,
+                )
+                .join("  ·  ")}
+            </small>
+          )}
+        </>
+      )}
+      <small>Storage ~{results.storageKb} KB · odd flights cleared after 90 days</small>
+    </div>
+  );
+}

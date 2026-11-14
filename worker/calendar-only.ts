@@ -6,6 +6,7 @@ import {
   FlightStatusEnvironment,
   handleFlightStatusRequest,
 } from "./flight-status";
+import { collectFlightLearning, handleLearningRequest } from "./flight-learning";
 import { handlePlanesRequest } from "./planes";
 import {
   handlePushRequest,
@@ -23,6 +24,8 @@ const worker = {
     if (pushResponse) return pushResponse;
     const liveResponse = await handleFlightStatusRequest(request, env.DB, env);
     if (liveResponse) return liveResponse;
+    const learningResponse = await handleLearningRequest(request, env.DB);
+    if (learningResponse) return learningResponse;
     const planesResponse = await handlePlanesRequest(request);
     if (planesResponse) return planesResponse;
     const response = await handleCalendarRequest(request, env.DB);
@@ -46,6 +49,7 @@ const worker = {
     context: { waitUntil(promise: Promise<unknown>): void },
   ) {
     context.waitUntil(sendDueNotifications(env.DB, env, controller.scheduledTime));
+    context.waitUntil(collectFlightLearning(env.DB, controller.scheduledTime));
   },
 };
 

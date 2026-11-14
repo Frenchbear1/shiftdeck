@@ -35,7 +35,7 @@ const SOURCES = [
   },
 ];
 
-type Snapshot = { at: number; source: string; planes: Plane[] };
+export type Snapshot = { at: number; source: string; planes: Plane[] };
 
 let memory: Snapshot | null = null;
 let refreshing: Promise<Snapshot | null> | null = null;
@@ -64,7 +64,7 @@ async function fetchSnapshot(now: number): Promise<Snapshot | null> {
 }
 
 /** One shared snapshot per data center (Cache API) and per isolate (memory). */
-async function getSnapshot(now: number): Promise<{ snapshot: Snapshot | null; stale: boolean }> {
+export async function getSnapshot(now: number): Promise<{ snapshot: Snapshot | null; stale: boolean }> {
   if (memory && now - memory.at < SNAPSHOT_MS) return { snapshot: memory, stale: false };
   const cache = (globalThis as unknown as { caches?: { default?: Cache } }).caches?.default;
   if (cache) {

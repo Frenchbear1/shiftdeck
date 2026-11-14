@@ -13,6 +13,7 @@ import {
   Pencil,
   Plane,
   Plus,
+  Lock,
   RefreshCw,
   Sun,
   Undo2,
@@ -809,7 +810,7 @@ export function FlightList({
                   : "Refresh live flight times"
             }
           >
-            <RefreshCw />
+            {locked ? <Lock /> : <RefreshCw />}
           </button>
         </div>
       )}
@@ -1010,7 +1011,12 @@ function FlightDetails({
         : null;
   }
 
-  const delay = live.delayMinutes ?? match.delay;
+  if (match.tracked) {
+    const landing = clockFromIso(match.tracked.landing);
+    const gate = clockFromIso(match.tracked.gate);
+    progressLine = `Tracking ${Math.round(match.tracked.distanceNm)} nm out · lands ~${landing} · gate ~${gate}`;
+  }
+  const delay = match.tracked ? match.delay : live.delayMinutes ?? match.delay;
   const delayText =
     live.cancelled || delay === null || Math.abs(delay) < 3
       ? delay !== null && Math.abs(delay) < 3 && !live.cancelled
