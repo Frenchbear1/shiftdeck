@@ -4761,13 +4761,17 @@ select:focus-visible {
   background: var(--surface);
 }
 
-.map-panel .leaflet-control-attribution {
+.map-panel .leaflet-container .leaflet-control-attribution {
   font-size: 9px;
-  background: rgba(20, 24, 32, .55);
-  color: #c8cdd6;
+  border-top-left-radius: 6px;
 }
 
-.map-panel .leaflet-control-attribution a {
+:root[data-theme="dark"] .map-panel .leaflet-container .leaflet-control-attribution {
+  color: #b9c0cc;
+  background: rgba(20, 24, 32, .75);
+}
+
+:root[data-theme="dark"] .map-panel .leaflet-container .leaflet-control-attribution a {
   color: #dfe4ec;
 }
 
@@ -4780,4 +4784,104 @@ select:focus-visible {
 /* OpenStreetMap tiles are light only; turn them into a dark map in dark mode. */
 :root[data-theme="dark"] .map-panel .map-tiles {
   filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6);
+}
+
+.map-limit {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 500;
+  margin: 0;
+  padding: 4px 9px;
+  color: #fff;
+  background: rgba(15, 20, 30, .72);
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Zoom slider: top = airport close-up, bottom = 250 nm. */
+.map-zoom {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 600;
+  width: 26px;
+  height: 190px;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 0;
+  background: rgba(20, 25, 35, .6);
+  border-radius: 13px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+
+.map-zoom span {
+  color: #e6eaf2;
+  font-size: 7.5px;
+  font-weight: 800;
+  letter-spacing: .03em;
+}
+
+.map-zoom-track {
+  position: relative;
+  flex: 1;
+  width: 100%;
+}
+
+/* A horizontal range rotated to vertical (works on every phone). */
+.map-zoom-track input {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 140px;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.map-zoom-track input::-webkit-slider-runnable-track {
+  height: 4px;
+  background: rgba(255,255,255,.28);
+  border-radius: 999px;
+}
+
+.map-zoom-track input::-moz-range-track {
+  height: 4px;
+  background: rgba(255,255,255,.28);
+  border-radius: 999px;
+}
+
+.map-zoom-track input::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  background: #fff;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 1px 5px rgba(0,0,0,.4);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.map-zoom-track input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 1px 5px rgba(0,0,0,.4);
 }

@@ -16,3 +16,12 @@ test("keeps planes with a fresh position and tidies their fields", () => {
   assert.equal(planes[1].ground, true);
   assert.equal(planes[1].altitude, null);
 });
+
+test("snaps map views so nearby phones share one request", async () => {
+  const { snapView } = await import("../worker/planes-data.ts");
+  // 35 nm view + up to ~10.6 nm of snapping → the 50 nm step.
+  assert.deepEqual(snapView(40.652, -75.44, 35), { lat: 40.75, lon: -75.5, r: 50 });
+  assert.deepEqual(snapView(40.6, -75.4, 33), { lat: 40.5, lon: -75.5, r: 50 });
+  assert.equal(snapView(38, -77, 900).r, 250);
+  assert.equal(snapView(38, -77, 180).lat, 38);
+});

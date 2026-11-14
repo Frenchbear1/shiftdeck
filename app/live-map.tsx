@@ -23,6 +23,31 @@ type Plane = {
 
 const ABE = { lat: 40.652363, lon: -75.440406 };
 const POLL_MS = 10_000;
+/** Wide views carry many more planes, so refresh them less often. */
+const WIDE_POLL_MS = 20_000;
+const MAX_RADIUS_NM = 250;
+
+type View = { lat: number; lon: number; radius: number };
+
+/** Closest the slider goes: the airport and its runways. */
+const CLOSEST_ZOOM = 14;
+
+/** Zoom where the map's farthest corner is 250 nm from its center. */
+const widestZoom = (map: LeafletMap) => {
+  const size = map.getSize();
+  const halfDiagonalPx = Math.hypot(size.x, size.y) / 2 || 200;
+  const metersPerPxAtZoom0 = 156_543.03 * Math.cos((ABE.lat * Math.PI) / 180);
+  const zoom = Math.log2((metersPerPxAtZoom0 * halfDiagonalPx) / (MAX_RADIUS_NM * 1852));
+  return Math.max(3, Math.min(CLOSEST_ZOOM - 1, zoom));
+};
+
+/** Center of the map and the distance to its farthest corner, in nautical miles. */
+const viewOf = (map: LeafletMap): View => {
+  const center = map.getCenter();
+  const corner = map.getBounds().getNorthEast();
+  const radius = Math.ceil(center.distanceTo(corner) / 1852);
+  return { lat: center.lat, lon: center.lng, radius: Math.min(MAX_RADIUS_NM, Math.max(5, radius)) };
+};
 const ONLY_ALLEGIANT_KEY = "shiftdeck.mapAllegiantOnly";
 
 const isAllegiant = (plane: Plane) => /^AAY\d/.test(plane.callsign ?? "");
@@ -39,7 +64,7 @@ const escapeHtml = (value: string) =>
 const altitudeText = (plane: Plane) =>
   plane.ground ? "On ground" : plane.altitude !== null ? `${plane.altitude.toLocaleString()} ft` : "";
 
-const planeIcon = (plane: Plane, highlight: boolean) => {
+const planeIcon = (plane: Plane, highlight: boolean, showLabel = true) => {
   const rotation = plane.track ?? 0;
   const label = plane.callsign ?? plane.registration ?? "";
   const alt = plane.ground ? "GND" : plane.altitude !== null ? `${Math.round(plane.altitude / 100)}` : "";
@@ -48,7 +73,7 @@ const planeIcon = (plane: Plane, highlight: boolean) => {
       <svg viewBox="0 0 24 24" style="transform: rotate(${rotation}deg)" aria-hidden="true">
         <path d="M12 2c.8 0 1.3.9 1.3 2v5.2l7.7 4.4v2.1l-7.7-2.3v4.9l2.2 1.6v1.6L12 20.4l-3.5 1.1v-1.6l2.2-1.6v-4.9L3 15.7v-2.1l7.7-4.4V4c0-1.1.5-2 1.3-2z"/>
       </svg>
-      ${label ? `<span>${escapeHtml(label)}${alt ? ` <small>${alt}</small>` : ""}</span>` : ""}
+      ${label && showLabel ? `<span>${escapeHtml(label)}${alt ? ` <small>${alt}</small>` : ""}</span>` : ""}
     </div>`;
 };
 
@@ -68,6 +93,10 @@ export function LiveMapPanel({
   const [source, setSource] = useState<string>("adsb.lol");
   const [failed, setFailed] = useState(false);
   const [onScreen, setOnScreen] = useState(false);
+  const [view, setView] = useState<View>({ lat: ABE.lat, lon: ABE.lon, radius: 35 });
+  const [zoom, setZoom] = useState(9);
+  const [sliderZoom, setSliderZoom] = useState(9);
+  const [zoomRange, setZoomRange] = useState({ min: 6, max: CLOSEST_ZOOM });
   const [now, setNow] = useState(() => Date.now());
   const [allegiantOnly, setAllegiantOnly] = useState(() => {
     try {
@@ -89,7 +118,19 @@ export function LiveMapPanel({
         zoom: 9,
         zoomControl: false,
         attributionControl: true,
+        // Fractional zoom so the slider (and pinching) glide instead of jumping.
+        zoomSnap: 0,
+        zoomDelta: 0.25,
+        wheelPxPerZoomLevel: 120,
+        maxZoom: CLOSEST_ZOOM,
       });
+      const fitMin = () => {
+        const min = widestZoom(map);
+        map.setMinZoom(min);
+        setZoomRange({ min, max: CLOSEST_ZOOM });
+      };
+      fitMin();
+      map.on("resize", fitMin);
       // OpenStreetMap's own tiles: free, no key, attribution required.
       // (CARTO's basemaps now need an API key.) Dark mode darkens them in CSS.
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -98,7 +139,6 @@ export function LiveMapPanel({
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(map);
-      L.control.zoom({ position: "bottomright" }).addTo(map);
       L.marker([ABE.lat, ABE.lon], {
         icon: L.divIcon({ className: "", html: '<div class="map-airport">ABE</div>', iconSize: [36, 18], iconAnchor: [18, 30] }),
         interactive: false,
@@ -114,6 +154,17 @@ export function LiveMapPanel({
         interactive: false,
       }).addTo(map);
       mapRef.current = map;
+      let moveTimer: number | undefined;
+      const updateView = () => {
+        window.clearTimeout(moveTimer);
+        moveTimer = window.setTimeout(() => {
+          setView(viewOf(map));
+          setZoom(map.getZoom());
+        }, 500);
+      };
+      map.on("moveend zoomend", updateView);
+      map.on("zoom", () => setSliderZoom(map.getZoom()));
+      setView(viewOf(map));
     });
     return () => {
       cancelled = true;
@@ -142,7 +193,12 @@ export function LiveMapPanel({
       window.clearTimeout(timer);
       if (document.visibilityState === "visible") {
         try {
-          const response = await fetch(url, { cache: "no-store" });
+          const query = new URLSearchParams({
+            lat: view.lat.toFixed(3),
+            lon: view.lon.toFixed(3),
+            r: String(view.radius),
+          });
+          const response = await fetch(`${url}?${query}`, { cache: "no-store" });
           const data = (await response.json()) as {
             planes?: Plane[];
             updatedAt?: string;
@@ -160,14 +216,14 @@ export function LiveMapPanel({
           if (!cancelled) setFailed(true);
         }
       }
-      if (!cancelled) timer = window.setTimeout(load, POLL_MS);
+      if (!cancelled) timer = window.setTimeout(load, view.radius > 100 ? WIDE_POLL_MS : POLL_MS);
     };
     void load();
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [onScreen, url]);
+  }, [onScreen, url, view]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -187,7 +243,8 @@ export function LiveMapPanel({
       const flight = plane.callsign ? byCallsign.get(plane.callsign) : undefined;
       const icon = L.divIcon({
         className: "",
-        html: planeIcon(plane, isAllegiant(plane)),
+        // Labels pile up when zoomed out: others hide first, Allegiant later.
+        html: planeIcon(plane, isAllegiant(plane), zoom >= 8 || (isAllegiant(plane) && zoom >= 7)),
         iconSize: [26, 26],
         iconAnchor: [13, 13],
       });
@@ -252,6 +309,28 @@ export function LiveMapPanel({
       </div>
       <div className="map-frame">
         <div ref={container} className="map-canvas" aria-label="Map of planes near ABE" />
+        <div className="map-zoom" aria-hidden={false}>
+          <span>ABE</span>
+          <div className="map-zoom-track">
+            <input
+              type="range"
+              min={zoomRange.min}
+              max={zoomRange.max}
+              step={0.01}
+              value={sliderZoom}
+              aria-label="Zoom: airport to 250 nautical miles"
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setSliderZoom(next);
+                mapRef.current?.setZoom(next, { animate: false });
+              }}
+            />
+          </div>
+          <span>250</span>
+        </div>
+        {view.radius >= MAX_RADIUS_NM && zoom < 7 && (
+          <p className="map-limit">Showing planes up to 250 nm from the map center</p>
+        )}
         {!planes && (
           <p className="map-status">
             <Radar />
@@ -264,10 +343,12 @@ export function LiveMapPanel({
           {failed && planes
             ? "Couldn’t update · showing last positions"
             : age !== null
-              ? `Updated ${age < 5 ? "just now" : `${age}s ago`} · within 35 nm`
-              : "Planes within 35 nm of ABE"}
+              ? `Updated ${age < 5 ? "just now" : `${age}s ago`} · ${
+                  view.radius >= MAX_RADIUS_NM ? "250 nm (max)" : `${view.radius} nm`
+                }`
+              : "Planes near ABE"}
         </span>
-        <span>ADS-B data: {source}</span>
+        <span>Data: {source}</span>
       </p>
     </section>
   );
