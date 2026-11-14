@@ -5322,3 +5322,66 @@ select:focus-visible {
   display: grid;
   gap: 6px;
 }
+
+.home-order-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-order-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.home-order-list li.dragging {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.home-order-list strong {
+  flex: 1;
+}
+
+.home-order-handle,
+.home-order-list button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+}
+
+.home-order-handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.home-order-list button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.home-order-list button:disabled {
+  opacity: .35;
+}
+
+.home-order-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (min-width: 900px) {
+  .home-grid.custom-order { grid-template-areas: none; }
+  .home-grid.custom-order > * { grid-area: auto; }
+  .home-grid.custom-order > .first-run { grid-column: 1 / -1; }
+}

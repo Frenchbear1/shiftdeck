@@ -9,6 +9,8 @@ import {
   ChevronDown,
   FileImage,
   FileText,
+  GripVertical,
+  LayoutGrid,
   MapPin,
   Moon,
   Plus,
@@ -20,6 +22,7 @@ import {
 } from "lucide-react";
 import {
   ChangeEvent,
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -82,6 +85,18 @@ import {
   loadScheduleImage,
   saveScheduleImage,
 } from "./upload-store";
+
+const HOME_TILES = {
+  today: "Today",
+  schedule: "Schedule",
+  flights: "Flights",
+  map: "Live map",
+  weather: "Weather",
+  crew: "Crew",
+} as const;
+type HomeTile = keyof typeof HOME_TILES;
+const DEFAULT_HOME_ORDER = Object.keys(HOME_TILES) as HomeTile[];
+const HOME_ORDER_KEY = "shiftdeck.homeOrder";
 
 type CalendarEvent = {
   id: string;
@@ -610,6 +625,42 @@ export default function HomePage() {
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [homeOrder, setHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
+  const [draftHomeOrder, setDraftHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
+  const [draggedTile, setDraggedTile] = useState<HomeTile | null>(null);
+  const rearrangeDialog = useRef<HTMLDialogElement>(null);
+  const rearrangeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(HOME_ORDER_KEY) ?? "null");
+      if (!Array.isArray(saved)) return;
+      const known = saved.filter((tile): tile is HomeTile =>
+        typeof tile === "string" && Object.hasOwn(HOME_TILES, tile),
+      );
+      setHomeOrder([...new Set([...known, ...DEFAULT_HOME_ORDER])]);
+    } catch {
+      // Use the default layout if storage is unavailable.
+    }
+  }, []);
+  const moveHomeTile = (tile: HomeTile, to: number) => {
+    setDraftHomeOrder((order) => {
+      const from = order.indexOf(tile);
+      if (to < 0 || to >= order.length || from === to) return order;
+      const next = [...order];
+      next.splice(from, 1);
+      next.splice(to, 0, tile);
+      return next;
+    });
+  };
+  const saveHomeOrder = () => {
+    setHomeOrder(draftHomeOrder);
+    try {
+      localStorage.setItem(HOME_ORDER_KEY, JSON.stringify(draftHomeOrder));
+    } catch {
+      // Apply the order for the current visit.
+    }
+    rearrangeDialog.current?.close();
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   // What Settings looked like when it opened, so the X can turn into Save after a change.
   const [settingsSnapshot, setSettingsSnapshot] = useState<string | null>(null);
@@ -2342,6 +2393,75 @@ export default function HomePage() {
     </div>
   );
 
+  const homeTiles = {
+    today: (
+      <TodayHero
+        date={selectedDate}
+        isToday={selectedDate === todayDate}
+        now={clockNow}
+        title={
+          myEvent?.customTitle
+            ? myEvent.title.trim() || DEFAULT_SHIFT_TITLE
+            : prefs.title.trim() || DEFAULT_SHIFT_TITLE
+        }
+        shift={myShift ? { start: myShift.start, end: myShift.end } : null}
+        loaded={importedDateSet.has(selectedDate)}
+        isPto={myDayStatus.get(selectedDate)?.status === "pto"}
+        onEdit={openEditShift}
+        onAdd={openAddShift}
+        onToday={returnToToday}
+      />
+    ),
+    schedule: (
+      <ScheduleViews
+        range={scheduleRange}
+        onRange={setScheduleRange}
+        showRanges={showRanges}
+        onShowRanges={setShowRanges}
+        anchor={todayDate}
+        selectedDate={selectedDate}
+        onSelect={selectDate}
+        dayStatus={(date) => myDayStatus.get(date) ?? { status: "none" }}
+        hasSchedule={hasSchedule}
+      />
+    ),
+    flights: (
+      <FlightList
+        flights={dayFlights}
+        shift={myShift}
+        date={selectedDate}
+        isToday={selectedDate === todayDate}
+        now={clockNow}
+        linkFor={(flight) =>
+          flightAwareRouteUrl(flight, prefs.homeAirport, prefs.flightApp)
+        }
+        airport={cleanAirportCode(prefs.homeAirport)}
+        app={prefs.flightApp}
+        live={liveFlights.live}
+        onRefresh={liveFlights.refresh}
+        refreshing={liveFlights.refreshing}
+      />
+    ),
+    map: (
+      <LiveMapPanel
+        url={calendarServiceUrl("/api/planes")}
+        liveFlights={liveFlights.live?.flights ?? []}
+      />
+    ),
+    weather: (
+      <WeatherPanel shift={myShift} />
+    ),
+    crew: (
+      <CrewPanel
+        shifts={dayShifts}
+        person={prefs.person}
+        myShift={myShift}
+        isToday={selectedDate === todayDate}
+        now={clockNow}
+      />
+    ),
+  };
+
   return (
     <div className="app-shell">
       <header className="top-bar">
@@ -2414,61 +2534,10 @@ export default function HomePage() {
       </dialog>
 
       <main className="home">
-        <div className={`home-grid ${hydrated ? "is-ready" : ""}`}>
-          <TodayHero
-            date={selectedDate}
-            isToday={selectedDate === todayDate}
-            now={clockNow}
-            title={
-              myEvent?.customTitle
-                ? myEvent.title.trim() || DEFAULT_SHIFT_TITLE
-                : prefs.title.trim() || DEFAULT_SHIFT_TITLE
-            }
-            shift={myShift ? { start: myShift.start, end: myShift.end } : null}
-            loaded={importedDateSet.has(selectedDate)}
-            isPto={myDayStatus.get(selectedDate)?.status === "pto"}
-            onEdit={openEditShift}
-            onAdd={openAddShift}
-            onToday={returnToToday}
-          />
-          <ScheduleViews
-            range={scheduleRange}
-            onRange={setScheduleRange}
-            showRanges={showRanges}
-            onShowRanges={setShowRanges}
-            anchor={todayDate}
-            selectedDate={selectedDate}
-            onSelect={selectDate}
-            dayStatus={(date) => myDayStatus.get(date) ?? { status: "none" }}
-            hasSchedule={hasSchedule}
-          />
-          <FlightList
-            flights={dayFlights}
-            shift={myShift}
-            date={selectedDate}
-            isToday={selectedDate === todayDate}
-            now={clockNow}
-            linkFor={(flight) =>
-              flightAwareRouteUrl(flight, prefs.homeAirport, prefs.flightApp)
-            }
-            airport={cleanAirportCode(prefs.homeAirport)}
-            app={prefs.flightApp}
-            live={liveFlights.live}
-            onRefresh={liveFlights.refresh}
-            refreshing={liveFlights.refreshing}
-          />
-          <LiveMapPanel
-            url={calendarServiceUrl("/api/planes")}
-            liveFlights={liveFlights.live?.flights ?? []}
-          />
-          <WeatherPanel shift={myShift} />
-          <CrewPanel
-            shifts={dayShifts}
-            person={prefs.person}
-            myShift={myShift}
-            isToday={selectedDate === todayDate}
-            now={clockNow}
-          />
+        <div className={`home-grid ${hydrated ? "is-ready" : ""}${homeOrder.some((tile, index) => tile !== DEFAULT_HOME_ORDER[index]) ? " custom-order" : ""}`}>
+          {homeOrder.map((tile) => (
+            <Fragment key={tile}>{homeTiles[tile]}</Fragment>
+          ))}
           {!hasSchedule && hydrated && (
             <section className="panel first-run">
               <EmptyState
@@ -2483,6 +2552,55 @@ export default function HomePage() {
           )}
         </div>
       </main>
+
+      <dialog
+        ref={rearrangeDialog}
+        className="panel-sheet airport-alerts-sheet"
+        aria-labelledby="home-order-title"
+        onClose={() => {
+          setDraggedTile(null);
+          rearrangeButton.current?.focus();
+        }}
+      >
+        <header className="sheet-head">
+          <div>
+            <h2 id="home-order-title">Rearrange Home Screen</h2>
+            <p>Drag the handles or use the arrows to move sections.</p>
+          </div>
+          <form method="dialog"><button aria-label="Close rearrange popup"><X /></button></form>
+        </header>
+        <div className="sheet-scroll">
+          <ol className="home-order-list">
+            {draftHomeOrder.map((tile, index) => (
+              <li key={tile} data-home-tile={tile} className={draggedTile === tile ? "dragging" : ""}>
+                <span
+                  className="home-order-handle"
+                  aria-hidden="true"
+                  onPointerDown={(event) => {
+                    if (event.button !== 0 || !event.isPrimary) return;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    setDraggedTile(tile);
+                  }}
+                  onPointerMove={(event) => {
+                    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                    const target = document.elementFromPoint(event.clientX, event.clientY)
+                      ?.closest<HTMLElement>("[data-home-tile]")?.dataset.homeTile;
+                    if (target && target !== tile) moveHomeTile(tile, draftHomeOrder.indexOf(target as HomeTile));
+                  }}
+                  onLostPointerCapture={() => setDraggedTile(null)}
+                ><GripVertical /></span>
+                <strong>{HOME_TILES[tile]}</strong>
+                <button type="button" aria-label={`Move ${HOME_TILES[tile]} up`} disabled={!index} onClick={() => moveHomeTile(tile, index - 1)}>↑</button>
+                <button type="button" aria-label={`Move ${HOME_TILES[tile]} down`} disabled={index === draftHomeOrder.length - 1} onClick={() => moveHomeTile(tile, index + 1)}>↓</button>
+              </li>
+            ))}
+          </ol>
+          <div className="home-order-actions">
+            <button type="button" className="button soft" onClick={() => setDraftHomeOrder(DEFAULT_HOME_ORDER)}>Reset</button>
+            <button type="button" className="button primary" onClick={saveHomeOrder}>Save order</button>
+          </div>
+        </div>
+      </dialog>
 
       {sheet === "import" && renderImportSheet()}
       {sheet === "swap" && (
@@ -2915,6 +3033,17 @@ export default function HomePage() {
               </div>
             </div>
             <div className="settings-tiles">
+              <button
+                ref={rearrangeButton}
+                type="button"
+                className="settings-tile"
+                onClick={() => {
+                  setDraftHomeOrder(homeOrder);
+                  rearrangeDialog.current?.showModal();
+                }}
+              >
+                <span><LayoutGrid /> Rearrange Home Screen</span>
+              </button>
               <button
                 type="button"
                 className="settings-tile"
