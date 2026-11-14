@@ -2,7 +2,7 @@
 
 import type { Map as LeafletMap, Marker } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Radar } from "lucide-react";
+import { LocateFixed, Radar } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { LiveFlight } from "./live-flights";
 
@@ -98,6 +98,7 @@ export function LiveMapPanel({
   const [view, setView] = useState<View>({ lat: ABE.lat, lon: ABE.lon, radius: 35 });
   const [zoom, setZoom] = useState(9);
   const [sliderZoom, setSliderZoom] = useState(9);
+  const [awayFromABE, setAwayFromABE] = useState(false);
   const [zoomRange, setZoomRange] = useState({ min: 6, max: CLOSEST_ZOOM });
   const [now, setNow] = useState(() => Date.now());
   const [allegiantOnly, setAllegiantOnly] = useState(() => {
@@ -168,6 +169,8 @@ export function LiveMapPanel({
       mapRef.current = map;
       let moveTimer: number | undefined;
       const updateView = () => {
+        // Show the recenter button once ABE has been dragged a few miles off center.
+        setAwayFromABE(map.getCenter().distanceTo([ABE.lat, ABE.lon]) > 3 * 1852);
         window.clearTimeout(moveTimer);
         moveTimer = window.setTimeout(() => {
           setView(viewOf(map));
@@ -349,6 +352,16 @@ export function LiveMapPanel({
           </div>
           <span>250</span>
         </div>
+        {awayFromABE && (
+          <button
+            type="button"
+            className="map-recenter"
+            aria-label="Recenter on ABE"
+            onClick={() => mapRef.current?.panTo([ABE.lat, ABE.lon], { animate: true, duration: 0.5 })}
+          >
+            <LocateFixed />
+          </button>
+        )}
         {view.radius >= MAX_RADIUS_NM && zoom < 7 && (
           <p className="map-limit">Showing planes up to 250 nm from the map center</p>
         )}
