@@ -4,9 +4,10 @@
  * Data: Open-Meteo.com, CC BY 4.0 (the card shows the credit).
  */
 
-export const ABE_LOCATION = { latitude: 40.6521, longitude: -75.4408 };
+/** FAA airport reference point for ABE (Lehigh Valley International), 120 m MSL. */
+export const ABE_LOCATION = { latitude: 40.652363, longitude: -75.440406, elevation: 120 };
 const TIME_ZONE = "America/New_York";
-const CACHE_KEY = "shiftdeck.weather";
+const CACHE_KEY = "shiftdeck.weather.abe";
 const CACHE_MS = 30 * 60_000;
 
 export type Forecast = {
@@ -67,6 +68,7 @@ export async function loadForecast(): Promise<Forecast> {
   const params = new URLSearchParams({
     latitude: String(ABE_LOCATION.latitude),
     longitude: String(ABE_LOCATION.longitude),
+    elevation: String(ABE_LOCATION.elevation),
     hourly:
       "apparent_temperature,temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code,is_day",
     daily: "sunrise,sunset",

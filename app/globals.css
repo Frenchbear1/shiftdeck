@@ -4466,8 +4466,10 @@ select:focus-visible {
 }
 
 .wx-chips span {
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 6px 9px;
   color: var(--text);
@@ -4497,6 +4499,7 @@ select:focus-visible {
 }
 
 .wx-hour {
+  flex: 1 0 50px;
   min-width: 50px;
   display: grid;
   justify-items: center;
@@ -4552,6 +4555,7 @@ select:focus-visible {
 .wx-compact {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   white-space: nowrap;
   padding: 11px 14px;
@@ -4594,7 +4598,7 @@ select:focus-visible {
 }
 
 .wx-compact-storm {
-  margin-left: auto;
+  margin-left: -4px;
 }
 
 .wx-compact-storm svg {
@@ -4614,8 +4618,8 @@ select:focus-visible {
   flex: none;
 }
 
-/* Fade the right edge so it's clear the hours scroll. */
-.wx-hours {
+/* Fade the right edge so it's clear the hours scroll (only when they do). */
+.wx-hours.scrolls {
   -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
   mask-image: linear-gradient(to right, #000 85%, transparent);
 }

@@ -118,7 +118,9 @@ export function WeatherPanel({ shift }: { shift: Shift | null | undefined }) {
   return (
     <section className={`panel weather-panel ${compact ? "compact" : ""}`}>
       <div className="panel-head">
-        <h2>Shift weather</h2>
+        <h2>
+          Shift weather <span className="count">ABE</span>
+        </h2>
         <div className="pill-toggle" role="group" aria-label="Weather card size">
           <button type="button" className={!compact ? "active" : ""} onClick={() => setMode(false)}>
             Full
@@ -236,7 +238,11 @@ function FullWeather({ weather }: { weather: NonNullable<ReturnType<typeof shift
         )}
       </div>
 
-      <div className="wx-hours" role="list" aria-label="Hour by hour">
+      <div
+        className={`wx-hours ${weather.hours.length > 6 ? "scrolls" : ""}`}
+        role="list"
+        aria-label="Hour by hour"
+      >
         {weather.hours.map((hour: HourWeather) => (
           <div key={hour.time} className="wx-hour" role="listitem">
             <small>{clock(hour.time, true)}</small>
