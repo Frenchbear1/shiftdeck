@@ -1005,7 +1005,8 @@ select:focus-visible {
 }
 
 .export-fields label > svg,
-.settings-sheet > label > svg {
+.settings-sheet > label > svg,
+.settings-name-row label > svg {
   width: 15px;
   position: absolute;
   right: 11px;
@@ -5024,4 +5025,204 @@ select:focus-visible {
 .settings-sheet header > button.settings-save svg {
   width: 16px;
   height: 16px;
+}
+
+/* ---------- compact settings ---------- */
+
+.settings-sheet {
+  gap: 11px;
+}
+
+.settings-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-head-actions > button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.settings-head-actions > button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.settings-head-actions > button.settings-theme {
+  color: var(--text);
+}
+
+.settings-head-actions > button.settings-save {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 14px;
+  color: #fff;
+  background: var(--blue);
+  font-weight: 750;
+  animation: pop 200ms var(--ease-out) both;
+}
+
+.settings-name-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.settings-name-row label {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-name-row .settings-merge {
+  position: relative;
+  width: auto;
+  min-height: 40px;
+  height: 40px;
+  flex: none;
+  margin: 0;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+.settings-merge i {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  color: #fff;
+  background: var(--amber);
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+}
+
+.theme-setting.compact > div button {
+  min-height: 34px;
+}
+
+.settings-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.settings-tile {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 11px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-tile span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.settings-tile span svg {
+  width: 12px;
+  height: 12px;
+}
+
+.settings-tile b {
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-status-setting.collapsible {
+  gap: 0;
+  padding: 0;
+}
+
+.collapsible-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.live-status-setting .collapsible-head span {
+  flex: none;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 750;
+}
+
+.live-status-setting .collapsible-head b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.collapsible-head b.waiting {
+  color: var(--blue);
+}
+
+.collapsible-head svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--muted);
+  transition: transform 180ms ease;
+}
+
+.collapsible.open .collapsible-head svg {
+  transform: rotate(180deg);
+}
+
+.collapsible-body {
+  display: grid;
+  gap: 5px;
+  padding: 0 12px 12px;
+  animation: wheels-in 160ms ease both;
+}
+
+/* The two status cards sit side by side when both are collapsed. */
+.settings-sheet .live-status-setting.collapsible + .live-status-setting.collapsible {
+  margin-top: -3px;
+}
+
+.settings-name-row label {
+  position: relative;
+  display: grid;
+  gap: 6px;
 }

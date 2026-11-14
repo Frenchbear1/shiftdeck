@@ -1,7 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { ReactNode, useEffect, useState } from "react";
 import type { LiveStatus } from "./live-flights";
+
+/** One-line summary that expands to the full card when tapped. */
+function Collapsible({
+  title,
+  summary,
+  tone,
+  children,
+}: {
+  title: string;
+  summary: ReactNode;
+  tone?: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`live-status-setting collapsible ${open ? "open" : ""}`}>
+      <button type="button" className="collapsible-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span>{title}</span>
+        <b className={tone}>{summary}</b>
+        <ChevronDown />
+      </button>
+      {open && <div className="collapsible-body">{children}</div>}
+    </div>
+  );
+}
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -39,9 +65,20 @@ export function LiveStatusSetting({
             ? "Next refresh: emergency only"
             : "Next refresh: available now";
 
+  const short = waiting
+    ? `next ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`
+    : status.available === "none"
+      ? "used up"
+      : status.available === "budget"
+        ? "paused"
+        : "ready";
   return (
-    <div className="live-status-setting">
-      <span>Live flight times · shared by everyone</span>
+    <Collapsible
+      title="Live times"
+      summary={`${status.used}/${status.dailyLimit} today · ${short}`}
+      tone={waiting ? "waiting" : ""}
+    >
+      <span>Shared by everyone</span>
       <b>
         {status.used} of {status.dailyLimit} refreshes used today · {emergencyLeft} emergency left
       </b>
@@ -53,7 +90,7 @@ export function LiveStatusSetting({
         This month: {money(status.monthSpentCents)} of {money(status.monthFreeCents)} free used
         {updatedAt ? ` · last updated ${clock(new Date(updatedAt))}` : ""}
       </small>
-    </div>
+    </Collapsible>
   );
 }
 
@@ -98,9 +135,16 @@ export function LearningSetting({ url }: { url: string }) {
     : null;
   const seenPct = results.flights ? Math.round((results.seen / results.flights) * 100) : 0;
 
+  const summary = !results.flights
+    ? results.tracking
+      ? `watching ${results.tracking}`
+      : "collecting"
+    : results.ourErr15 !== null && results.faErr15 !== null
+      ? `${results.flights} logged · ±${results.ourErr15} vs ±${results.faErr15} min`
+      : `${results.flights} logged · ${seenPct}% seen`;
   return (
-    <div className="live-status-setting learning-setting">
-      <span>Flight learning{since ? ` · since ${since}` : ""}</span>
+    <Collapsible title="Flight learning" summary={summary}>
+      <span>{since ? `Since ${since}` : "Flight learning"}</span>
       {results.flights === 0 ? (
         <small>
           Collecting{results.tracking ? ` · watching ${results.tracking} flight${results.tracking === 1 ? "" : "s"}` : ""}.
@@ -143,6 +187,6 @@ export function LearningSetting({ url }: { url: string }) {
         </>
       )}
       <small>Storage ~{results.storageKb} KB · odd flights cleared after 90 days</small>
-    </div>
+    </Collapsible>
   );
 }

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Bell,
+  CalendarDays,
   Check,
   ChevronDown,
   FileImage,
@@ -2773,8 +2774,17 @@ export default function HomePage() {
           <section className="settings-sheet" role="dialog" aria-modal="true" aria-label="Settings">
             <header>
               <div><h2>Settings</h2></div>
-              {settingsSnapshot !== null && settingsSnapshot !== JSON.stringify([prefs, theme]) ? (
+              <div className="settings-head-actions">
                 <button
+                  type="button"
+                  className="settings-theme"
+                  onClick={() => changeTheme(theme === "dark" ? "light" : "dark")}
+                  aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  {theme === "dark" ? <Moon /> : <Sun />}
+                </button>
+              {settingsSnapshot !== null && settingsSnapshot !== JSON.stringify([prefs, theme]) ? (
+                  <button
                   className="settings-save"
                   onClick={() => {
                     setSettingsOpen(false);
@@ -2784,59 +2794,57 @@ export default function HomePage() {
                 >
                   <Check /> Save
                 </button>
-              ) : (
-                <button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button>
-              )}
+                ) : (
+                  <button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button>
+                )}
+              </div>
             </header>
-            <div className="theme-setting">
-              <span>Appearance</span>
-              <div>
-                <button className={theme === "light" ? "active" : ""} onClick={() => changeTheme("light")}><Sun /> Light</button>
-                <button className={theme === "dark" ? "active" : ""} onClick={() => changeTheme("dark")}><Moon /> Dark</button>
-              </div>
-            </div>
-            <label>
-              <span>Your name on the schedule</span>
-              <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
-                {availableWorkers.map((worker) => (
-                  <option value={worker} key={worker}>
-                    {isGroundSecurityCoordinator(worker) ? `${worker} · GSC` : worker}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown />
-            </label>
-            <div className="calendar-subscription-setting">
-              <div>
-                <span>Coworker names</span>
-                <b>
-                  {mergeSuggestions.length
-                    ? `${mergeSuggestions.length} possible duplicate${mergeSuggestions.length === 1 ? "" : "s"}`
-                    : Object.keys(nameMerges).length
-                      ? `${Object.keys(nameMerges).length} merged`
-                      : "No duplicates found"}
-                </b>
-              </div>
+            <div className="settings-name-row">
+              <label>
+                <span>Your name on the schedule</span>
+                <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
+                  {availableWorkers.map((worker) => (
+                    <option value={worker} key={worker}>
+                      {isGroundSecurityCoordinator(worker) ? `${worker} · GSC` : worker}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown />
+              </label>
               <button
-                className="button soft"
+                type="button"
+                className="button soft settings-merge"
                 onClick={() => {
                   setSettingsOpen(false);
                   setNameMergeOpen(true);
                 }}
+                aria-label={
+                  mergeSuggestions.length
+                    ? `Merge names, ${mergeSuggestions.length} possible duplicates`
+                    : `Merge names, ${Object.keys(nameMerges).length} merged`
+                }
               >
-                Merge names
+                Merge
+                {mergeSuggestions.length > 0 && <i>{mergeSuggestions.length}</i>}
               </button>
             </div>
-            <div className="theme-setting">
+            <div className="theme-setting compact">
               <span>Flight app</span>
               <div role="group" aria-label="Open flights in">
                 <button className={prefs.flightApp === "flightaware" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightaware" })}>FlightAware</button>
                 <button className={prefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightradar24" })}>Flightradar24</button>
               </div>
             </div>
-            <div className="calendar-subscription-setting">
-              <div>
-                <span>Notifications</span>
+            <div className="settings-tiles">
+              <button
+                type="button"
+                className="settings-tile"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setNotificationsOpen(true);
+                }}
+              >
+                <span><Bell /> Notifications</span>
                 <b>
                   {notificationPermission === "unsupported"
                     ? "Not supported on this device"
@@ -2850,20 +2858,14 @@ export default function HomePage() {
                         : `${prefs.alerts.length} alert${prefs.alerts.length === 1 ? "" : "s"} per shift`
                         : "Off"}
                 </b>
-              </div>
-              <button
-                className="button soft"
-                onClick={() => {
-                  setSettingsOpen(false);
-                  setNotificationsOpen(true);
-                }}
-              >
-                {notificationProfile ? "Manage" : "Set up"}
               </button>
-            </div>
-            <div className="calendar-subscription-setting">
-              <div>
-                <span>Apple Calendar</span>
+              <button
+                type="button"
+                className="settings-tile"
+                onClick={() => void subscribeToCalendar()}
+                disabled={calendarSyncState === "syncing"}
+              >
+                <span><CalendarDays /> Apple Calendar</span>
                 <b>
                   {calendarSyncState === "syncing"
                     ? "Updating…"
@@ -2873,13 +2875,6 @@ export default function HomePage() {
                         ? `Automatic · ${DEFAULT_WORK_LOCATION}`
                         : "Add shifts for Waze"}
                 </b>
-              </div>
-              <button
-                className="button soft"
-                onClick={() => void subscribeToCalendar()}
-                disabled={calendarSyncState === "syncing"}
-              >
-                {calendarSubscription ? "Open" : "Add"}
               </button>
             </div>
             {liveFlights.live?.status && (
