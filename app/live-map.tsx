@@ -123,6 +123,12 @@ export function LiveMapPanel({
         zoomDelta: 0.25,
         wheelPxPerZoomLevel: 120,
         maxZoom: CLOSEST_ZOOM,
+        // Planes are only known within 250 nm of ABE, so keep the map there.
+        maxBounds: [
+          [ABE.lat - 4.4, ABE.lon - 5.8],
+          [ABE.lat + 4.4, ABE.lon + 5.8],
+        ],
+        maxBoundsViscosity: 0.8,
       });
       const fitMin = () => {
         const min = widestZoom(map);
@@ -346,7 +352,16 @@ export function LiveMapPanel({
           />
           {view.radius >= MAX_RADIUS_NM ? "250 nm (max)" : `${view.radius} nm`}
         </span>
-        <span>Data: {source}</span>
+        <span>
+          Data:{" "}
+          <a
+            href={source === "adsb.fi" ? "https://adsb.fi" : "https://adsb.lol"}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {source}
+          </a>
+        </span>
       </p>
     </section>
   );

@@ -17,11 +17,14 @@ test("keeps planes with a fresh position and tidies their fields", () => {
   assert.equal(planes[1].altitude, null);
 });
 
-test("snaps map views so nearby phones share one request", async () => {
-  const { snapView } = await import("../worker/planes-data.ts");
-  // 35 nm view + up to ~10.6 nm of snapping → the 50 nm step.
-  assert.deepEqual(snapView(40.652, -75.44, 35), { lat: 40.75, lon: -75.5, r: 50 });
-  assert.deepEqual(snapView(40.6, -75.4, 33), { lat: 40.5, lon: -75.5, r: 50 });
-  assert.equal(snapView(38, -77, 900).r, 250);
-  assert.equal(snapView(38, -77, 180).lat, 38);
+test("hands each phone only the planes in its view", async () => {
+  const { planesInView, toPlanes } = await import("../worker/planes-data.ts");
+  const planes = toPlanes([
+    { hex: "near", lat: 40.7, lon: -75.4, alt_baro: 3000 },
+    { hex: "philly", lat: 39.87, lon: -75.24, alt_baro: 9000 },
+    { hex: "boston", lat: 42.36, lon: -71.0, alt_baro: 30000 },
+  ]);
+  assert.deepEqual(planesInView(planes, 40.65, -75.44, 35).map((p) => p.hex), ["near"]);
+  assert.deepEqual(planesInView(planes, 40.65, -75.44, 60).map((p) => p.hex), ["near", "philly"]);
+  assert.equal(planesInView(planes, 40.65, -75.44, 250).length, 3);
 });

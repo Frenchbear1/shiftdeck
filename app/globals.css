@@ -4913,3 +4913,7 @@ select:focus-visible {
 @keyframes map-live-pulse {
   50% { box-shadow: 0 0 0 5px transparent; }
 }
+
+.map-foot a {
+  color: inherit;
+}

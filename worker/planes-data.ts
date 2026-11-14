@@ -58,22 +58,18 @@ export function toPlanes(aircraft: RawAircraft[]): Plane[] {
     }));
 }
 
-const MAX_RADIUS_NM = 250;
-const RADIUS_STEPS = [25, 35, 50, 75, 100, 150, 200, 250];
-
-/** Snap a view so nearby views share one answer (and one upstream request). */
-export function snapView(lat: number, lon: number, radius: number) {
-  const step = radius > 100 ? 1 : radius > 50 ? 0.5 : 0.25;
-  const snap = (value: number) => Math.round(value / step) * step;
-  // Snapping can move the center by up to half a step each way; widen the
-  // radius by that much so the edges of the phone's view stay covered.
-  const offsetNm = (step / 2) * 60 * Math.SQRT2;
-  const wanted = Math.min(Math.max(radius, 1) + offsetNm, MAX_RADIUS_NM);
-  const r = RADIUS_STEPS.find((value) => value >= wanted) ?? MAX_RADIUS_NM;
-  return {
-    lat: Math.min(85, Math.max(-85, snap(lat))),
-    lon: ((snap(lon) + 540) % 360) - 180,
-    r,
-  };
+/** Great-circle distance in nautical miles. */
+export function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLon = (lon2 - lon1) * rad;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+  return 3440.065 * 2 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+/** Planes inside the phone's view circle. */
+export function planesInView(planes: Plane[], lat: number, lon: number, radius: number) {
+  return planes.filter((plane) => distanceNm(lat, lon, plane.lat, plane.lon) <= radius);
+}
