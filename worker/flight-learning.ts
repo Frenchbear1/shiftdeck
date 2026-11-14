@@ -73,6 +73,12 @@ async function ensureSchema(db: CalendarDatabase) {
       PRIMARY KEY (id, fetched))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS learn_meta (k TEXT PRIMARY KEY, v TEXT)`),
   ]);
+  try {
+    // Added later: plane type (A320s and 737s land a little differently).
+    await db.prepare("ALTER TABLE learn_flights ADD COLUMN aircraft TEXT").run();
+  } catch {
+    // Column already there.
+  }
   schemaReady = true;
 }
 
@@ -81,6 +87,7 @@ type FlightRow = {
   ident: string | null;
   origin: string | null;
   registration: string | null;
+  aircraft: string | null;
   sched_on: number | null;
   created: number;
   first_seen_ts: number | null;
@@ -148,13 +155,14 @@ async function currentWind(db: CalendarDatabase, now: number) {
 }
 
 async function loadHistory(db: CalendarDatabase): Promise<HistoryFlight[]> {
-  const results = await allRows<{ runway: string | null; origin: string | null; checkpoints: string; taxi_s: number | null }>(db
+  const results = await allRows<{ runway: string | null; origin: string | null; aircraft: string | null; checkpoints: string; taxi_s: number | null }>(db
     .prepare(
-      "SELECT runway, origin, checkpoints, taxi_s FROM learn_flights WHERE status = 'done' AND checkpoints IS NOT NULL ORDER BY finished DESC LIMIT 400",
+      "SELECT runway, origin, aircraft, checkpoints, taxi_s FROM learn_flights WHERE status = 'done' AND checkpoints IS NOT NULL ORDER BY finished DESC LIMIT 400",
     ));
   return results.map((row) => ({
     runway: row.runway,
     origin: row.origin,
+    aircraft: row.aircraft,
     checkpoints: JSON.parse(row.checkpoints) as Record<string, number>,
     taxiS: row.taxi_s,
   }));
@@ -276,9 +284,9 @@ export async function collectFlightLearning(db: CalendarDatabase | undefined, no
       writes.push(
         db
           .prepare(
-            "INSERT INTO learn_flights (id, ident, origin, registration, sched_on, created) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET registration = COALESCE(excluded.registration, registration)",
+            "INSERT INTO learn_flights (id, ident, origin, registration, aircraft, sched_on, created) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET registration = COALESCE(excluded.registration, registration), aircraft = COALESCE(aircraft, excluded.aircraft)",
           )
-          .bind(flight.id, flight.ident, flight.other[0] ?? null, flight.registration ?? null, Date.parse(flight.scheduled ?? "") || null, now),
+          .bind(flight.id, flight.ident, flight.other[0] ?? null, flight.registration ?? null, flight.aircraft ?? null, Date.parse(flight.scheduled ?? "") || null, now),
       );
       const estOn = Date.parse(flight.estimatedOn ?? flight.estimated ?? "");
       if (cache && Number.isFinite(estOn)) {
@@ -331,7 +339,7 @@ export async function collectFlightLearning(db: CalendarDatabase | undefined, no
         );
         if (!plane) continue;
         const dist = Math.round(distanceNm(ABE.lat, ABE.lon, plane.lat, plane.lon) * 10) / 10;
-        const estimate = estimateArrival(history, now, dist, plane.speed, windRunway);
+        const estimate = estimateArrival(history, now, dist, plane.speed, windRunway, plane.type ?? row.aircraft);
         const observation: Observation = {
           ts: now,
           lat: plane.lat,
@@ -364,9 +372,10 @@ export async function collectFlightLearning(db: CalendarDatabase | undefined, no
             ),
           db
             .prepare(
-              "UPDATE learn_flights SET first_seen_ts = COALESCE(first_seen_ts, ?), first_seen_nm = COALESCE(first_seen_nm, ?), wind_runway = ?, wind_from = ?, wind_kt = ? WHERE id = ?",
+              "UPDATE learn_flights SET first_seen_ts = COALESCE(first_seen_ts, ?), first_seen_nm = COALESCE(first_seen_nm, ?), wind_runway = ?, wind_from = ?, wind_kt = ?, aircraft = COALESCE(?, aircraft) WHERE id = ?",
             )
-            .bind(now, dist, windRunway, wind?.from ?? null, wind?.kt ?? null, row.id),
+            // The plane's own ADS-B type wins: it's the one actually flying.
+            .bind(now, dist, windRunway, wind?.from ?? null, wind?.kt ?? null, plane.type, row.id),
         );
         if (landed) {
           obsWrites.push(
@@ -439,13 +448,14 @@ export async function handleLearningRequest(request: Request, db: CalendarDataba
   }
   if (!db) return json(request, { enabled: false });
   await ensureSchema(db);
-  const results = await allRows<{ first_seen_nm: number | null; runway: string | null; taxi_s: number | null; fa_err30: number | null; fa_err15: number | null; our_err30: number | null; our_err15: number | null; landed_ts: number | null; created: number }>(db
+  const results = await allRows<{ first_seen_nm: number | null; aircraft: string | null; runway: string | null; taxi_s: number | null; fa_err30: number | null; fa_err15: number | null; our_err30: number | null; our_err15: number | null; landed_ts: number | null; created: number }>(db
     .prepare(
-      "SELECT first_seen_nm, runway, taxi_s, fa_err30, fa_err15, our_err30, our_err15, landed_ts, created FROM learn_flights WHERE status = 'done'",
+      "SELECT first_seen_nm, aircraft, runway, taxi_s, fa_err30, fa_err15, our_err30, our_err15, landed_ts, created FROM learn_flights WHERE status = 'done'",
     ));
   const finished: FinishedFlight[] = results.map((row) => ({
     seen: row.first_seen_nm !== null,
     firstSeenNm: row.first_seen_nm,
+    aircraft: row.aircraft,
     runway: row.runway,
     taxiS: row.taxi_s,
     faErr30: row.fa_err30,

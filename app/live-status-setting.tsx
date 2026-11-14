@@ -108,6 +108,7 @@ type LearningResults = {
   ourErr15: number | null;
   ourSamples: number;
   runways: { runway: string; flights: number; taxiMin: number | null }[];
+  aircraft?: { family: string; flights: number; ourErr15: number | null }[];
 };
 
 const minutes = (value: number | null) => (value === null ? "—" : `~${value} min`);
@@ -180,6 +181,16 @@ export function LearningSetting({ url }: { url: string }) {
                 .map(
                   (runway) =>
                     `Rwy ${runway.runway}: ${runway.flights}${runway.taxiMin !== null ? ` · taxi ~${runway.taxiMin} min` : ""}`,
+                )
+                .join("  ·  ")}
+            </small>
+          )}
+          {results.aircraft && results.aircraft.length > 0 && (
+            <small>
+              {results.aircraft
+                .map(
+                  (group) =>
+                    `${group.family}s: ${group.flights}${group.ourErr15 !== null ? ` · ±${group.ourErr15} min` : ""}`,
                 )
                 .join("  ·  ")}
             </small>

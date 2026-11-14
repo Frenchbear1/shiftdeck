@@ -117,9 +117,22 @@ export function checkpointTimes(observations: Observation[], landedTs: number) {
   return result;
 }
 
+/**
+ * Allegiant flies two families that land a little differently:
+ * Airbus A319/A320 and Boeing 737 (737-8200 "B38M"). Accepts ADS-B type
+ * codes ("A320", "B38M") or FlightAware names.
+ */
+export function aircraftFamily(type: string | null | undefined): "A320" | "737" | null {
+  const code = (type ?? "").toUpperCase().replace(/\s+/g, "");
+  if (/^(A3(19|20|21)|A32[0-9]N|AIRBUSA3(19|20|21))/.test(code)) return "A320";
+  if (/^(B73[0-9]|B3[789]M|B737|BOEING737|737)/.test(code)) return "737";
+  return null;
+}
+
 export type HistoryFlight = {
   runway: string | null;
   origin: string | null;
+  aircraft?: string | null;
   checkpoints: Record<string, number>;
   taxiS: number | null;
 };
@@ -174,13 +187,27 @@ export function estimateArrival(
   distance: number,
   groundSpeed: number | null,
   runway: string | null,
+  aircraft: string | null = null,
 ): Estimate {
   const pick = (flights: HistoryFlight[]) =>
     withoutOutliers(
       flights.map((flight) => timeAt(flight, distance)).filter((value): value is number => value !== null),
     );
-  let times = runway ? pick(history.filter((flight) => flight.runway === runway)) : [];
-  if (times.length < MIN_HISTORY) times = pick(history);
+  // Most specific first: same plane type and runway, then same type, then
+  // same runway, then everything.
+  const family = aircraftFamily(aircraft);
+  const sameType = (flight: HistoryFlight) => family !== null && aircraftFamily(flight.aircraft) === family;
+  const groups = [
+    family && runway ? history.filter((flight) => sameType(flight) && flight.runway === runway) : [],
+    family ? history.filter(sameType) : [],
+    runway ? history.filter((flight) => flight.runway === runway) : [],
+    history,
+  ];
+  let times: number[] = [];
+  for (const group of groups) {
+    times = pick(group);
+    if (times.length >= MIN_HISTORY) break;
+  }
   const taxi = withoutOutliers(
     history
       .filter((flight) => !runway || flight.runway === runway)
@@ -207,6 +234,7 @@ export function estimateArrival(
 
 export type FinishedFlight = {
   seen: boolean;
+  aircraft?: string | null;
   firstSeenNm: number | null;
   runway: string | null;
   taxiS: number | null;
@@ -244,5 +272,14 @@ export function summarize(flights: FinishedFlight[]) {
         taxiMin: typical(values((flight) => (list.includes(flight) && flight.taxiS ? flight.taxiS / 60 : null))),
       }))
       .sort((a, b) => b.flights - a.flights),
+    aircraft: (["A320", "737"] as const)
+      .map((family) => {
+        const list = flights.filter((flight) => aircraftFamily(flight.aircraft) === family);
+        const errors = withoutOutliers(
+          list.map((flight) => flight.ourErr15).filter((value): value is number => value !== null),
+        );
+        return { family, flights: list.length, ourErr15: typical(errors) };
+      })
+      .filter((group) => group.flights > 0),
   };
 }

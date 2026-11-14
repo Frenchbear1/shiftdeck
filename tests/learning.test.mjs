@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  aircraftFamily,
   checkpointTimes,
   estimateArrival,
   landedObservation,
@@ -72,6 +73,26 @@ test("estimates from history once there are enough flights, physics before", () 
   // The 3000 s odd ball is ignored → median of 600–640 ≈ 615 s.
   assert.ok(Math.abs((learned.landingTs - now) / 1000 - 615) <= 10, `${(learned.landingTs - now) / 1000}s`);
   assert.equal((learned.gateTs - learned.landingTs) / 1000, 240);
+});
+
+test("groups Allegiant planes into A320s and 737s, and learns each separately", () => {
+  assert.equal(aircraftFamily("A320"), "A320");
+  assert.equal(aircraftFamily("A319"), "A320");
+  assert.equal(aircraftFamily("B38M"), "737");
+  assert.equal(aircraftFamily("B738"), "737");
+  assert.equal(aircraftFamily(null), null);
+  const flight = (aircraft, at20) => ({ runway: "24", origin: "PIE", aircraft, checkpoints: { 20: at20 }, taxiS: 240 });
+  const history = [
+    ...[600, 610, 620].map((at20) => flight("A320", at20)),
+    ...[540, 550, 560].map((at20) => flight("B38M", at20)),
+  ];
+  const now = t0;
+  const boeing = estimateArrival(history, now, 20, 240, "24", "B38M");
+  assert.equal((boeing.landingTs - now) / 1000, 550);
+  const airbus = estimateArrival(history, now, 20, 240, "24", "A319");
+  assert.equal((airbus.landingTs - now) / 1000, 610);
+  // Unknown type: everything together.
+  assert.equal((estimateArrival(history, now, 20, 240, "24").landingTs - now) / 1000, 580);
 });
 
 test("outlier filter and summary", () => {
