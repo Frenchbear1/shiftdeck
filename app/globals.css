@@ -5008,3 +5008,20 @@ select:focus-visible {
 .live-status-setting .learning-compare span:nth-child(n + 7) {
   color: var(--blue);
 }
+
+.settings-sheet header > button.settings-save {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 14px;
+  color: #fff;
+  background: var(--blue);
+  font-weight: 750;
+  animation: pop 200ms var(--ease-out) both;
+}
+
+.settings-sheet header > button.settings-save svg {
+  width: 16px;
+  height: 16px;
+}

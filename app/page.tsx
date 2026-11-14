@@ -604,6 +604,8 @@ export default function HomePage() {
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // What Settings looked like when it opened, so the X can turn into Save after a change.
+  const [settingsSnapshot, setSettingsSnapshot] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [nameMergeOpen, setNameMergeOpen] = useState(false);
   const [shiftEditor, setShiftEditor] = useState<{
@@ -2325,7 +2327,7 @@ export default function HomePage() {
             <ArrowLeftRight />
             <span>Swap</span>
           </button>
-          <button type="button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
+          <button type="button" onClick={() => { setSettingsSnapshot(JSON.stringify([prefs, theme])); setSettingsOpen(true); }} aria-label="Open settings">
             <Settings />
           </button>
         </div>
@@ -2769,7 +2771,30 @@ export default function HomePage() {
       {settingsOpen && (
         <div className="modal-layer" role="presentation" {...backdropClose(() => setSettingsOpen(false))}>
           <section className="settings-sheet" role="dialog" aria-modal="true" aria-label="Settings">
-            <header><div><h2>Settings</h2></div><button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button></header>
+            <header>
+              <div><h2>Settings</h2></div>
+              {settingsSnapshot !== null && settingsSnapshot !== JSON.stringify([prefs, theme]) ? (
+                <button
+                  className="settings-save"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setToast("Preferences saved on this device");
+                  }}
+                  aria-label="Save preferences"
+                >
+                  <Check /> Save
+                </button>
+              ) : (
+                <button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button>
+              )}
+            </header>
+            <div className="theme-setting">
+              <span>Appearance</span>
+              <div>
+                <button className={theme === "light" ? "active" : ""} onClick={() => changeTheme("light")}><Sun /> Light</button>
+                <button className={theme === "dark" ? "active" : ""} onClick={() => changeTheme("dark")}><Moon /> Dark</button>
+              </div>
+            </div>
             <label>
               <span>Your name on the schedule</span>
               <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
@@ -2802,15 +2827,13 @@ export default function HomePage() {
                 Merge names
               </button>
             </div>
-            {liveFlights.live?.status && (
-              <LiveStatusSetting
-                status={liveFlights.live.status}
-                updatedAt={liveFlights.live.updatedAt}
-              />
-            )}
-            {liveFlights.live && (
-              <LearningSetting url={calendarServiceUrl("/api/flights/learning")} />
-            )}
+            <div className="theme-setting">
+              <span>Flight app</span>
+              <div role="group" aria-label="Open flights in">
+                <button className={prefs.flightApp === "flightaware" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightaware" })}>FlightAware</button>
+                <button className={prefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightradar24" })}>Flightradar24</button>
+              </div>
+            </div>
             <div className="calendar-subscription-setting">
               <div>
                 <span>Notifications</span>
@@ -2859,21 +2882,15 @@ export default function HomePage() {
                 {calendarSubscription ? "Open" : "Add"}
               </button>
             </div>
-            <div className="theme-setting">
-              <span>Flight app</span>
-              <div role="group" aria-label="Open flights in">
-                <button className={prefs.flightApp === "flightaware" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightaware" })}>FlightAware</button>
-                <button className={prefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightradar24" })}>Flightradar24</button>
-              </div>
-            </div>
-            <div className="theme-setting">
-              <span>Appearance</span>
-              <div>
-                <button className={theme === "light" ? "active" : ""} onClick={() => changeTheme("light")}><Sun /> Light</button>
-                <button className={theme === "dark" ? "active" : ""} onClick={() => changeTheme("dark")}><Moon /> Dark</button>
-              </div>
-            </div>
-            <button className="button primary" onClick={() => { setSettingsOpen(false); setToast("Preferences saved on this device"); }}><Check /> Save preferences</button>
+            {liveFlights.live?.status && (
+              <LiveStatusSetting
+                status={liveFlights.live.status}
+                updatedAt={liveFlights.live.updatedAt}
+              />
+            )}
+            {liveFlights.live && (
+              <LearningSetting url={calendarServiceUrl("/api/flights/learning")} />
+            )}
           </section>
         </div>
       )}
@@ -2891,6 +2908,7 @@ export default function HomePage() {
           onUndo={undoNameMerge}
           onClose={() => {
             setNameMergeOpen(false);
+            setSettingsSnapshot(JSON.stringify([prefs, theme]));
             setSettingsOpen(true);
           }}
         />
