@@ -667,7 +667,28 @@ export default function HomePage() {
     calendarServiceUrl(`/api/flights/live?airport=${DEFAULT_PREFS.homeAirport}`),
   );
   const airportAlerts = liveFlights.live?.airportAlerts;
-  const airportNoticeCount = airportAlerts?.notices.length ?? 0;
+  const [dismissedAirportAlerts, setDismissedAirportAlerts] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem("shiftdeck.dismissedAirportAlerts") ?? "[]");
+      if (Array.isArray(saved)) setDismissedAirportAlerts(saved.filter((item): item is string => typeof item === "string"));
+    } catch {
+      // Dismissal still works for the current visit.
+    }
+  }, []);
+  const visibleAirportAlerts = (airportAlerts?.notices ?? []).filter(
+    ({ text }) => !dismissedAirportAlerts.includes(text),
+  );
+  const airportNoticeCount = visibleAirportAlerts.length;
+  const dismissAirportAlert = (text: string) => {
+    const next = [...dismissedAirportAlerts, text];
+    setDismissedAirportAlerts(next);
+    try {
+      localStorage.setItem("shiftdeck.dismissedAirportAlerts", JSON.stringify(next));
+    } catch {
+      // Keep the in-memory dismissal when storage is unavailable.
+    }
+  };
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
   const airportAlertsButton = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -1488,7 +1509,6 @@ export default function HomePage() {
     if (nextTheme === theme) return;
     localStorage.setItem("shiftdeck.theme", nextTheme);
     setTheme(nextTheme);
-    window.setTimeout(() => window.location.reload(), 80);
   };
 
   const openAddShift = () => {
@@ -2349,7 +2369,7 @@ export default function HomePage() {
             <ArrowLeftRight />
             <span>Swap</span>
           </button>
-          <button type="button" onClick={() => { setSettingsSnapshot(JSON.stringify([prefs, theme])); setSettingsOpen(true); }} aria-label="Open settings">
+          <button type="button" onClick={() => { setSettingsSnapshot(JSON.stringify(prefs)); setSettingsOpen(true); }} aria-label="Open settings">
             <Settings />
           </button>
         </div>
@@ -2369,20 +2389,23 @@ export default function HomePage() {
           <form method="dialog"><button type="submit" aria-label="Close airport alerts"><X /></button></form>
         </header>
         <div className="sheet-scroll">
-          {airportAlerts?.notices.length ? (
+          {airportNoticeCount ? (
             <ul className="airport-alert-list">
-              {airportAlerts.notices.map(({ text, url }, index) => (
+              {visibleAirportAlerts.map(({ text, url }, index) => (
                 <li key={`${index}-${text}`}>
                   <AlertTriangle aria-hidden="true" />
                   <div>
                     <p>{text}</p>
                     {url && <a href={url} target="_blank" rel="noreferrer">Read more on the airport site</a>}
                   </div>
+                  <button type="button" className="airport-alert-dismiss" onClick={() => dismissAirportAlert(text)}>
+                    Dismiss
+                  </button>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="quiet-line">{airportAlerts ? "No airport notices posted at the last check." : "Airport notices haven’t loaded yet."}</p>
+            <p className="quiet-line">{airportAlerts ? "No new airport notices." : "Airport notices haven’t loaded yet."}</p>
           )}
           <a className="airport-alert-source" href="https://www.flyabe.com/flights/" target="_blank" rel="noreferrer">
             Official ABE flight board
@@ -2839,7 +2862,7 @@ export default function HomePage() {
                 >
                   {theme === "dark" ? <Moon /> : <Sun />}
                 </button>
-              {settingsSnapshot !== null && settingsSnapshot !== JSON.stringify([prefs, theme]) ? (
+              {settingsSnapshot !== null && settingsSnapshot !== JSON.stringify(prefs) ? (
                   <button
                   className="settings-save"
                   onClick={() => {
@@ -2959,7 +2982,7 @@ export default function HomePage() {
           onUndo={undoNameMerge}
           onClose={() => {
             setNameMergeOpen(false);
-            setSettingsSnapshot(JSON.stringify([prefs, theme]));
+            setSettingsSnapshot(JSON.stringify(prefs));
             setSettingsOpen(true);
           }}
         />

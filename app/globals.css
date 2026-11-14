@@ -2848,6 +2848,22 @@ select:focus-visible {
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
 }
 
+.airport-alert-list li > div {
+  flex: 1;
+}
+
+.airport-alert-dismiss {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .airport-alert-list svg {
   flex: none;
   width: 16px;
