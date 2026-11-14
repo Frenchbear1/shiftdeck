@@ -30,7 +30,11 @@ export type LiveFlight = {
   estimatedOn?: string | null;
   /** Arrivals: Shiftdeck's own live estimate from tracking + history (see flight-learning). */
   liveEta?: { landing: string; gate: string; distanceNm: number; seenAt: string; method: string } | null;
+  airportBoardId?: string;
+  airportBoardSeenAt?: number;
 };
+
+export type AirportAlert = { text: string; url?: string };
 
 export type AeroAirport = {
   code?: string | null;

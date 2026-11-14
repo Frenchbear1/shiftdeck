@@ -247,7 +247,16 @@ export function LiveMapPanel({
   }, []);
 
   // Draw planes.
-  const byCallsign = new Map(liveFlights.map((flight) => [callsignFor(flight.ident), flight]));
+  const byCallsign = new Map<string, LiveFlight>();
+  for (const flight of liveFlights) {
+    const callsign = callsignFor(flight.ident);
+    const time = Date.parse(flight.estimated ?? flight.scheduled ?? "");
+    const saved = byCallsign.get(callsign);
+    if (!callsign || flight.cancelled) continue;
+    if (!saved || Math.abs(time - now) < Math.abs(Date.parse(saved.estimated ?? saved.scheduled ?? "") - now)) {
+      byCallsign.set(callsign, flight);
+    }
+  }
   const shown = (planes ?? []).filter((plane) => !allegiantOnly || isAllegiant(plane));
   useEffect(() => {
     const L = leafletRef.current;

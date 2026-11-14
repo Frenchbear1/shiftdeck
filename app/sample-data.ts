@@ -24,7 +24,7 @@ export type Flight = {
   departure?: string;
   start: string;
   end?: string;
-  source?: "schedule" | "charter";
+  source?: "schedule" | "charter" | "airport-board";
   operator?: string;
   aircraft?: string;
   trackingId?: string;

@@ -1632,6 +1632,33 @@ select:focus-visible {
   flex: none;
 }
 
+.top-actions .airport-alert-button {
+  position: relative;
+  padding-inline: 9px;
+}
+
+.top-actions .airport-alert-button.has-alerts {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 25%, var(--line));
+}
+
+.airport-alert-button i {
+  position: absolute;
+  top: -5px;
+  right: -4px;
+  min-width: 17px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--surface);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+}
+
 /* ---------- layout ---------- */
 
 .home {
@@ -2787,6 +2814,59 @@ select:focus-visible {
 
 .panel-sheet .empty-state {
   padding: 0 20px 28px;
+}
+
+.airport-alerts-sheet {
+  margin: auto;
+  width: min(480px, calc(100% - 32px));
+  padding: 0;
+  color: var(--text);
+}
+
+.airport-alerts-sheet:not([open]) {
+  display: none;
+}
+
+.airport-alerts-sheet::backdrop {
+  background: rgb(0 0 0 / .45);
+}
+
+.airport-alert-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.airport-alert-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
+
+.airport-alert-list svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--danger);
+}
+
+.airport-alert-list p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.airport-alert-list a,
+.airport-alert-source {
+  color: var(--blue);
+  font-size: 13px;
+  text-decoration: underline;
 }
 
 /* ---------- import ---------- */
