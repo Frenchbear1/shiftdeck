@@ -4776,3 +4776,8 @@ select:focus-visible {
   background: var(--surface);
   border-color: var(--line);
 }
+
+/* OpenStreetMap tiles are light only; turn them into a dark map in dark mode. */
+:root[data-theme="dark"] .map-panel .map-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6);
+}

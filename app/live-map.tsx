@@ -90,16 +90,14 @@ export function LiveMapPanel({
         zoomControl: false,
         attributionControl: true,
       });
-      const dark = document.documentElement.dataset.theme === "dark";
-      L.tileLayer(
-        `https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "rastertiles/voyager"}/{z}/{x}/{y}{r}.png`,
-        {
-          maxZoom: 18,
-          subdomains: "abcd",
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        },
-      ).addTo(map);
+      // OpenStreetMap's own tiles: free, no key, attribution required.
+      // (CARTO's basemaps now need an API key.) Dark mode darkens them in CSS.
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        className: "map-tiles",
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(map);
       L.control.zoom({ position: "bottomright" }).addTo(map);
       L.marker([ABE.lat, ABE.lon], {
         icon: L.divIcon({ className: "", html: '<div class="map-airport">ABE</div>', iconSize: [36, 18], iconAnchor: [18, 30] }),
