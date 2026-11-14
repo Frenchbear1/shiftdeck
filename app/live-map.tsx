@@ -90,6 +90,7 @@ export function LiveMapPanel({
   const markers = useRef(new Map<string, Marker>());
   const pendingZoom = useRef<number | null>(null);
   const zoomFrame = useRef<number | null>(null);
+  const zoomBar = useRef<HTMLDivElement>(null);
   const [planes, setPlanes] = useState<Plane[] | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [source, setSource] = useState<string>("adsb.lol");
@@ -304,6 +305,28 @@ export function LiveMapPanel({
     }
   };
 
+  /** Move the slider and the map; the map updates at most once per frame. */
+  const applyZoom = (next: number) => {
+    setSliderZoom(next);
+    pendingZoom.current = next;
+    if (zoomFrame.current === null) {
+      zoomFrame.current = requestAnimationFrame(() => {
+        zoomFrame.current = null;
+        if (pendingZoom.current !== null) {
+          mapRef.current?.setZoom(pendingZoom.current, { animate: false });
+        }
+      });
+    }
+  };
+
+  /** Top of the track = airport close-up, bottom = 250 nm. */
+  const zoomFromPointer = (clientY: number) => {
+    const track = zoomBar.current?.querySelector(".map-zoom-track input")?.getBoundingClientRect();
+    if (!track) return;
+    const fraction = Math.min(1, Math.max(0, (track.bottom - clientY) / track.height));
+    applyZoom(zoomRange.min + fraction * (zoomRange.max - zoomRange.min));
+  };
+
   const allegiantCount = (planes ?? []).filter(isAllegiant).length;
   const age = updatedAt ? Math.max(0, Math.round((now - updatedAt) / 1000)) : null;
 
@@ -324,7 +347,19 @@ export function LiveMapPanel({
       </div>
       <div className="map-frame">
         <div ref={container} className="map-canvas" aria-label="Map of planes near ABE" />
-        <div className="map-zoom" aria-hidden={false}>
+        <div
+          ref={zoomBar}
+          className="map-zoom"
+          onPointerDown={(event) => {
+            // The whole shaded bar is the touch target, not just the dot.
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            zoomFromPointer(event.clientY);
+          }}
+          onPointerMove={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) zoomFromPointer(event.clientY);
+          }}
+        >
           <span>ABE</span>
           <div className="map-zoom-track">
             <input
@@ -334,20 +369,7 @@ export function LiveMapPanel({
               step={0.01}
               value={sliderZoom}
               aria-label="Zoom: airport to 250 nautical miles"
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                setSliderZoom(next);
-                // One map update per frame keeps the slider smooth.
-                pendingZoom.current = next;
-                if (zoomFrame.current === null) {
-                  zoomFrame.current = requestAnimationFrame(() => {
-                    zoomFrame.current = null;
-                    if (pendingZoom.current !== null) {
-                      mapRef.current?.setZoom(pendingZoom.current, { animate: false });
-                    }
-                  });
-                }
-              }}
+              onChange={(event) => applyZoom(Number(event.target.value))}
             />
           </div>
           <span>250</span>

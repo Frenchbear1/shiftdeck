@@ -4960,3 +4960,15 @@ select:focus-visible {
   width: 15px;
   height: 15px;
 }
+
+/* The bar handles touches itself; the range input is just for show and keyboard. */
+.map-zoom {
+  touch-action: none;
+  cursor: ns-resize;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.map-zoom-track input {
+  pointer-events: none;
+}
