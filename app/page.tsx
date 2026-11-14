@@ -74,6 +74,7 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { useLiveFlights } from "./live-flights";
 import { LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
+import { LiveMapPanel } from "./live-map";
 import {
   clearScheduleImages,
   deleteScheduleImage,
@@ -2373,6 +2374,10 @@ export default function HomePage() {
             live={liveFlights.live}
             onRefresh={liveFlights.refresh}
             refreshing={liveFlights.refreshing}
+          />
+          <LiveMapPanel
+            url={calendarServiceUrl("/api/planes")}
+            liveFlights={liveFlights.live?.flights ?? []}
           />
           <WeatherPanel shift={myShift} />
           <CrewPanel

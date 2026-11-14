@@ -6,6 +6,7 @@ import {
   FlightStatusEnvironment,
   handleFlightStatusRequest,
 } from "./flight-status";
+import { handlePlanesRequest } from "./planes";
 import {
   handlePushRequest,
   PushEnvironment,
@@ -22,6 +23,8 @@ const worker = {
     if (pushResponse) return pushResponse;
     const liveResponse = await handleFlightStatusRequest(request, env.DB, env);
     if (liveResponse) return liveResponse;
+    const planesResponse = await handlePlanesRequest(request);
+    if (planesResponse) return planesResponse;
     const response = await handleCalendarRequest(request, env.DB);
     if (response) return response;
     return Response.json(
