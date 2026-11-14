@@ -2,6 +2,7 @@ import {
   mergeScheduleParses,
   parseScheduleTsv,
   ParsedSchedule,
+  type ScheduleSourceLayout,
 } from "./schedule-parser";
 import { isStrongScheduleRead } from "./schedule-tools";
 
@@ -100,7 +101,7 @@ export type ReadCallbacks = {
 export async function readScheduleImage(
   file: File,
   { onFraction, onReading, onDoubleCheck }: ReadCallbacks,
-): Promise<ParsedSchedule | null> {
+): Promise<(ParsedSchedule & { reviewImage?: Blob }) | null> {
   const { PSM } = await import("tesseract.js");
   let fraction = 0;
   const report = (value: number) => {
@@ -127,10 +128,17 @@ export async function readScheduleImage(
   ];
   const fallback = { image: enhanced, mode: PSM.AUTO };
   const readable: ParsedSchedule[] = [];
+  const sources: Array<{
+    schedule: ParsedSchedule;
+    layout: ScheduleSourceLayout;
+    image?: Blob;
+    original: boolean;
+  }> = [];
   let planned = passes.length;
 
   for (let index = 0; index < planned; index += 1) {
     const pass = index < passes.length ? passes[index] : fallback;
+    const original = index === 1;
     if (index === passes.length) onDoubleCheck();
     const from = fraction;
     const to = from + (0.98 - from) / (planned - index);
@@ -145,12 +153,31 @@ export async function readScheduleImage(
       const result = await worker.recognize(
         pass.image,
         { rotateAuto: true },
-        { text: true, tsv: true },
+        { tsv: true, imageColor: original },
       );
       const parsed = result.data.tsv
         ? parseScheduleTsv(result.data.tsv, result.data.confidence)
         : null;
-      if (parsed) readable.push(parsed);
+      if (parsed) {
+        readable.push(parsed);
+        if (parsed.sourceLayout) {
+          const deskewed = Boolean(result.data.rotateRadians);
+          const alignedImage = result.data.imageColor;
+          const image = deskewed && alignedImage
+            ? new Blob([Uint8Array.from(atob(alignedImage.split(",")[1]), (byte) => byte.charCodeAt(0))], {
+                type: "image/png",
+              })
+            : undefined;
+          if (!deskewed || image) {
+            sources.push({
+              schedule: parsed,
+              layout: { ...parsed.sourceLayout, deskewed },
+              image,
+              original,
+            });
+          }
+        }
+      }
     } catch {
       // Keep whatever the other passes could read.
     } finally {
@@ -168,5 +195,29 @@ export async function readScheduleImage(
   }
 
   report(1);
-  return mergeScheduleParses(readable);
+  const schedule = mergeScheduleParses(readable);
+  if (!schedule) return null;
+  const workers = new Set(schedule.shifts.map((shift) => shift.worker));
+  const source = sources
+    .filter((candidate) => candidate.schedule.dates.join() === schedule.dates.join())
+    .map((candidate) => ({
+      ...candidate,
+      matched: new Set(candidate.layout.rows.filter((row) => workers.has(row.name)).map((row) => row.name)).size,
+    }))
+    .sort((a, b) => b.matched - a.matched || Number(b.original) - Number(a.original))[0];
+  return { ...schedule, sourceLayout: source?.layout, reviewImage: source?.image };
+}
+
+/** Read coordinates from a saved photo without reimporting its shift data. */
+export async function findSavedScheduleRows(image: Blob, dates: string[]) {
+  const { createWorker, PSM } = await import("tesseract.js");
+  const worker = await createWorker("eng", 1);
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+    const { data } = await worker.recognize(image, {}, { tsv: true });
+    const parsed = data.tsv && parseScheduleTsv(data.tsv, data.confidence);
+    return parsed && parsed.dates.join() === dates.join() ? parsed.sourceLayout : undefined;
+  } finally {
+    await worker.terminate().catch(() => undefined);
+  }
 }

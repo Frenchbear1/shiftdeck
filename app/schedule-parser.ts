@@ -16,12 +16,28 @@ type DatedWord = OcrWord & {
   value: Date;
 };
 
+type SourceBand = { top: number; bottom: number };
+
+export type ScheduleSourceLayout = {
+  width: number;
+  height: number;
+  left: number;
+  right: number;
+  slope: number;
+  spacing: number;
+  centers: number[];
+  header: SourceBand;
+  rows: Array<SourceBand & { name: string }>;
+  deskewed?: boolean;
+};
+
 export type ParsedSchedule = {
   dates: string[];
   shifts: Shift[];
   flights: Flight[];
   confidence: number;
   warnings: string[];
+  sourceLayout?: ScheduleSourceLayout;
 };
 
 export const SCHEDULE_PARSER_VERSION = 5;
@@ -254,6 +270,7 @@ const deriveWeek = (words: OcrWord[]) => {
     spacing: inferredSpacing,
     slope,
     correctedHeaderY,
+    headerWords: selectedDates,
     confidence: average(selectedDates.map((word) => word.confidence)),
   };
 };
@@ -591,12 +608,13 @@ const parseShifts = (
             : withoutTrailingCode.join(" "),
         ),
         y: average(group.map((word) => word.rowY)),
+        words: group,
       };
     })
     .filter((row) => isPlausibleWorkerName(row.name))
     .filter((row) => row.name.toLowerCase() !== "open");
 
-  if (!namedRows.length) return [];
+  if (!namedRows.length) return { shifts: [], rows: [] };
   const rowGaps = namedRows
     .slice(1)
     .map((row, index) => row.y - namedRows[index].y)
@@ -612,12 +630,24 @@ const parseShifts = (
       word.rowY > week.correctedHeaderY + typicalHeight * 0.7,
   );
 
-  return namedRows.flatMap<Shift>((row) => {
-    const wordsForRow = cellWords.filter(
+  const rows = namedRows.map((row, index) => {
+    const cells = cellWords.filter(
       (word) => Math.abs(word.rowY - row.y) <= rowTolerance,
     );
+    const band = sourceBand([...row.words, ...cells], week.slope);
+    return {
+      name: row.name,
+      cells,
+      left: Math.min(...row.words.map((word) => word.x)),
+      top: Math.max(band.top, index ? (namedRows[index - 1].y + row.y) / 2 : -Infinity),
+      bottom: Math.min(band.bottom, index + 1 < namedRows.length
+        ? (row.y + namedRows[index + 1].y) / 2 : Infinity),
+    };
+  });
+
+  const shifts = rows.flatMap<Shift>((row) => {
     return week.dates.map((date, columnIndex) => {
-      const cellText = wordsForRow
+      const cellText = row.cells
         .filter(
           (word) =>
             nearestColumn(word.centerX, week.columnCenters, week.spacing) === columnIndex,
@@ -662,6 +692,45 @@ const parseShifts = (
       };
     });
   });
+  return { shifts, rows };
+};
+
+// Store vertical bounds in the same slope-corrected coordinates as the parser.
+const sourceBand = (words: OcrWord[], slope: number): SourceBand => {
+  const padding = Math.max(2, median(words.map((word) => word.height)) * 0.2);
+  const top = Math.min(...words.map((word) => word.y - slope * word.centerX));
+  const bottom = Math.max(
+    ...words.map((word) => word.y + word.height - slope * word.centerX),
+  );
+  return { top: top - padding, bottom: bottom + padding };
+};
+
+const sourceLayoutFor = (
+  tsv: string,
+  week: NonNullable<ReturnType<typeof deriveWeek>>,
+  rows: ReturnType<typeof parseShifts>["rows"],
+): ScheduleSourceLayout | undefined => {
+  const page = tsv.match(/^1\t[^\r\n]+/m)?.[0].split("\t");
+  const width = Number(page?.[8]);
+  const height = Number(page?.[9]);
+  if (!(width > 0 && height > 0 && rows.length)) return undefined;
+  const left = Math.max(0, Math.floor(Math.min(
+    ...rows.map((row) => row.left - week.spacing * 0.04),
+    week.columnCenters[0] - week.spacing / 2,
+  )));
+  const right = Math.min(width, Math.ceil(week.columnCenters[6] + week.spacing / 2));
+  if (right <= left) return undefined;
+  return {
+    width,
+    height,
+    left,
+    right,
+    slope: week.slope,
+    spacing: week.spacing,
+    centers: week.columnCenters,
+    header: sourceBand(week.headerWords, week.slope),
+    rows: rows.map(({ name, top, bottom }) => ({ name, top, bottom })),
+  };
 };
 
 const parseClock = (raw: string) => {
@@ -841,7 +910,7 @@ export function parseScheduleTsv(tsv: string, ocrConfidence = 0): ParsedSchedule
   words.forEach((word) => {
     word.rowY = word.centerY - week.slope * word.centerX;
   });
-  const shifts = parseShifts(words, week);
+  const { shifts, rows } = parseShifts(words, week);
   const flights = parseFlights(words, week);
   const workingShifts = shifts.filter((shift) => shift.status === "working");
   if (!workingShifts.length && !flights.length) return null;
@@ -864,5 +933,6 @@ export function parseScheduleTsv(tsv: string, ocrConfidence = 0): ParsedSchedule
     flights,
     confidence: Math.round((week.confidence + Math.max(0, ocrConfidence)) / 2),
     warnings,
+    sourceLayout: sourceLayoutFor(tsv, week, rows),
   };
 }

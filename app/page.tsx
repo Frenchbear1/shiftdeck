@@ -42,6 +42,7 @@ import {
   ParsedSchedule,
   resolveSchedulePersonName,
   SCHEDULE_PARSER_VERSION,
+  type ScheduleSourceLayout,
 } from "./schedule-parser";
 import {
   createImportProgress,
@@ -75,6 +76,7 @@ import {
   backdropClose,
 } from "./home-sections";
 import { ShiftEditorSheet } from "./shift-editor";
+import { ScheduleComparison } from "./schedule-comparison";
 import { useLiveFlights } from "./live-flights";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
@@ -193,6 +195,7 @@ type ScheduleDocument = {
   revision: number;
   parserVersion?: number;
   mimeType?: string;
+  sourceLayout?: ScheduleSourceLayout;
 };
 
 const DEFAULT_SHIFT_TITLE = "Work";
@@ -1710,6 +1713,13 @@ export default function HomePage() {
             continue;
           }
 
+          const sourceLayout = parsed.sourceLayout && {
+            ...parsed.sourceLayout,
+            rows: parsed.sourceLayout.rows.map((row) => ({
+              ...row,
+              name: resolveSchedulePersonName(row.name, knownNames),
+            })),
+          };
           parsed = {
             ...parsed,
             shifts: canonicalizeScheduleShifts(
@@ -1747,6 +1757,7 @@ export default function HomePage() {
             revision: (replacement?.revision ?? 0) + 1,
             parserVersion: SCHEDULE_PARSER_VERSION,
             mimeType: isPdf ? "application/pdf" : file.type,
+            sourceLayout,
           };
           if (replacement) {
             nextDocuments[replacementIndex] = nextDocument;
@@ -1762,7 +1773,10 @@ export default function HomePage() {
           } else {
             nextDocuments.push(nextDocument);
           }
-          await saveScheduleImage(documentId, file).catch(() => undefined);
+          const reviewImage = read && "reviewImage" in read && read.reviewImage instanceof Blob
+            ? read.reviewImage
+            : undefined;
+          await saveScheduleImage(documentId, file, reviewImage).catch(() => undefined);
         } catch {
           skippedFiles.push(file.name);
         }
@@ -2192,6 +2206,30 @@ export default function HomePage() {
     }
   };
 
+  const renderScheduleComparison = (document: ScheduleDocument) => (
+    <ScheduleComparison
+      key={document.hash}
+      id={document.id}
+      dates={document.dates}
+      shifts={document.shifts}
+      sourceLayout={document.sourceLayout}
+      person={prefs.person}
+      nameMerges={nameMerges}
+      allowScan={importState !== "reading"}
+      onSourceLayout={(sourceLayout) => {
+        setScheduleDocuments((current) => current.map((candidate) =>
+          candidate.id === document.id && candidate.hash === document.hash
+            ? { ...candidate, sourceLayout }
+            : candidate,
+        ));
+      }}
+    />
+  );
+
+  const schedulePhotos = scheduleDocuments.filter(
+    (document) => document.mimeType !== "application/pdf",
+  );
+
   const renderImportSheet = () => (
     <div className="modal-layer" role="presentation" {...backdropClose(closeSheet)}>
     <section
@@ -2347,6 +2385,7 @@ export default function HomePage() {
                       <X />
                     </button>
                   </div>
+                  {document.mimeType !== "application/pdf" && renderScheduleComparison(document)}
                   {isExpanded && (
                     <div className="upload-document-preview">
                       {documentPreviews[document.id] ? (
@@ -2423,7 +2462,22 @@ export default function HomePage() {
         onSelect={selectDate}
         dayStatus={(date) => myDayStatus.get(date) ?? { status: "none" }}
         hasSchedule={hasSchedule}
-      />
+      >
+        {sheet !== "import" && schedulePhotos.length > 0 && (
+          <section className="schedule-comparisons">
+            <h3>My imported shifts</h3>
+            {schedulePhotos.map((document) => (
+              <article key={document.id} className="schedule-comparison-file">
+                <div className="schedule-comparison-heading">
+                  <strong>{formatDocumentRange(document.dates)}</strong>
+                  <span>{document.name}</span>
+                </div>
+                {renderScheduleComparison(document)}
+              </article>
+            ))}
+          </section>
+        )}
+      </ScheduleViews>
     ),
     flights: (
       <FlightList

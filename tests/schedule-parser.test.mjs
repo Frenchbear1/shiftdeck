@@ -20,6 +20,7 @@ const word = (text, x, y, width = Math.max(8, text.length * 6), height = 10) =>
 test("imports the employee grid when a document date precedes the seven-day header", () => {
   assert.equal(SCHEDULE_PARSER_VERSION, 5);
   const rows = [
+    [1, 1, 0, 0, 0, 0, 0, 0, 1200, 650, -1, ""].join("\t"),
     word("Morning", 4, 100, 50),
     word("ACY", 160, 200, 24),
     word("0353-F/0600", 190, 200, 72),
@@ -75,6 +76,16 @@ test("imports the employee grid when a document date precedes the seven-day head
       { date: "2026-09-04", start: "22:00", end: "02:00" },
     ],
   );
+  const source = parsed.sourceLayout;
+  assert.ok(source);
+  assert.equal(source.width, 1200);
+  assert.ok(source.header.top < 327 && source.header.bottom > 340);
+  assert.ok(source.left <= 4 && source.right > 188 + 6 * 145 + 61);
+  const davidRow = source.rows.find((row) => row.name === "David LaBarre");
+  const nicoleRow = source.rows.find((row) => row.name === "Nicole Watson");
+  assert.ok(davidRow.top < 500 && davidRow.bottom > 510);
+  assert.ok(davidRow.bottom < nicoleRow.top);
+
   assert.equal(
     parsed.shifts.find(
       (shift) => shift.worker === "Nicole Watson" && shift.status === "working",

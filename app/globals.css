@@ -5385,3 +5385,111 @@ select:focus-visible {
   .home-grid.custom-order > * { grid-area: auto; }
   .home-grid.custom-order > .first-run { grid-column: 1 / -1; }
 }
+
+/* ---------- imported schedule comparison ---------- */
+
+.schedule-comparisons {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.schedule-comparisons h3 {
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.schedule-comparison-file {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.schedule-comparison-heading {
+  display: grid;
+  gap: 2px;
+  padding: 10px 10px 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.schedule-comparison-heading > span,
+.schedule-source-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.schedule-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+
+.schedule-comparison-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.schedule-comparison-track {
+  width: max-content;
+}
+
+.schedule-source-crop {
+  width: 100%;
+  border-radius: 6px;
+}
+
+.schedule-shift-cards {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-shift-cards.aligned {
+  display: grid;
+  gap: 0;
+}
+
+.schedule-shift-cards.aligned > li {
+  grid-area: 1 / 1;
+  justify-self: start;
+}
+
+.schedule-shift-cards > li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 122px;
+  padding: 7px 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  text-align: center;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-shift-cards time {
+  color: var(--muted);
+}
+
+.schedule-shift-cards strong {
+  font-weight: 750;
+}
+
+.schedule-source-note {
+  margin: 0;
+}
+
+.schedule-source-note > .button {
+  min-height: 36px;
+  margin-top: 4px;
+}
