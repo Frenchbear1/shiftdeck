@@ -371,7 +371,8 @@ test("uses durable, duplicate-safe PWA shift notifications", async () => {
   assert.match(pushService, /sendDueNotifications/);
   assert.match(worker, /async scheduled/);
   assert.match(worker, /handlePushRequest/);
-  assert.match(config, /"crons": \["\* \* \* \* \*"\]/);
+  assert.ok(JSON.parse(config).triggers.crons.includes("* * * * *"));
+  assert.ok(JSON.parse(config).triggers.crons.includes("*/5 * * * *"));
   assert.match(config, /"nodejs_compat"/);
   assert.equal(JSON.parse(manifest).id, "./");
   assert.match(serviceWorker, /addEventListener\("push"/);
@@ -411,7 +412,7 @@ test("restores a subtle Apple Calendar subscription with a work address", async 
   assert.match(page, /createCalendarFeed/);
   assert.match(page, /syncCalendarFeed/);
   assert.match(page, /shiftdeck\.calendarSubscription/);
-  assert.match(page, /<span>Apple Calendar<\/span>/);
+  assert.match(page, /<span>(?:<CalendarDays \/> )?Apple Calendar<\/span>/);
   assert.match(page, /Add shifts for Waze/);
   assert.match(page, /onClick=\{\(\) => void subscribeToCalendar\(\)\}/);
   assert.doesNotMatch(page, /aria-label="Apple Calendar settings"/);

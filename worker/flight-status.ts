@@ -1,5 +1,5 @@
 /**
- * Live arrival/departure times for the home airport, from FlightAware AeroAPI,
+ * Live arrival/departure times from the ABE board and optional FlightAware AeroAPI,
  * shared by everyone who uses Shiftdeck (no accounts).
  *
  * GET  /api/flights/live?airport=ABE           → last saved times + usage status
@@ -13,11 +13,11 @@
  * - stops for the month once spend reaches AEROAPI_MONTHLY_BUDGET_CENTS
  *   (default 450, under AeroAPI Personal's $5 free allowance)
  *
- * Needs the AEROAPI_KEY secret. Without it the endpoint answers
- * { enabled: false } and the app keeps showing schedule times.
+ * Only the optional manual FlightAware refresh needs AEROAPI_KEY.
  */
 import { CalendarDatabase, corsHeaders, json } from "./calendar-service";
 import { attachLiveEtas } from "./flight-learning";
+import { ABE_BOARD_AIRPORT, mergeAbeBoard, readAbeAlerts, readAbeBoard } from "./abe-flight-board";
 import {
   AeroFlight,
   LiveFlight,
@@ -155,45 +155,50 @@ export async function handleFlightStatusRequest(
       headers: corsHeaders(request) as Record<string, string>,
     });
   }
-  if (!env.AEROAPI_KEY || !db) return json(request, { enabled: false, flights: [] });
+  if (!db) return json(request, { enabled: false, flights: [] });
 
   const raw = (url.searchParams.get("airport") ?? "ABE").trim().toUpperCase();
   if (!/^[A-Z0-9]{3,4}$/.test(raw)) {
     return json(request, { error: "Use an airport code" }, 400);
   }
   const airport = /^[A-Z]{3}$/.test(raw) ? `K${raw}` : raw;
+  const isAbe = airport === ABE_BOARD_AIRPORT;
+  if (!env.AEROAPI_KEY && !isAbe) return json(request, { enabled: false, flights: [] });
+  if (request.method !== (isRefresh ? "POST" : "GET")) return json(request, { error: "Method not allowed" }, 405);
 
-  await ensureSchema(db);
   const now = Date.now();
-  const state = await readState(db, airport, now, env);
-  const reply = (
+  const [board, alerts] = isAbe
+    ? await Promise.all([readAbeBoard(db), readAbeAlerts(db)])
+    : [null, null];
+  const reply = async (
     payload: CachePayload | null,
-    status: typeof state.status,
+    status: Awaited<ReturnType<typeof readState>>["status"] | null,
     extra: Record<string, unknown> = {},
     code = 200,
-  ) =>
-    json(
+  ) => {
+    const updatedAt = Math.max(payload?.fetchedAt ?? 0, board?.fetchedAt ?? 0);
+    const flights = mergeAbeBoard(payload?.flights ?? [], board, payload?.fetchedAt ?? 0);
+    return json(
       request,
       {
         enabled: true,
-        updatedAt: payload ? new Date(payload.fetchedAt).toISOString() : null,
-        flights: payload?.flights ?? [],
+        updatedAt: updatedAt ? new Date(updatedAt).toISOString() : null,
+        flights: flights.length ? await attachLiveEtas(db, flights, now) : [],
         status,
+        airportBoardUpdatedAt: board ? new Date(board.fetchedAt).toISOString() : null,
+        airportAlerts: alerts ? { updatedAt: new Date(alerts.fetchedAt).toISOString(), notices: alerts.data } : null,
         ...extra,
       },
       code,
       { "Cache-Control": "no-store" },
     );
+  };
 
-  if (!isRefresh) {
-    if (request.method !== "GET") return json(request, { error: "Method not allowed" }, 405);
-    // Add Shiftdeck's own live estimates (free tracking + history) between refreshes.
-    const withLive = state.cached
-      ? { ...state.cached, flights: await attachLiveEtas(db, state.cached.flights, now) }
-      : null;
-    return reply(withLive, state.status);
-  }
-  if (request.method !== "POST") return json(request, { error: "Method not allowed" }, 405);
+  if (!env.AEROAPI_KEY) return reply(null, null);
+
+  await ensureSchema(db);
+  const state = await readState(db, airport, now, env);
+  if (!isRefresh) return reply(state.cached, state.status);
 
   let emergency = false;
   try {

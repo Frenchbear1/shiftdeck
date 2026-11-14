@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Flight, Shift } from "./sample-data";
-import { LiveFlights, LiveMatch, matchLiveFlight, RefreshResult } from "./live-flights";
+import { addAbeBoardFlights, LiveFlights, LiveMatch, matchLiveFlight, RefreshResult } from "./live-flights";
 import {
   analyzeSwap,
   buildCrewTimeline,
@@ -588,7 +588,7 @@ export function FlightList({
   linkFor: (flight: Flight) => string;
   airport: string;
   app?: FlightApp;
-  /** Shared live times from the worker; null until FlightAware is set up. */
+  /** Shared live times from the worker. */
   live?: LiveFlights | null;
   onRefresh?: (emergency: boolean) => Promise<RefreshResult>;
   refreshing?: boolean;
@@ -599,36 +599,41 @@ export function FlightList({
     setShownFor(date);
     setShowAll(false);
   }
+  const boardFlights = useMemo(
+    () => /^K?ABE$/i.test(airport) ? addAbeBoardFlights(flights, date, live) : flights,
+    [airport, date, flights, live],
+  );
 
   // Live times (when we have them) decide order and "My shift", so a delayed
   // flight moves into or out of your shift with its new time.
   const liveById = useMemo(() => {
-    const result = new Map<string, { match: LiveMatch | null; effective: Flight }>();
-    for (const flight of flights) {
+    const result = new Map<string, { match: LiveMatch | null; departureMatch: LiveMatch | null; effective: Flight }>();
+    for (const flight of boardFlights) {
       const match = matchLiveFlight(flight, flightTime(flight), live);
       const effective = { ...flight };
+      let departureMatch: LiveMatch | null = null;
       if (match) {
         if (flight.kind === "departure") effective.departure = match.time;
         else effective.arrival = match.time;
         effective.start = match.time;
       }
       if (flight.kind === "turnaround" && flight.departure) {
-        const out = matchLiveFlight(
+        departureMatch = matchLiveFlight(
           { ...flight, kind: "departure" },
           flight.departure,
           live,
         );
-        if (out) {
-          effective.departure = out.time;
-          effective.end = out.time;
+        if (departureMatch) {
+          effective.departure = departureMatch.time;
+          effective.end = departureMatch.time;
         }
       }
-      result.set(flight.id, { match, effective });
+      result.set(flight.id, { match, departureMatch, effective });
     }
     return result;
-  }, [flights, live]);
+  }, [boardFlights, live]);
   const effectiveOf = (flight: Flight) => liveById.get(flight.id)?.effective ?? flight;
-  const sorted = [...flights].sort(
+  const sorted = [...boardFlights].sort(
     (a, b) =>
       flightMinutesOnShift(effectiveOf(a), shift) - flightMinutesOnShift(effectiveOf(b), shift),
   );
@@ -675,7 +680,9 @@ export function FlightList({
     const timer = window.setTimeout(() => setLiveHint(null), 3500);
     return () => window.clearTimeout(timer);
   }, [liveHint]);
-  const liveUpdated = live?.updatedAt ? new Date(live.updatedAt) : null;
+  const boardUpdated = live?.airportBoardUpdatedAt;
+  const updatedAt = boardUpdated ?? live?.updatedAt;
+  const liveUpdated = updatedAt ? new Date(updatedAt) : null;
   const liveAge = liveUpdated
     ? Math.max(0, Math.round((now.getTime() - liveUpdated.getTime()) / 60_000))
     : null;
@@ -698,7 +705,7 @@ export function FlightList({
     result === "ok"
       ? null
       : result === "error"
-        ? "Couldn’t reach FlightAware"
+        ? "Couldn’t refresh live flights"
         : "Refresh locked · details in Settings";
   const runRefresh = async (emergency: boolean) => {
     if (!onRefresh) return;
@@ -783,7 +790,7 @@ export function FlightList({
           <p>
             {liveHint ??
               (liveUpdated
-                ? `Updated ${formatTime(
+                ? `${boardUpdated ? "ABE board · " : ""}${liveAge! >= 15 ? "Last checked" : "Updated"} ${formatTime(
                     `${String(liveUpdated.getHours()).padStart(2, "0")}:${String(
                       liveUpdated.getMinutes(),
                     ).padStart(2, "0")}`,
@@ -806,8 +813,10 @@ export function FlightList({
               locked
                 ? "Refresh locked, see Settings"
                 : available === "emergency"
-                  ? "Emergency refresh of live flight times"
-                  : "Refresh live flight times"
+                  ? "Emergency FlightAware refresh"
+                  : status
+                    ? "Refresh from FlightAware"
+                    : "Check for live flight updates"
             }
           >
             {locked ? <Lock /> : <RefreshCw />}
@@ -852,6 +861,7 @@ export function FlightList({
             const during = belongsToShift(flight);
             const scheduledTime = flightTime(flight);
             const match = liveById.get(flight.id)?.match ?? null;
+            const out = liveById.get(flight.id)?.departureMatch ?? null;
             const time = match?.time ?? scheduledTime;
             let shift24 = toMinutes(time) - toMinutes(scheduledTime);
             if (shift24 > 720) shift24 -= 1440;
@@ -918,7 +928,18 @@ export function FlightList({
                 </button>
                 {expanded && (
                   <div className="flight-expand">
-                    {live ? <FlightDetails flight={flight} match={match} /> : <span />}
+                    {live ? (
+                      <div className="flight-details">
+                        <FlightDetails flight={flight} match={match} boardUpdatedAt={boardUpdated} />
+                        {out && (
+                          <span>
+                            Out {formatTime(out.time)}
+                            {out.live.gate && ` · Gate ${out.live.gate}`}
+                            {out.label && ` · ${out.label}`}
+                          </span>
+                        )}
+                      </div>
+                    ) : <span />}
                     <a
                       className="flight-open"
                       href={linkFor(flight)}
@@ -966,9 +987,11 @@ const flightNumber = (ident: string) => {
 function FlightDetails({
   flight,
   match,
+  boardUpdatedAt,
 }: {
   flight: Flight;
   match: ReturnType<typeof matchLiveFlight>;
+  boardUpdatedAt?: string | null;
 }) {
   if (!match) {
     return <span className="flight-details muted">No live info for this flight yet</span>;
@@ -980,6 +1003,7 @@ function FlightDetails({
     [live.aircraft, live.registration].filter(Boolean).join(" · ") || null,
     live.baggage ? `Bags: claim ${live.baggage}` : null,
   ].filter(Boolean);
+  const droppedOff = live.airportBoardSeenAt && boardUpdatedAt && live.airportBoardSeenAt < Date.parse(boardUpdatedAt);
 
   let progressLine: string | null = null;
   if (live.cancelled) {
@@ -992,6 +1016,8 @@ function FlightDetails({
       progressLine = [landed && `Landed ${landed}`, atGate && `at gate ${atGate}`]
         .filter(Boolean)
         .join(" · ");
+    } else if (live.airportBoardId && live.status) {
+      progressLine = live.status;
     } else if (live.done) {
       progressLine = "Landed";
     } else if (tookOff) {
@@ -1006,7 +1032,9 @@ function FlightDetails({
       ? [leftGate && `Left gate ${leftGate}`, tookOff && `took off ${tookOff}`]
           .filter(Boolean)
           .join(" · ")
-      : live.done
+      : live.airportBoardId && live.status
+        ? live.status
+        : live.done
         ? "Left"
         : null;
   }
@@ -1016,10 +1044,10 @@ function FlightDetails({
     const gate = clockFromIso(match.tracked.gate);
     progressLine = `Tracking ${Math.round(match.tracked.distanceNm)} nm out · lands ~${landing} · gate ~${gate}`;
   }
-  const delay = match.tracked ? match.delay : live.delayMinutes ?? match.delay;
+  const delay = match.tracked ? match.delay : live.delayMinutes ?? (live.airportBoardId ? null : match.delay);
   const delayText =
     live.cancelled || delay === null || Math.abs(delay) < 3
-      ? delay !== null && Math.abs(delay) < 3 && !live.cancelled
+      ? delay !== null && Math.abs(delay) < 3 && !live.cancelled && !live.airportBoardId
         ? "On time"
         : null
       : delay > 0
@@ -1040,6 +1068,9 @@ function FlightDetails({
         <span>
           {[progressLine, delayText].filter(Boolean).join(" · ")}
         </span>
+      )}
+      {droppedOff && !live.done && !live.cancelled && (
+        <span>Last shown on ABE board at {clockFromIso(new Date(live.airportBoardSeenAt!).toISOString())}</span>
       )}
       {flying && (
         <span className="flight-progress" aria-label={`${live.progress}% of the way`}>

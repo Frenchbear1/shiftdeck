@@ -499,6 +499,12 @@ function flightAwareRouteUrl(
   homeAirport: string,
   app: FlightApp = "flightaware",
 ) {
+  if (flight.source === "airport-board" && flight.trackingId) {
+    const callsign = flight.trackingId.replace(/^G4/, "AAY");
+    return app === "flightradar24"
+      ? new URL(`/data/flights/${flight.trackingId.toLowerCase()}`, FLIGHTRADAR24_ORIGIN).toString()
+      : new URL(`/live/flight/${callsign}`, FLIGHTAWARE_ORIGIN).toString();
+  }
   if (app === "flightradar24" && flight.source === "charter" && flight.trackingId) {
     return new URL(
       `/data/aircraft/${encodeURIComponent(flight.trackingId.toLowerCase())}`,
@@ -660,6 +666,10 @@ export default function HomePage() {
   const liveFlights = useLiveFlights(
     calendarServiceUrl(`/api/flights/live?airport=${DEFAULT_PREFS.homeAirport}`),
   );
+  const airportAlerts = liveFlights.live?.airportAlerts;
+  const airportNoticeCount = airportAlerts?.notices.length ?? 0;
+  const airportAlertsDialog = useRef<HTMLDialogElement>(null);
+  const airportAlertsButton = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<Sheet>(null);
 
@@ -2320,6 +2330,17 @@ export default function HomePage() {
           <b>Shiftdeck</b>
         </button>
         <div className="top-actions">
+          <button
+            ref={airportAlertsButton}
+            type="button"
+            className={`airport-alert-button${airportNoticeCount ? " has-alerts" : ""}`}
+            aria-label={`ABE airport alerts${airportNoticeCount ? ` (${airportNoticeCount} active)` : ""}`}
+            aria-haspopup="dialog"
+            onClick={() => airportAlertsDialog.current?.showModal()}
+          >
+            <Bell aria-hidden="true" />
+            {airportNoticeCount > 0 && <i aria-hidden="true">{airportNoticeCount}</i>}
+          </button>
           <button type="button" onClick={() => openSheet("import")} aria-label="Import schedule">
             <Upload />
             <span>Import</span>
@@ -2333,6 +2354,41 @@ export default function HomePage() {
           </button>
         </div>
       </header>
+
+      <dialog
+        ref={airportAlertsDialog}
+        className="panel-sheet airport-alerts-sheet"
+        aria-labelledby="airport-alerts-title"
+        onClose={() => airportAlertsButton.current?.focus()}
+      >
+        <header className="sheet-head">
+          <div>
+            <h2 id="airport-alerts-title">ABE airport alerts</h2>
+            {airportAlerts && <p>Last checked {formatUpdatedAt(airportAlerts.updatedAt)}</p>}
+          </div>
+          <form method="dialog"><button type="submit" aria-label="Close airport alerts"><X /></button></form>
+        </header>
+        <div className="sheet-scroll">
+          {airportAlerts?.notices.length ? (
+            <ul className="airport-alert-list">
+              {airportAlerts.notices.map(({ text, url }, index) => (
+                <li key={`${index}-${text}`}>
+                  <AlertTriangle aria-hidden="true" />
+                  <div>
+                    <p>{text}</p>
+                    {url && <a href={url} target="_blank" rel="noreferrer">Read more on the airport site</a>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="quiet-line">{airportAlerts ? "No airport notices posted at the last check." : "Airport notices haven’t loaded yet."}</p>
+          )}
+          <a className="airport-alert-source" href="https://www.flyabe.com/flights/" target="_blank" rel="noreferrer">
+            Official ABE flight board
+          </a>
+        </div>
+      </dialog>
 
       <main className="home">
         <div className={`home-grid ${hydrated ? "is-ready" : ""}`}>
@@ -2880,7 +2936,7 @@ export default function HomePage() {
             {liveFlights.live?.status && (
               <LiveStatusSetting
                 status={liveFlights.live.status}
-                updatedAt={liveFlights.live.updatedAt}
+                updatedAt={liveFlights.live.airportBoardUpdatedAt ? null : liveFlights.live.updatedAt}
               />
             )}
             {liveFlights.live && (

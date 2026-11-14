@@ -31,6 +31,7 @@ import {
   withoutOutliers,
 } from "./learning-data";
 import type { LiveFlight } from "./live-flight-data";
+import { mergeAbeBoard, readAbeBoard } from "./abe-flight-board";
 import { getSnapshot } from "./planes";
 
 const DAY = 86_400_000;
@@ -273,11 +274,14 @@ export async function collectFlightLearning(db: CalendarDatabase | undefined, no
   if (!db) return;
   try {
     await ensureSchema(db);
-    const cache = await readCache(db);
+    const [cache, board] = await Promise.all([readCache(db), readAbeBoard(db)]);
+    const flights = mergeAbeBoard(cache?.flights ?? [], board, cache?.fetchedAt ?? 0);
+    const aeroFlights = new Map(cache?.flights.map((flight) => [flight.id, flight]));
+    const byFlightId = new Map(flights.map((flight) => [flight.id, flight]));
 
-    // 1. Register upcoming arrivals and copy FlightAware's latest estimates.
+    // 1. Register upcoming arrivals and keep FlightAware estimates for comparison.
     const writes = [];
-    for (const flight of cache?.flights ?? []) {
+    for (const flight of flights) {
       if (flight.kind !== "arrival" || flight.cancelled) continue;
       const expected = Date.parse(flight.estimatedOn ?? flight.estimated ?? flight.scheduled ?? "");
       if (!Number.isFinite(expected) || expected < now - WINDOW_AFTER || expected > now + 6 * 3_600_000) continue;
@@ -288,7 +292,8 @@ export async function collectFlightLearning(db: CalendarDatabase | undefined, no
           )
           .bind(flight.id, flight.ident, flight.other[0] ?? null, flight.registration ?? null, flight.aircraft ?? null, Date.parse(flight.scheduled ?? "") || null, now),
       );
-      const estOn = Date.parse(flight.estimatedOn ?? flight.estimated ?? "");
+      const aero = aeroFlights.get(flight.id);
+      const estOn = Date.parse(aero?.estimatedOn ?? aero?.estimated ?? "");
       if (cache && Number.isFinite(estOn)) {
         writes.push(
           db.prepare("INSERT OR IGNORE INTO learn_fa (id, fetched, est_on) VALUES (?, ?, ?)").bind(flight.id, cache.fetchedAt, estOn),
@@ -315,12 +320,13 @@ export async function collectFlightLearning(db: CalendarDatabase | undefined, no
 
     // 2. Track the ones due now.
     const expectedFor = (row: FlightRow) => {
-      const live = cache?.flights.find((flight) => flight.id === row.id);
+      const live = byFlightId.get(row.id);
       return Date.parse(live?.estimatedOn ?? live?.estimated ?? "") || row.sched_on || row.created;
     };
     const due = open.filter((row) => {
       const expected = expectedFor(row);
-      return !row.landed_ts && now >= expected - WINDOW_BEFORE && now <= expected + WINDOW_AFTER;
+      const live = byFlightId.get(row.id);
+      return !live?.cancelled && !row.landed_ts && now >= expected - WINDOW_BEFORE && now <= expected + WINDOW_AFTER;
     });
     if (due.length) {
       const [{ snapshot }, wind, history] = await Promise.all([

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Flight } from "./sample-data";
+import type { AirportAlert } from "../worker/live-flight-data";
 
 /** Mirrors worker/flight-status.ts. */
 export type LiveFlight = {
@@ -25,6 +26,8 @@ export type LiveFlight = {
   atGateAt?: string | null;
   progress?: number | null;
   estimatedOn?: string | null;
+  airportBoardId?: string;
+  airportBoardSeenAt?: number;
   /** Shiftdeck's own estimate while it tracks the plane (free ADS-B + history). */
   liveEta?: {
     landing: string;
@@ -53,6 +56,8 @@ export type LiveFlights = {
   updatedAt: string | null;
   flights: LiveFlight[];
   status: LiveStatus | null;
+  airportBoardUpdatedAt?: string | null;
+  airportAlerts?: { updatedAt: string; notices: AirportAlert[] } | null;
 };
 
 export type RefreshResult = "ok" | "needs-emergency" | "cooldown" | "none" | "budget" | "error";
@@ -74,12 +79,16 @@ export function useLiveFlights(baseUrl: string) {
     updatedAt?: string | null;
     flights?: LiveFlight[];
     status?: LiveStatus;
+    airportBoardUpdatedAt?: string | null;
+    airportAlerts?: LiveFlights["airportAlerts"];
   }) => {
     if (!data.enabled || !Array.isArray(data.flights)) return;
     setLive({
       updatedAt: data.updatedAt ?? null,
       flights: data.flights,
       status: data.status ?? null,
+      airportBoardUpdatedAt: data.airportBoardUpdatedAt ?? null,
+      airportAlerts: data.airportAlerts ?? null,
     });
   };
 
@@ -139,6 +148,13 @@ export function useLiveFlights(baseUrl: string) {
 const pad = (value: number) => String(value).padStart(2, "0");
 export const clockOf = (date: Date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 
+const abeClock = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
+const abeWallInstant = (instant: number) => Date.parse(abeClock.format(instant).replace(" ", "T") + ":00Z");
+
 const airportCodes = (code?: string) => {
   const value = (code ?? "").trim().toUpperCase();
   if (!value) return [];
@@ -164,6 +180,7 @@ export function matchLiveFlight(
 ): LiveMatch | null {
   if (!live?.flights.length) return null;
   const kind = flight.kind === "departure" ? "departure" : "arrival";
+  const ident = flight.trackingId?.toUpperCase().replace(/^AAY/, "G4");
   const other =
     kind === "departure"
       ? flight.outboundAirport ?? flight.destination
@@ -174,38 +191,80 @@ export function matchLiveFlight(
   const base = new Date(`${flight.date}T00:00:00`);
   base.setHours(hours, minutes, 0, 0);
   // Night shifts can list an after-midnight flight under the evening's date.
-  const targets = [base.getTime(), base.getTime() + 86_400_000];
+  const nextDay = new Date(base);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const aeroTargets = [base.getTime(), nextDay.getTime()];
+  const wallTime = Date.parse(`${flight.date}T${shownTime}:00Z`);
+  const boardTargets = hours < 6 && flight.source !== "airport-board" ? [wallTime, wallTime + 86_400_000] : [wallTime];
 
-  let best: { live: LiveFlight; gap: number } | null = null;
+  let best: { live: LiveFlight; gap: number; exactIdent: boolean } | null = null;
   for (const candidate of live.flights) {
     if (candidate.kind !== kind || !candidate.scheduled) continue;
-    const sameAirport =
-      !wanted.length || candidate.other.some((code) => wanted.includes(code));
+    const exactIdent = Boolean(ident && ident === candidate.ident.replace(/^AAY/, "G4"));
+    if (candidate.airportBoardId && ident && !exactIdent) continue;
+    const sameAirport = exactIdent || (!wanted.length || candidate.other.some((code) => wanted.includes(code)));
     if (!sameAirport) continue;
-    const scheduled = Date.parse(candidate.scheduled);
+    const instant = Date.parse(candidate.scheduled);
+    if (!Number.isFinite(instant)) continue;
+    const scheduled = candidate.airportBoardId ? abeWallInstant(instant) : instant;
+    const targets = candidate.airportBoardId ? boardTargets : aeroTargets;
     const gap = Math.min(...targets.map((target) => Math.abs(scheduled - target)));
-    const limit = wanted.length ? 45 * 60_000 : 10 * 60_000;
-    if (gap <= limit && (!best || gap < best.gap)) best = { live: candidate, gap };
+    const limit = exactIdent ? 3 * 60 * 60_000 : wanted.length ? 45 * 60_000 : 10 * 60_000;
+    if (gap <= limit && (!best || (exactIdent === best.exactIdent ? gap < best.gap : exactIdent))) {
+      best = { live: candidate, gap, exactIdent };
+    }
   }
   if (!best) return null;
 
   const match = best.live;
   // Our tracked estimate is newer than FlightAware's between refreshes.
-  const tracked = match.kind === "arrival" && !match.done ? match.liveEta ?? null : null;
+  const tracked = match.kind === "arrival" && !match.done && !match.cancelled ? match.liveEta ?? null : null;
   const current = new Date(tracked?.gate ?? match.estimated ?? match.scheduled ?? "");
   const delay = Math.round(
     (current.getTime() - Date.parse(match.scheduled ?? "")) / 60_000,
   );
   const label = match.cancelled
     ? "Cancelled"
+    : match.airportBoardId && match.done
+      ? match.status
     : tracked
       ? `${Math.max(1, Math.round(tracked.distanceNm))} nm out`
       : match.done
       ? match.kind === "arrival"
         ? "Landed"
         : "Left"
-      : /en route|taxiing|landed|arrived|departed/i.test(match.status)
+      : /en route|taxiing|landed|arrived|departed|in air|delay|diverted|boarding|early|on time/i.test(match.status)
         ? match.status.replace(/\s*\/.*$/, "")
         : null;
-  return { live: match, time: clockOf(current), delay, label, tracked };
+  const time = match.airportBoardId ? abeClock.format(current).slice(-5) : clockOf(current);
+  return { live: match, time, delay, label, tracked };
+}
+
+/** Show board flights even if they were omitted from the imported shift schedule. */
+export function addAbeBoardFlights(flights: Flight[], date: string, live: LiveFlights | null) {
+  if (!live?.airportBoardUpdatedAt) return flights;
+  const matches = new Set<string>();
+  for (const flight of flights) {
+    const match = matchLiveFlight(flight, flight.kind === "departure" ? flight.departure ?? flight.start : flight.arrival ?? flight.start, live);
+    if (match) matches.add(match.live.id);
+    if (flight.kind === "turnaround" && flight.departure) {
+      const out = matchLiveFlight({ ...flight, kind: "departure" }, flight.departure, live);
+      if (out) matches.add(out.live.id);
+    }
+  }
+  const additional: Flight[] = [];
+  for (const flight of live.flights) {
+    if (!flight.airportBoardId || !flight.scheduled || matches.has(flight.id)) continue;
+    const [day, time] = abeClock.format(Date.parse(flight.scheduled)).split(" ");
+    if (day !== date) continue;
+    const hour = Number(time.slice(0, 2));
+    const other = flight.other[0] ?? "TBD";
+    additional.push({
+      id: flight.airportBoardId, date, start: time, raw: flight.ident,
+      period: hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening",
+      kind: flight.kind, trackingId: flight.ident, source: "airport-board",
+      ...(flight.kind === "arrival" ? { origin: other } : { origin: "ABE", destination: other }),
+    });
+  }
+  return additional.length ? [...flights, ...additional] : flights;
 }

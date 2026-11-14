@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mergeLiveFlights, toLiveFlight } from "../worker/live-flight-data.ts";
-import { matchLiveFlight } from "../app/live-flights.ts";
+import { addAbeBoardFlights, matchLiveFlight } from "../app/live-flights.ts";
+import { mergeAbeBoard, parseAbeAlerts, parseAbeBoard } from "../worker/abe-flight-board.ts";
 
 // Times below are written for the home airport (Allentown).
 process.env.TZ = "America/New_York";
@@ -70,4 +71,64 @@ test("matches a schedule row to its live flight by airport and time", () => {
   assert.equal(match?.label, "En Route");
   const other = { ...flight, inboundAirport: "SFB", origin: "SFB" };
   assert.equal(matchLiveFlight(other, "19:27", live), null);
+});
+
+const abeRow = (number, time, city, status, displayedStatus = status, airline = "Allegiant Air") => `
+  <li class="${airline} flight clearfix">
+    <span class="airline flight-item" data-value="${airline}"></span>
+    <span class="number flight-item" data-value="${number}"></span>
+    <span class="gate flight-item" data-value="11"></span>
+    <span class="time flight-item" data-value="${time}"></span>
+    <span class="dl status flight-item" data-value="${status}"><span class="label">Status</span> ${displayedStatus}</span>
+    <span class="city last flight-item" data-value="${city}"></span>
+  </li>`;
+
+test("reads ABE arrivals and departures across midnight in Eastern time", () => {
+  const flights = parseAbeBoard({
+    code: "ok",
+    arrivals: abeRow("177", "11:33 PM", "Myrtle Beach", "12:15-am", "12:15 AM") +
+      abeRow("178", "1:20 AM", "St. Petersburg", "cancelled", "Cancelled"),
+    departures: abeRow("5553", "12:19 AM", "Charlotte", "departed", "Departed", "American") +
+      abeRow("176", "8:30 AM", "Punta Gorda", "on-time", "On Time"),
+  }, Date.parse("2026-11-14T06:05:00Z"));
+  assert.deepEqual(flights.map((flight) => flight.id), [
+    "abe-arrival-G4177-2026-11-13", "abe-arrival-G4178-2026-11-14", "abe-departure-G4176-2026-11-14",
+  ]);
+  assert.equal(flights[0].estimated, "2026-11-14T05:15:00.000Z");
+  assert.equal(flights[0].delayMinutes, 42);
+  assert.equal(flights[0].gate, "11");
+  assert.equal(flights[1].cancelled, true);
+  assert.equal(flights[1].done, false);
+  assert.equal(flights[2].scheduled, "2026-11-14T13:30:00.000Z");
+});
+
+test("uses new ABE status with existing AeroAPI details and shows unmatched board flights", () => {
+  const fetchedAt = Date.parse("2026-07-29T23:00:00Z");
+  const board = parseAbeBoard({ code: "ok", arrivals: abeRow("178", "7:27 PM", "St Petersburg", "cancelled", "Cancelled"), departures: "" }, fetchedAt);
+  const flights = mergeAbeBoard([toLiveFlight(aeroArrival, "arrival")], { fetchedAt, data: board }, fetchedAt - 60_000);
+  assert.equal(flights.length, 1);
+  assert.equal(flights[0].cancelled, true);
+  assert.equal(flights[0].gate, "11");
+  assert.equal(flights[0].registration, "N270NV");
+  const live = { flights, airportBoardUpdatedAt: new Date(fetchedAt).toISOString() };
+  const [flight] = addAbeBoardFlights([], "2026-07-29", live);
+  assert.equal(flight.trackingId, "G4178");
+  assert.equal(matchLiveFlight(flight, flight.start, live)?.label, "Cancelled");
+  assert.equal(addAbeBoardFlights([flight], "2026-07-29", live).length, 1);
+  assert.equal(addAbeBoardFlights([], "2026-07-30", live).length, 0);
+});
+
+test("reads plain-text airport alerts and keeps only HTTPS source links", () => {
+  const header = '<header id="main"></header>';
+  assert.deepEqual(parseAbeAlerts(`<section id="announcement"><section class="wrap">
+    <p>Alert: Flights &amp; parking.</p>
+    <p><a href="/media-center/">Advisory: Parking notice.</a></p>
+    <p><a href="javascript:alert(1)">Another notice.</a></p>
+    </section></section>${header}`), [
+    { text: "Alert: Flights & parking.", url: undefined },
+    { text: "Advisory: Parking notice.", url: "https://www.flyabe.com/media-center/" },
+    { text: "Another notice.", url: undefined },
+  ]);
+  assert.deepEqual(parseAbeAlerts(header), []);
+  assert.throws(() => parseAbeAlerts("<html>Try again later</html>"));
 });
