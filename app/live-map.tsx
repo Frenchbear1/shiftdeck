@@ -226,7 +226,7 @@ export function LiveMapPanel({
   }, [onScreen, url, view]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -339,14 +339,12 @@ export function LiveMapPanel({
         )}
       </div>
       <p className="map-foot">
-        <span>
-          {failed && planes
-            ? "Couldn’t update · showing last positions"
-            : age !== null
-              ? `Updated ${age < 5 ? "just now" : `${age}s ago`} · ${
-                  view.radius >= MAX_RADIUS_NM ? "250 nm (max)" : `${view.radius} nm`
-                }`
-              : "Planes near ABE"}
+        <span className="map-live">
+          <i
+            className={failed || (age !== null && age > 45) ? "stale" : age !== null ? "live" : ""}
+            aria-label={failed ? "Not updating" : "Live"}
+          />
+          {view.radius >= MAX_RADIUS_NM ? "250 nm (max)" : `${view.radius} nm`}
         </span>
         <span>Data: {source}</span>
       </p>
