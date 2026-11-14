@@ -88,6 +88,8 @@ export function LiveMapPanel({
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const markers = useRef(new Map<string, Marker>());
+  const pendingZoom = useRef<number | null>(null);
+  const zoomFrame = useRef<number | null>(null);
   const [planes, setPlanes] = useState<Plane[] | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [source, setSource] = useState<string>("adsb.lol");
@@ -120,6 +122,7 @@ export function LiveMapPanel({
         attributionControl: true,
         // Fractional zoom so the slider (and pinching) glide instead of jumping.
         zoomSnap: 0,
+        fadeAnimation: false,
         zoomDelta: 0.25,
         wheelPxPerZoomLevel: 120,
         maxZoom: CLOSEST_ZOOM,
@@ -142,6 +145,9 @@ export function LiveMapPanel({
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         className: "map-tiles",
+        // Keep more tiles around and swap levels without the white fade-in.
+        keepBuffer: 6,
+        updateWhenZooming: false,
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(map);
@@ -328,7 +334,16 @@ export function LiveMapPanel({
               onChange={(event) => {
                 const next = Number(event.target.value);
                 setSliderZoom(next);
-                mapRef.current?.setZoom(next, { animate: false });
+                // One map update per frame keeps the slider smooth.
+                pendingZoom.current = next;
+                if (zoomFrame.current === null) {
+                  zoomFrame.current = requestAnimationFrame(() => {
+                    zoomFrame.current = null;
+                    if (pendingZoom.current !== null) {
+                      mapRef.current?.setZoom(pendingZoom.current, { animate: false });
+                    }
+                  });
+                }
               }}
             />
           </div>

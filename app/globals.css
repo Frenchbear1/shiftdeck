@@ -4917,3 +4917,19 @@ select:focus-visible {
 .map-foot a {
   color: inherit;
 }
+
+/* While tiles load, show the map's own land color instead of a white/grey flash. */
+.map-panel .leaflet-container,
+.map-panel .map-canvas {
+  background: #f2efe9;
+}
+
+:root[data-theme="dark"] .map-panel .leaflet-container,
+:root[data-theme="dark"] .map-panel .map-canvas {
+  background: #202329;
+}
+
+.map-panel .leaflet-tile-container img,
+.map-panel .leaflet-tile {
+  background: transparent;
+}
