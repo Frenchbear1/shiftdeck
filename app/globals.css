@@ -5488,8 +5488,3 @@ select:focus-visible {
 .schedule-source-note {
   margin: 0;
 }
-
-.schedule-source-note > .button {
-  min-height: 36px;
-  margin-top: 4px;
-}

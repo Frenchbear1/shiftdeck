@@ -304,7 +304,6 @@ export function ScheduleViews({
   onSelect,
   dayStatus,
   hasSchedule,
-  children,
 }: {
   range: ScheduleRange;
   onRange: (range: ScheduleRange) => void;
@@ -315,7 +314,6 @@ export function ScheduleViews({
   onSelect: (date: string) => void;
   dayStatus: (date: string) => DayStatus;
   hasSchedule: boolean;
-  children?: ReactNode;
 }) {
   const [position, setPosition] = useState<{
     offset: number;
@@ -528,7 +526,6 @@ export function ScheduleViews({
           );
         })}
       </div>
-      {children}
     </section>
   );
 }

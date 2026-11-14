@@ -195,6 +195,10 @@ type ScheduleDocument = {
   revision: number;
   parserVersion?: number;
   mimeType?: string;
+};
+
+type ImportComparison = Pick<ScheduleDocument, "hash" | "name" | "dates" | "shifts"> & {
+  image: Blob;
   sourceLayout?: ScheduleSourceLayout;
 };
 
@@ -625,6 +629,7 @@ export default function HomePage() {
   const [parsedShifts, setParsedShifts] = useState<Shift[]>([]);
   const [parsedFlights, setParsedFlights] = useState<Flight[]>([]);
   const [scheduleDocuments, setScheduleDocuments] = useState<ScheduleDocument[]>([]);
+  const [importComparisons, setImportComparisons] = useState<ImportComparison[]>([]);
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -1441,13 +1446,17 @@ export default function HomePage() {
   };
 
   const openSheet = (next: Exclude<Sheet, null>) => {
-    if (next === "import") void warmScheduleReader().catch(() => undefined);
+    if (next === "import") {
+      setImportComparisons([]);
+      void warmScheduleReader().catch(() => undefined);
+    }
     setSheet(next);
   };
 
   const closeSheet = () => {
-    if (sheet === "import" && importState !== "reading") {
-      void releaseScheduleReader();
+    if (sheet === "import") {
+      setImportComparisons([]);
+      if (importState !== "reading") void releaseScheduleReader();
     }
     setSheet(null);
   };
@@ -1670,11 +1679,13 @@ export default function HomePage() {
     setImportWarnings([]);
     setDuplicateNotice("");
     setLoadedFiles(files.map((file) => file.name));
+    setImportComparisons([]);
     const progress = createImportProgress(files.length, setImportSnapshot);
     setImportSnapshot(progress.snapshot());
 
     const parsedSchedules: ParsedSchedule[] = [];
     const skippedFiles: string[] = [];
+    const comparisons: ImportComparison[] = [];
     let nextDocuments = [...scheduleDocuments];
     let updatedDocuments = 0;
     const knownNames = [
@@ -1757,7 +1768,6 @@ export default function HomePage() {
             revision: (replacement?.revision ?? 0) + 1,
             parserVersion: SCHEDULE_PARSER_VERSION,
             mimeType: isPdf ? "application/pdf" : file.type,
-            sourceLayout,
           };
           if (replacement) {
             nextDocuments[replacementIndex] = nextDocument;
@@ -1776,7 +1786,17 @@ export default function HomePage() {
           const reviewImage = read && "reviewImage" in read && read.reviewImage instanceof Blob
             ? read.reviewImage
             : undefined;
-          await saveScheduleImage(documentId, file, reviewImage).catch(() => undefined);
+          if (!isPdf) {
+            comparisons.push({
+              hash,
+              name: file.name,
+              dates: parsed.dates,
+              shifts: parsed.shifts,
+              image: reviewImage ?? file,
+              sourceLayout,
+            });
+          }
+          await saveScheduleImage(documentId, file).catch(() => undefined);
         } catch {
           skippedFiles.push(file.name);
         }
@@ -1828,6 +1848,7 @@ export default function HomePage() {
             : []),
         ],
       );
+      if (sheetRef.current === "import") setImportComparisons(comparisons);
       setImportState("review");
       setToast("Schedule imported");
     } catch {
@@ -2206,30 +2227,6 @@ export default function HomePage() {
     }
   };
 
-  const renderScheduleComparison = (document: ScheduleDocument) => (
-    <ScheduleComparison
-      key={document.hash}
-      id={document.id}
-      dates={document.dates}
-      shifts={document.shifts}
-      sourceLayout={document.sourceLayout}
-      person={prefs.person}
-      nameMerges={nameMerges}
-      allowScan={importState !== "reading"}
-      onSourceLayout={(sourceLayout) => {
-        setScheduleDocuments((current) => current.map((candidate) =>
-          candidate.id === document.id && candidate.hash === document.hash
-            ? { ...candidate, sourceLayout }
-            : candidate,
-        ));
-      }}
-    />
-  );
-
-  const schedulePhotos = scheduleDocuments.filter(
-    (document) => document.mimeType !== "application/pdf",
-  );
-
   const renderImportSheet = () => (
     <div className="modal-layer" role="presentation" {...backdropClose(closeSheet)}>
     <section
@@ -2328,7 +2325,7 @@ export default function HomePage() {
               <button
                 className="button soft calendar-export-button"
                 onClick={() => {
-                  setSheet(null);
+                  closeSheet();
                   setNotificationsOpen(true);
                 }}
               >
@@ -2336,6 +2333,28 @@ export default function HomePage() {
               </button>
             )}
           </div>
+        </section>
+      )}
+
+      {importState === "review" && importComparisons.length > 0 && (
+        <section className="schedule-comparisons">
+          <h3>My imported shifts</h3>
+          {importComparisons.map((photo, index) => (
+            <article key={`${photo.hash}-${index}`} className="schedule-comparison-file">
+              <div className="schedule-comparison-heading">
+                <strong>{formatDocumentRange(photo.dates)}</strong>
+                <span>{photo.name}</span>
+              </div>
+              <ScheduleComparison
+                image={photo.image}
+                dates={photo.dates}
+                shifts={photo.shifts}
+                sourceLayout={photo.sourceLayout}
+                person={prefs.person}
+                nameMerges={nameMerges}
+              />
+            </article>
+          ))}
         </section>
       )}
 
@@ -2385,7 +2404,6 @@ export default function HomePage() {
                       <X />
                     </button>
                   </div>
-                  {document.mimeType !== "application/pdf" && renderScheduleComparison(document)}
                   {isExpanded && (
                     <div className="upload-document-preview">
                       {documentPreviews[document.id] ? (
@@ -2462,22 +2480,7 @@ export default function HomePage() {
         onSelect={selectDate}
         dayStatus={(date) => myDayStatus.get(date) ?? { status: "none" }}
         hasSchedule={hasSchedule}
-      >
-        {sheet !== "import" && schedulePhotos.length > 0 && (
-          <section className="schedule-comparisons">
-            <h3>My imported shifts</h3>
-            {schedulePhotos.map((document) => (
-              <article key={document.id} className="schedule-comparison-file">
-                <div className="schedule-comparison-heading">
-                  <strong>{formatDocumentRange(document.dates)}</strong>
-                  <span>{document.name}</span>
-                </div>
-                {renderScheduleComparison(document)}
-              </article>
-            ))}
-          </section>
-        )}
-      </ScheduleViews>
+      />
     ),
     flights: (
       <FlightList

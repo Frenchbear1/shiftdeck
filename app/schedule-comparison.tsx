@@ -3,24 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDate, formatTime } from "./home-sections";
 import type { Shift } from "./sample-data";
-import { findSavedScheduleRows } from "./schedule-import";
 import {
   canonicalSchedulePersonName,
-  resolveSchedulePersonName,
   type ScheduleSourceLayout,
 } from "./schedule-parser";
 import { applyNameMerges, nameKey, resolveMergedName, type NameMerges } from "./schedule-tools";
-import { loadScheduleImage } from "./upload-store";
 
 type Props = {
-  id: string;
+  image: Blob;
   dates: string[];
   shifts: Shift[];
   sourceLayout?: ScheduleSourceLayout;
   person: string;
   nameMerges: NameMerges;
-  onSourceLayout: (layout: ScheduleSourceLayout) => void;
-  allowScan: boolean;
 };
 
 function getSourceView(layout: ScheduleSourceLayout, person: string, merges: NameMerges) {
@@ -74,12 +69,11 @@ function drawSourceRows(canvas: HTMLCanvasElement, image: HTMLImageElement, view
 }
 
 export function ScheduleComparison({
-  id, dates, shifts, sourceLayout, person, nameMerges, onSourceLayout, allowScan,
+  image, dates, shifts, sourceLayout, person, nameMerges,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [displayedSource, setDisplayedSource] = useState<SourceView | null>(null);
   const [failedSource, setFailedSource] = useState<SourceView | null>(null);
-  const [scanState, setScanState] = useState<"idle" | "loading" | "failed">("idle");
   const selectedName = nameKey(canonicalSchedulePersonName(person));
 
   const source = useMemo(
@@ -102,15 +96,12 @@ export function ScheduleComparison({
     let cancelled = false;
     let url: string | undefined;
     const load = async () => {
-      const file = await loadScheduleImage(id, source.layout.deskewed);
+      const photo = new Image();
+      url = URL.createObjectURL(image);
+      photo.src = url;
+      await photo.decode();
       if (cancelled) return;
-      if (!file) throw new Error("Saved image unavailable");
-      const image = new Image();
-      url = URL.createObjectURL(file);
-      image.src = url;
-      await image.decode();
-      if (cancelled) return;
-      if (!canvas.current || !drawSourceRows(canvas.current, image, source)) {
+      if (!canvas.current || !drawSourceRows(canvas.current, photo, source)) {
         throw new Error("Source layout does not match image");
       }
       setDisplayedSource(source);
@@ -124,27 +115,7 @@ export function ScheduleComparison({
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [id, source]);
-
-  const scan = async () => {
-    setScanState("loading");
-    try {
-      const photo = await loadScheduleImage(id);
-      const layout = photo && await findSavedScheduleRows(photo, dates);
-      if (!layout) throw new Error("Rows could not be located");
-      const knownNames = [...new Set(shifts.map((shift) => shift.worker))];
-      onSourceLayout({
-        ...layout,
-        rows: layout.rows.map((row) => ({
-          ...row,
-          name: resolveSchedulePersonName(row.name, knownNames),
-        })),
-      });
-      setScanState("idle");
-    } catch {
-      setScanState("failed");
-    }
-  };
+  }, [image, source]);
 
   const displayed = source && displayedSource === source && failedSource !== source ? source : null;
   const aligned = displayed && days.every(([date]) => dates.includes(date)) ? displayed : null;
@@ -160,17 +131,7 @@ export function ScheduleComparison({
         <p className="schedule-source-note">The scanner couldn’t locate the source row for {person}.</p>
       )}
       {!sourceLayout && (
-        <div className="schedule-source-note">
-          {scanState === "failed" && <p role="status">Couldn’t locate the rows in this saved photo.</p>}
-          <button
-            type="button"
-            className="button soft"
-            onClick={() => void scan()}
-            disabled={!allowScan || scanState === "loading"}
-          >
-            {scanState === "loading" ? "Finding source rows…" : "Find source rows"}
-          </button>
-        </div>
+        <p className="schedule-source-note">The scanner couldn’t locate the source rows.</p>
       )}
       <div
         className="schedule-comparison-scroll"

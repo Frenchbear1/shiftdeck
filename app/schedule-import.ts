@@ -171,7 +171,7 @@ export async function readScheduleImage(
           if (!deskewed || image) {
             sources.push({
               schedule: parsed,
-              layout: { ...parsed.sourceLayout, deskewed },
+              layout: parsed.sourceLayout,
               image,
               original,
             });
@@ -206,18 +206,4 @@ export async function readScheduleImage(
     }))
     .sort((a, b) => b.matched - a.matched || Number(b.original) - Number(a.original))[0];
   return { ...schedule, sourceLayout: source?.layout, reviewImage: source?.image };
-}
-
-/** Read coordinates from a saved photo without reimporting its shift data. */
-export async function findSavedScheduleRows(image: Blob, dates: string[]) {
-  const { createWorker, PSM } = await import("tesseract.js");
-  const worker = await createWorker("eng", 1);
-  try {
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
-    const { data } = await worker.recognize(image, {}, { tsv: true });
-    const parsed = data.tsv && parseScheduleTsv(data.tsv, data.confidence);
-    return parsed && parsed.dates.join() === dates.join() ? parsed.sourceLayout : undefined;
-  } finally {
-    await worker.terminate().catch(() => undefined);
-  }
 }

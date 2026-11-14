@@ -32,22 +32,15 @@ const runRequest = async <T>(
   }
 };
 
-type ScheduleImages = { original: Blob; deskewed: Blob };
+export const saveScheduleImage = (id: string, image: Blob) =>
+  runRequest("readwrite", (store) => store.put(image, id));
 
-export const saveScheduleImage = (id: string, image: Blob, deskewed?: Blob) =>
-  runRequest("readwrite", (store) => store.put(
-    deskewed ? { original: image, deskewed } : image,
-    id,
-  ));
-
-export const loadScheduleImage = async (id: string, deskewed = false) => {
-  const saved = await runRequest<Blob | ScheduleImages | undefined>(
+export const loadScheduleImage = async (id: string) => {
+  const saved = await runRequest<Blob | { original: Blob } | undefined>(
     "readonly",
     (store) => store.get(id),
   );
-  return saved instanceof Blob
-    ? deskewed ? undefined : saved
-    : deskewed ? saved?.deskewed : saved?.original;
+  return saved instanceof Blob ? saved : saved?.original;
 };
 
 export const deleteScheduleImage = (id: string) =>

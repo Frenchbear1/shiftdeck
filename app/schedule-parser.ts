@@ -28,7 +28,6 @@ export type ScheduleSourceLayout = {
   centers: number[];
   header: SourceBand;
   rows: Array<SourceBand & { name: string }>;
-  deskewed?: boolean;
 };
 
 export type ParsedSchedule = {
