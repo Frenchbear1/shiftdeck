@@ -1,12 +1,19 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { confidenceLabels, ScanOverlay } from "./schedule-import-preview";
 import { FullscreenPhoto } from "./schedule-file-viewer";
 import { recoverScheduleSource, type ScanPreviewPass } from "./schedule-import";
 import { scanConfidence, type ScanMark } from "./schedule-parser";
-import { getScanDefinition, type ScanDefinitions } from "./scan-annotations";
+import {
+  getScanDefinition,
+  isCompleteScanMeaning,
+  newScanMeaning,
+  scanMeaningLabels,
+  type ScanDefinitions,
+  type ScanMeaning,
+} from "./scan-annotations";
 import { loadScheduleScan } from "./upload-store";
 
 export type ScanReviewTarget = {
@@ -17,13 +24,89 @@ export type ScanReviewTarget = {
   original?: Blob;
 };
 
+function MeaningFields({ meaning, onChange }: {
+  meaning: ScanMeaning;
+  onChange: (meaning: ScanMeaning) => void;
+}) {
+  switch (meaning.kind) {
+    case "time":
+      return (
+        <label className="scan-definition-label">
+          <span>Time</span>
+          <input type="time" required value={meaning.time} onChange={(event) =>
+            onChange({ ...meaning, time: event.target.value })} />
+        </label>
+      );
+    case "range":
+      return (
+        <div className="scan-definition-fields">
+          <label className="scan-definition-label">
+            <span>Start time</span>
+            <input type="time" required value={meaning.start} onChange={(event) =>
+              onChange({ ...meaning, start: event.target.value })} />
+          </label>
+          <label className="scan-definition-label">
+            <span>End time</span>
+            <input type="time" required value={meaning.end} onChange={(event) =>
+              onChange({ ...meaning, end: event.target.value })} />
+          </label>
+        </div>
+      );
+    case "flight":
+      return (
+        <>
+          <label className="scan-definition-label">
+            <span>Flight number</span>
+            <input type="text" maxLength={16} value={meaning.identifier} onChange={(event) =>
+              onChange({ ...meaning, identifier: event.target.value })} />
+          </label>
+          <div className="scan-definition-fields">
+            {([["origin", "Origin airport"], ["destination", "Destination airport"]] as const).map(([field, label]) => (
+              <label className="scan-definition-label" key={field}>
+                <span>{label}</span>
+                <input type="text" maxLength={4} autoCapitalize="characters" value={meaning[field]} onChange={(event) =>
+                  onChange({ ...meaning, [field]: event.target.value.toUpperCase() })} />
+              </label>
+            ))}
+            {([["arrival", "Arrival time"], ["departure", "Departure time"]] as const).map(([field, label]) => (
+              <label className="scan-definition-label" key={field}>
+                <span>{label}</span>
+                <input type="time" value={meaning[field]} onChange={(event) =>
+                  onChange({ ...meaning, [field]: event.target.value })} />
+              </label>
+            ))}
+          </div>
+        </>
+      );
+    case "date":
+      return (
+        <label className="scan-definition-label">
+          <span>Date</span>
+          <input type="date" required value={meaning.date} onChange={(event) =>
+            onChange({ ...meaning, date: event.target.value })} />
+        </label>
+      );
+    case "person":
+    case "note":
+      return (
+        <label className="scan-definition-label">
+          <span>{meaning.kind === "person" ? "Worker name" : "Definition"}</span>
+          <input type="text" required maxLength={160} value={meaning.text} onChange={(event) =>
+            onChange({ ...meaning, text: event.target.value })} />
+        </label>
+      );
+    case "off":
+    case "pto": return null;
+  }
+}
+
 export function ScheduleScanReview({
   target, definitions, matchesWorker, onSaveDefinition, onClose,
 }: {
   target: ScanReviewTarget;
   definitions: ScanDefinitions;
   matchesWorker: (worker: string) => boolean;
-  onSaveDefinition: (mark: ScanMark, value: string, repeat: boolean) => boolean;
+  onSaveDefinition: (mark: ScanMark, meanings: ScanMeaning[], repeat: boolean) => boolean;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -32,7 +115,7 @@ export function ScheduleScanReview({
   const [unavailable, setUnavailable] = useState(false);
   const [selected, setSelected] = useState<{
     mark: ScanMark;
-    value: string;
+    meanings: ScanMeaning[];
     repeat: boolean;
     saved?: boolean;
     error?: boolean;
@@ -74,9 +157,11 @@ export function ScheduleScanReview({
   const select = (id: string) => {
     const mark = preview?.pass.marks.find((item) => item.id === id);
     if (!mark) return;
-    setSelected({ mark, ...getScanDefinition(definitions, target.hash, mark) });
+    const { meanings, repeat } = getScanDefinition(definitions, target.hash, mark);
+    setSelected({ mark, meanings: meanings.length ? meanings : [newScanMeaning("note")], repeat });
   };
   const confidence = selected && scanConfidence(selected.mark);
+  const canSave = Boolean(selected?.meanings.length && selected.meanings.every(isCompleteScanMeaning));
 
   return (
     <dialog
@@ -115,42 +200,73 @@ export function ScheduleScanReview({
       {!unavailable && preview && (
         <div className="scan-review-details">
           {!selected ? (
-            <p>Pinch to zoom. Tap a yellow or red highlight to define it.</p>
+            <p>Pinch to zoom. Tap any highlight to define it.</p>
           ) : (
             <form onSubmit={(event) => {
               event.preventDefault();
-              if (!selected.value.trim()) return;
-              const saved = onSaveDefinition(selected.mark, selected.value, selected.repeat);
+              if (!canSave) return;
+              const saved = onSaveDefinition(selected.mark, selected.meanings, selected.repeat);
               setSelected({ ...selected, saved, error: !saved });
             }}>
               <p className={`scan-review-read scan-mark-${confidence}`}>
                 <strong>{confidenceLabels[confidence!]}</strong>
                 <span>{selected.mark.text}</span>
               </p>
-              {confidence !== "confident" && (
-                <>
-                  <label className="scan-definition-label">
-                    <span>Definition</span>
-                    <input
-                      type="text"
-                      maxLength={160}
-                      value={selected.value}
-                      onChange={(event) => setSelected({
-                        ...selected, value: event.target.value, saved: false, error: false,
-                      })}
-                    />
-                  </label>
-                  <label className="scan-definition-remember">
-                    <input type="checkbox" checked={selected.repeat} onChange={(event) =>
-                      setSelected({ ...selected, repeat: event.target.checked, saved: false, error: false })} />
-                    Remember matching text for future scans
-                  </label>
-                  <div className="scan-definition-actions">
-                    <span role="status">{selected.saved ? "Definition saved" : selected.error ? "Couldn’t save the definition" : ""}</span>
-                    <button type="submit" disabled={!selected.value.trim()} className="button soft">Save definition</button>
+              {selected.meanings.map((meaning, index) => (
+                <fieldset className="scan-meaning" key={index}>
+                  <legend>{selected.meanings.length > 1 ? `Meaning ${index + 1}` : "Meaning"}</legend>
+                  <div className="scan-meaning-type">
+                    <label className="scan-definition-label">
+                      <select
+                        aria-label={`Meaning ${index + 1} type`}
+                        value={meaning.kind}
+                        onChange={(event) => {
+                          const next = newScanMeaning(event.target.value as ScanMeaning["kind"]);
+                          setSelected({
+                            ...selected, saved: false, error: false,
+                            meanings: selected.meanings.map((item, i) => i === index ? next : item),
+                          });
+                        }}
+                      >
+                        {Object.entries(scanMeaningLabels).map(([kind, label]) =>
+                          <option value={kind} key={kind}>{label}</option>)}
+                      </select>
+                    </label>
+                    {selected.meanings.length > 1 && (
+                      <button
+                        type="button"
+                        className="scan-meaning-remove"
+                        aria-label={`Remove meaning ${index + 1}`}
+                        onClick={() => setSelected({
+                          ...selected, saved: false, error: false,
+                          meanings: selected.meanings.filter((_, i) => i !== index),
+                        })}
+                      ><X size={16} /></button>
+                    )}
                   </div>
-                </>
-              )}
+                  <MeaningFields meaning={meaning} onChange={(next) => setSelected({
+                    ...selected, saved: false, error: false,
+                    meanings: selected.meanings.map((item, i) => i === index ? next : item),
+                  })} />
+                </fieldset>
+              ))}
+              <button
+                type="button"
+                className="button soft scan-meaning-add"
+                onClick={() => setSelected({
+                  ...selected, saved: false, error: false,
+                  meanings: [...selected.meanings, newScanMeaning("note")],
+                })}
+              ><Plus size={15} />Add another meaning</button>
+              <label className="scan-definition-remember">
+                <input type="checkbox" checked={selected.repeat} onChange={(event) =>
+                  setSelected({ ...selected, repeat: event.target.checked, saved: false, error: false })} />
+                Remember matching text for future scans
+              </label>
+              <div className="scan-definition-actions">
+                <span role="status">{selected.saved ? "Definition saved" : selected.error ? "Couldn’t save the definition" : ""}</span>
+                <button type="submit" disabled={!canSave} className="button soft">Save definition</button>
+              </div>
             </form>
           )}
         </div>

@@ -5904,7 +5904,9 @@ select:focus-visible {
   font-weight: 650;
 }
 
-.scan-definition-label input {
+.scan-definition-label input,
+.scan-definition-label select {
+  width: 100%;
   min-width: 0;
   padding: 5px 8px;
   border: 1px solid var(--line);
@@ -5912,6 +5914,47 @@ select:focus-visible {
   background: var(--surface);
   color: var(--text);
   font-size: 16px;
+}
+
+.scan-meaning {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.scan-meaning legend {
+  padding: 0 3px;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.scan-meaning-type {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.scan-definition-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.scan-meaning-remove {
+  display: grid;
+  place-items: center;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.scan-meaning-add {
+  justify-self: start;
 }
 
 .scan-definition-remember, .scan-definition-actions {

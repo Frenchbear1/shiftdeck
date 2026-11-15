@@ -18,6 +18,8 @@ import {
 import {
   emptyScanDefinitions,
   getScanDefinition,
+  isCompleteScanMeaning,
+  newScanMeaning,
   saveScanDefinition,
   scanSweepDelays,
 } from "../app/scan-annotations.ts";
@@ -360,12 +362,43 @@ test("keeps single-cell definitions local and reuses matching text only in the s
   const mark = { id: "shift:1", kind: "shift", text: "  XYZ   2  " };
   const nextShift = { ...mark, id: "shift:2", text: "xyz 2" };
   const sameTextInFlight = { ...nextShift, kind: "flight" };
-  const spot = saveScanDefinition(emptyScanDefinitions, "file-a", mark, "Local note", false);
+  const spot = saveScanDefinition(emptyScanDefinitions, "file-a", mark, [{ kind: "note", text: "Local note" }], false);
   assert.equal(getScanDefinition(spot, "file-a", mark).value, "Local note");
   assert.equal(getScanDefinition(spot, "file-b", mark).value, "");
   assert.equal(getScanDefinition(spot, "file-a", nextShift).value, "");
-  const repeat = saveScanDefinition(spot, "file-a", mark, "Training", true);
-  assert.deepEqual(getScanDefinition(repeat, "file-a", mark), { value: "Training", repeat: true });
-  assert.deepEqual(getScanDefinition(repeat, "file-b", nextShift), { value: "Training", repeat: true });
+  const repeat = saveScanDefinition(spot, "file-a", mark, [{ kind: "note", text: "Training" }], true);
+  assert.deepEqual(getScanDefinition(repeat, "file-a", mark), { meanings: [{ kind: "note", text: "Training" }], value: "Training", repeat: true });
+  assert.deepEqual(getScanDefinition(repeat, "file-b", nextShift), { meanings: [{ kind: "note", text: "Training" }], value: "Training", repeat: true });
   assert.equal(getScanDefinition(repeat, "file-b", sameTextInFlight).value, "");
+});
+
+test("keeps previous definition notes and saves several typed meanings together", () => {
+  const mark = { id: "shift:1", kind: "shift", text: "XYZ" };
+  const legacy = { spots: { '["file-a","shift:1","xyz"]': "Call before shift" }, matching: {} };
+  const old = getScanDefinition(legacy, "file-a", mark);
+  assert.deepEqual(old.meanings, [{ kind: "note", text: "Call before shift" }]);
+
+  const draft = [
+    ...old.meanings,
+    { kind: "range", start: "23:30", end: "01:00" },
+    { kind: "flight", identifier: " g499 ", origin: " abe ", destination: "rsw", arrival: "", departure: "01:15" },
+  ];
+  const stored = saveScanDefinition(legacy, "file-a", mark, draft, true);
+  const next = getScanDefinition(stored, "file-b", { ...mark, id: "shift:2" });
+  assert.equal(next.value, "Call before shift · 23:30–01:00 · Flight G499 · ABE → RSW · Departs 01:15");
+  assert.equal(next.repeat, true);
+  assert.deepEqual(next.meanings[1], { kind: "range", start: "23:30", end: "01:00" });
+});
+
+test("validates type-specific data and accepts off and PTO without extra text", () => {
+  assert.ok(isCompleteScanMeaning(newScanMeaning("off")));
+  assert.ok(isCompleteScanMeaning(newScanMeaning("pto")));
+  assert.ok(isCompleteScanMeaning({ kind: "time", time: "00:00" }));
+  assert.ok(!isCompleteScanMeaning({ kind: "time", time: "24:01" }));
+  assert.ok(!isCompleteScanMeaning(newScanMeaning("flight")));
+  assert.ok(!isCompleteScanMeaning({ kind: "date", date: "2026-02-30" }));
+  const mark = { id: "shift:1", kind: "shift", text: "X" };
+  const result = saveScanDefinition(emptyScanDefinitions, "file-a", mark, [newScanMeaning("off")], true);
+  assert.equal(getScanDefinition(result, "file-b", mark).value, "No scheduled time (X)");
+  assert.equal(saveScanDefinition(result, "file-a", mark, [newScanMeaning("range")], true), result);
 });

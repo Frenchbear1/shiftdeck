@@ -72,7 +72,7 @@ export function ScanOverlay({
         return (
           <g
             key={mark.id}
-            tabIndex={score === "confident" ? undefined : 0}
+            tabIndex={sweep && score === "confident" ? undefined : 0}
             role="button"
             aria-label={`${confidenceLabels[score]}: ${mark.text}${defined ? " · " + defined : ""}`}
             aria-pressed={selected === mark.id}

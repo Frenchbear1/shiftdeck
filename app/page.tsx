@@ -2890,8 +2890,8 @@ export default function HomePage() {
           target={viewedScan}
           definitions={scanDefinitions}
           matchesWorker={matchesScanWorker}
-          onSaveDefinition={(mark, value, repeat) => {
-            const next = saveScanDefinition(scanDefinitions, viewedScan.hash, mark, value, repeat);
+          onSaveDefinition={(mark, meanings, repeat) => {
+            const next = saveScanDefinition(scanDefinitions, viewedScan.hash, mark, meanings, repeat);
             try {
               localStorage.setItem(SCAN_DEFINITIONS_KEY, JSON.stringify(next));
             } catch {
