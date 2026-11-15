@@ -15,6 +15,7 @@ type Props = {
   shifts: Shift[];
   sourceLayout?: ScheduleSourceLayout;
   sourceLoading?: boolean;
+  uncertainShifts?: string[];
   person: string;
   nameMerges: NameMerges;
   onEdit: (shift: Shift) => void;
@@ -71,7 +72,7 @@ function drawSourceRows(canvas: HTMLCanvasElement, image: HTMLImageElement, view
 }
 
 export function ScheduleComparison({
-  image, dates, shifts, sourceLayout, sourceLoading, person, nameMerges, onEdit,
+  image, dates, shifts, sourceLayout, sourceLoading, uncertainShifts, person, nameMerges, onEdit,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [displayedSource, setDisplayedSource] = useState<SourceView | null>(null);
@@ -82,6 +83,9 @@ export function ScheduleComparison({
     () => sourceLayout ? getSourceView(sourceLayout, selectedName, nameMerges) : null,
     [nameMerges, selectedName, sourceLayout],
   );
+  const needsReview = new Set(applyNameMerges(
+    shifts.filter((shift) => uncertainShifts?.includes(shift.id)), nameMerges,
+  ).map((shift) => shift.id));
   const days = useMemo(() => {
     const byDate = new Map<string, Shift[]>();
     const working = applyNameMerges(shifts, nameMerges).filter(
@@ -172,6 +176,7 @@ export function ScheduleComparison({
                       <button type="button" key={shift.id} onClick={() => onEdit(shift)}>
                         <time dateTime={date}>{formatDate(date)}</time>
                         <strong>{formatTime(shift.start)} – {formatTime(shift.end)}</strong>
+                        {needsReview.has(shift.id) && <small className="scan-check-time">Check time</small>}
                       </button>
                     ))}
                   </li>

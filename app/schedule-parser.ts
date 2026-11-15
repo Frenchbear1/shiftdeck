@@ -18,6 +18,37 @@ type DatedWord = OcrWord & {
 
 type SourceBand = { top: number; bottom: number };
 
+export type ScanMark = {
+  id: string;
+  kind: "date" | "name" | "shift" | "flight" | "text";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  confidence: number;
+  unreadable: boolean;
+  worker?: string;
+  shift?: Pick<Shift, "date" | "start" | "end">;
+};
+
+export type ScanGeometry = {
+  width: number;
+  height: number;
+  marks: ScanMark[];
+  workerRows: Array<{ name: string; top: number; bottom: number }>;
+  dateHeader?: SourceBand;
+  grid?: { left: number; right: number; slope: number };
+};
+
+export const scanConfidence = ({ confidence, unreadable }: ScanMark) =>
+  unreadable || confidence < 48 ? "unreadable" : confidence < 82 ? "check" : "confident";
+
+type CollectScanMark = (
+  mark: Omit<ScanMark, "x" | "y" | "width" | "height" | "text" | "confidence">,
+  words: OcrWord[],
+) => void;
+
 export type ScheduleSourceLayout = {
   width: number;
   height: number;
@@ -558,6 +589,7 @@ const nearestColumn = (x: number, centers: number[], spacing: number) => {
 const parseShifts = (
   words: OcrWord[],
   week: NonNullable<ReturnType<typeof deriveWeek>>,
+  collect?: CollectScanMark,
 ) => {
   const nameBoundary = week.columnCenters[0] - week.spacing * 0.5;
   const adjusted = words.map((word) => ({
@@ -633,6 +665,7 @@ const parseShifts = (
     const cells = cellWords.filter(
       (word) => Math.abs(word.rowY - row.y) <= rowTolerance,
     );
+    collect?.({ id: `name:${row.name}`, kind: "name", worker: row.name, unreadable: false }, row.words);
     const band = sourceBand([...row.words, ...cells], week.slope);
     return {
       name: row.name,
@@ -646,16 +679,23 @@ const parseShifts = (
 
   const shifts = rows.flatMap<Shift>((row) => {
     return week.dates.map((date, columnIndex) => {
-      const cellText = row.cells
+      const words = row.cells
         .filter(
           (word) =>
             nearestColumn(word.centerX, week.columnCenters, week.spacing) === columnIndex,
         )
-        .sort((a, b) => a.x - b.x)
-        .map((word) => word.text)
-        .join(" ");
-      const normalized = normalizedCellText(cellText);
+        .sort((a, b) => a.x - b.x);
+      const normalized = normalizedCellText(words.map((word) => word.text).join(" "));
       const range = normalizedTimeRange(normalized);
+      if (words.length) {
+        collect?.({
+          id: `shift:${row.name}:${date}`,
+          kind: "shift",
+          worker: row.name,
+          unreadable: !range && !/^(?:OFF|PTO|X|[-–—]+)(?:\s|$)/.test(normalized),
+          shift: range ? { date, start: range.start, end: range.end } : undefined,
+        }, words);
+      }
       if (range) {
         const note = normalized
           .replace(range.matched, "")
@@ -709,9 +749,7 @@ const sourceLayoutFor = (
   week: NonNullable<ReturnType<typeof deriveWeek>>,
   rows: ReturnType<typeof parseShifts>["rows"],
 ): ScheduleSourceLayout | undefined => {
-  const page = tsv.match(/^1\t[^\r\n]+/m)?.[0].split("\t");
-  const width = Number(page?.[8]);
-  const height = Number(page?.[9]);
+  const { width, height } = scanPageSize(tsv);
   if (!(width > 0 && height > 0 && rows.length)) return undefined;
   const left = Math.max(0, Math.floor(Math.min(
     ...rows.map((row) => row.left - week.spacing * 0.04),
@@ -822,6 +860,7 @@ const parseFlightCell = (
 const parseFlights = (
   words: OcrWord[],
   week: NonNullable<ReturnType<typeof deriveWeek>>,
+  collect?: CollectScanMark,
 ) => {
   const nameBoundary = week.columnCenters[0] - week.spacing * 0.5;
   const adjusted = words.map((word) => ({
@@ -874,15 +913,13 @@ const parseFlights = (
       [...periodLabels].reverse().find((label) => label.y <= y + tolerance)?.period ??
       null;
     week.columnCenters.forEach((_, columnIndex) => {
-      const cellText = row
+      const words = row
         .filter(
           (word) =>
             nearestColumn(word.centerX, week.columnCenters, week.spacing) === columnIndex,
         )
-        .sort((a, b) => a.x - b.x)
-        .map((word) => word.text)
-        .join(" ")
-        .trim();
+        .sort((a, b) => a.x - b.x);
+      const cellText = words.map((word) => word.text).join(" ").trim();
       if (!cellText) return;
       const provisional = parseFlightCell(
         cellText,
@@ -891,6 +928,7 @@ const parseFlights = (
         rowIndex * 7 + columnIndex,
       );
       if (!provisional) return;
+      collect?.({ id: `flight:${rowIndex}:${columnIndex}`, kind: "flight", unreadable: false }, words);
       const period = labelPeriod ?? periodForTime(provisional.start);
       flights.push({
         ...provisional,
@@ -902,15 +940,63 @@ const parseFlights = (
   return flights;
 };
 
-export function parseScheduleTsv(tsv: string, ocrConfidence = 0): ParsedSchedule | null {
+function scanPageSize(tsv: string) {
+  const page = tsv.match(/^1\t[^\r\n]+/m)?.[0].split("\t");
+  return { width: Number(page?.[8]), height: Number(page?.[9]) };
+}
+
+export function parseScheduleTsv(
+  tsv: string,
+  ocrConfidence = 0,
+  onGeometry?: (geometry: ScanGeometry) => void,
+): ParsedSchedule | null {
   const words = parseWords(tsv);
   const week = deriveWeek(words);
-  if (!week) return null;
-  words.forEach((word) => {
-    word.rowY = word.centerY - week.slope * word.centerX;
+  const marks = new Map<string, ScanMark>();
+  const markedWords = new Set<string>();
+  const wordKey = (word: OcrWord) => `${word.x}:${word.y}:${word.width}:${word.height}`;
+  const collect: CollectScanMark | undefined = onGeometry && ((mark, group) => {
+    group.forEach((word) => markedWords.add(wordKey(word)));
+    const x = Math.min(...group.map((word) => word.x));
+    const y = Math.min(...group.map((word) => word.y));
+    marks.set(mark.id, {
+      ...mark,
+      x, y,
+      width: Math.max(...group.map((word) => word.x + word.width)) - x,
+      height: Math.max(...group.map((word) => word.y + word.height)) - y,
+      text: group.map((word) => word.text).join(" "),
+      confidence: Math.min(...group.map((word) => word.confidence)),
+    });
   });
-  const { shifts, rows } = parseShifts(words, week);
-  const flights = parseFlights(words, week);
+  const emit = (layout?: ScheduleSourceLayout) => {
+    if (!collect || !onGeometry) return;
+    const size = scanPageSize(tsv);
+    if (!(size.width > 0 && size.height > 0)) return;
+    for (const word of words) {
+      if (markedWords.has(wordKey(word))) continue;
+      collect({
+        id: `text:${Math.round(word.centerX / size.width * 160)}:${Math.round(word.centerY / size.height * 160)}`,
+        kind: "text",
+        unreadable: false,
+      }, [word]);
+    }
+    onGeometry({
+      ...size, marks: [...marks.values()], workerRows: layout?.rows ?? [],
+      dateHeader: week ? sourceBand(week.headerWords, week.slope) : undefined,
+      grid: layout && { left: layout.left, right: layout.right, slope: layout.slope },
+    });
+  };
+  if (!week) {
+    emit();
+    return null;
+  }
+  for (const word of week.headerWords) {
+    collect?.({ id: `date:${isoDate(word.value)}`, kind: "date", unreadable: false }, [word]);
+  }
+  const { shifts, rows } = parseShifts(words, week, collect);
+  const flights = parseFlights(words, week, collect);
+  const sourceLayout = sourceLayoutFor(tsv, week, rows);
+  emit(sourceLayout);
   const workingShifts = shifts.filter((shift) => shift.status === "working");
   if (!workingShifts.length && !flights.length) return null;
 
@@ -932,6 +1018,6 @@ export function parseScheduleTsv(tsv: string, ocrConfidence = 0): ParsedSchedule
     flights,
     confidence: Math.round((week.confidence + Math.max(0, ocrConfidence)) / 2),
     warnings,
-    sourceLayout: sourceLayoutFor(tsv, week, rows),
+    sourceLayout,
   };
 }

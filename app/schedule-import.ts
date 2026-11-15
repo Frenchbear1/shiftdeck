@@ -3,6 +3,7 @@ import {
   parseScheduleTsv,
   ParsedSchedule,
   type ScheduleSourceLayout,
+  type ScanGeometry,
 } from "./schedule-parser";
 import { isStrongScheduleRead } from "./schedule-tools";
 
@@ -83,7 +84,10 @@ async function enhanceScheduleImage(file: Blob): Promise<Blob> {
   }
 }
 
+export type ScanPreviewPass = ScanGeometry & { image?: Blob };
+
 export type ReadCallbacks = {
+  onPass?: (pass: ScanPreviewPass) => void;
   matchesSourceRow: (name: string) => boolean;
   /** 0–1 for this file only; callers keep it monotonic. */
   onFraction: (fraction: number) => void;
@@ -126,7 +130,7 @@ export async function recoverScheduleSource(
 
 async function scanScheduleImage(
   file: Blob,
-  { matchesSourceRow, onFraction, onReading, onDoubleCheck }: ReadCallbacks,
+  { matchesSourceRow, onFraction, onReading, onDoubleCheck, onPass }: ReadCallbacks,
   dedicatedReader?: Promise<TesseractWorker>,
 ): Promise<(ParsedSchedule & { reviewImage?: Blob }) | null> {
   const { PSM } = await import("tesseract.js");
@@ -185,27 +189,23 @@ async function scanScheduleImage(
         { rotateAuto: true },
         { tsv: true, imageColor: original },
       );
+      const deskewed = Boolean(result.data.rotateRadians);
+      const alignedImage = result.data.imageColor;
+      const image = deskewed && alignedImage
+        ? new Blob([Uint8Array.from(atob(alignedImage.split(",")[1]), (byte) => byte.charCodeAt(0))], {
+            type: "image/png",
+          })
+        : undefined;
+      // Overlay coordinates must correspond to the photo shown on screen.
+      const canOverlay = !deskewed || Boolean(image);
       const parsed = result.data.tsv
-        ? parseScheduleTsv(result.data.tsv, result.data.confidence)
+        ? parseScheduleTsv(result.data.tsv, result.data.confidence,
+          onPass && canOverlay ? (geometry) => onPass({ ...geometry, image }) : undefined)
         : null;
       if (parsed) {
         readable.push(parsed);
-        if (parsed.sourceLayout) {
-          const deskewed = Boolean(result.data.rotateRadians);
-          const alignedImage = result.data.imageColor;
-          const image = deskewed && alignedImage
-            ? new Blob([Uint8Array.from(atob(alignedImage.split(",")[1]), (byte) => byte.charCodeAt(0))], {
-                type: "image/png",
-              })
-            : undefined;
-          if (!deskewed || image) {
-            sources.push({
-              schedule: parsed,
-              layout: parsed.sourceLayout,
-              image,
-              original,
-            });
-          }
+        if (parsed.sourceLayout && canOverlay) {
+          sources.push({ schedule: parsed, layout: parsed.sourceLayout, image, original });
         }
       }
     } catch {

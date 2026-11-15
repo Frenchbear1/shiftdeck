@@ -195,7 +195,7 @@ export function parseCharterTextItems(
   };
 }
 
-export async function parseCharterPdf(file: File) {
+export async function parseCharterPdf(file: File, onPreview?: (preview: Blob) => void) {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
     "pdfjs-dist/build/pdf.worker.mjs",
@@ -209,6 +209,20 @@ export async function parseCharterPdf(file: File) {
   try {
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
+      if (pageNumber === 1 && onPreview) {
+        try {
+          const size = page.getViewport({ scale: 1 });
+          const viewport = page.getViewport({ scale: Math.min(1.5, 1050 / size.width, 1300 / size.height) });
+          const canvas = window.document.createElement("canvas");
+          canvas.width = Math.ceil(viewport.width);
+          canvas.height = Math.ceil(viewport.height);
+          await page.render({ canvas, viewport }).promise;
+          const preview = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+          if (preview) onPreview(preview);
+        } catch {
+          // Extract the flight text even when the optional preview cannot render.
+        }
+      }
       const content = await page.getTextContent();
       content.items.forEach((item) => {
         if (!("str" in item) || !item.str.trim()) return;

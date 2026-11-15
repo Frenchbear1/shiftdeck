@@ -1,0 +1,251 @@
+"use client";
+
+import { Check, FileImage, FileText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { formatDate, formatTime } from "./home-sections";
+import { scanConfidence, type ScanMark } from "./schedule-parser";
+import type { ScanPreviewPass } from "./schedule-import";
+import { IMPORT_STAGES, type ImportSnapshot } from "./schedule-tools";
+
+export type ImportPreviewFile = {
+  index: number;
+  name: string;
+  pdf: boolean;
+  stage: number;
+  image?: Blob;
+  pass?: ScanPreviewPass;
+};
+
+type PhotoFrame = {
+  index: number;
+  source: Blob;
+  url: string;
+  ratio: number;
+  width: number;
+  height: number;
+};
+
+const confidenceLabels = {
+  confident: "Clear",
+  check: "Check",
+  unreadable: "Unreadable",
+};
+
+function ScanOverlay({
+  pass, ratio, matchesWorker, selected, onSelect,
+}: {
+  pass: ScanPreviewPass;
+  ratio: number;
+  matchesWorker: (name: string) => boolean;
+  selected: string | null;
+  onSelect: (id: string) => void;
+}) {
+  if (Math.abs((pass.width / pass.height) / ratio - 1) > 0.04) return null;
+  const chosenRow = pass.workerRows.find((row) => matchesWorker(row.name));
+  const row = chosenRow && pass.grid && { ...chosenRow, ...pass.grid };
+  const header = pass.dateHeader && pass.grid && { ...pass.dateHeader, ...pass.grid };
+  return (
+    <svg
+      className="scan-overlay"
+      viewBox={`0 0 ${pass.width} ${pass.height}`}
+      preserveAspectRatio="none"
+      aria-label="Recognized schedule text"
+    >
+      {[header, row].map((band, index) => band && (
+        <polygon
+          key={index}
+          className={index === 0 ? "scan-date-band" : "scan-person-band"}
+          points={`${band.left},${band.top + band.slope * band.left} ${band.right},${band.top + band.slope * band.right} ${band.right},${band.bottom + band.slope * band.right} ${band.left},${band.bottom + band.slope * band.left}`}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+      {pass.marks.map((mark) => {
+        const score = scanConfidence(mark);
+        const pad = Math.max(3, mark.height * 0.19);
+        return (
+          <g
+            key={mark.id}
+            tabIndex={score === "confident" ? undefined : 0}
+            role="button"
+            aria-label={`${confidenceLabels[score]}: ${mark.text}`}
+            aria-pressed={selected === mark.id}
+            className={`scan-mark scan-mark-${mark.kind} scan-mark-${score}`}
+            onClick={() => onSelect(mark.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect(mark.id);
+              }
+            }}
+          >
+            <rect
+              x={mark.x - pad}
+              y={mark.y - pad}
+              width={mark.width + 2 * pad}
+              height={mark.height + 2 * pad}
+              rx={pad}
+              vectorEffect="non-scaling-stroke"
+            />
+            {mark.worker && matchesWorker(mark.worker) && mark.kind === "shift" && (
+              <line
+                x1={mark.x}
+                x2={mark.x + mark.width}
+                y1={mark.y + mark.height + pad}
+                y2={mark.y + mark.height + pad}
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+export function ScheduleImportPreview({
+  file, count, snapshot, matchesWorker,
+}: {
+  file: ImportPreviewFile | null;
+  count: number;
+  snapshot: ImportSnapshot;
+  matchesWorker: (name: string) => boolean;
+}) {
+  const [frames, setFrames] = useState<{ current: PhotoFrame; previous?: PhotoFrame }>();
+  const [selected, setSelected] = useState<{ index: number; id: string }>();
+  const [failedSource, setFailedSource] = useState<Blob>();
+  const urls = useRef(new Set<string>());
+  const fileIndex = file?.index;
+  const source = file?.pass?.image ?? file?.image;
+
+  useEffect(() => {
+    if (!source || fileIndex === undefined) return;
+    const url = URL.createObjectURL(source);
+    const activeUrls = urls.current;
+    const image = new Image();
+    image.src = url;
+    let cancelled = false;
+    void image.decode().then(() => {
+      if (cancelled) return;
+      activeUrls.add(url);
+      const frame = {
+        index: fileIndex, source, url, ratio: image.naturalWidth / image.naturalHeight,
+        width: image.naturalWidth, height: image.naturalHeight,
+      };
+      setFrames((previous) => ({ current: frame, previous: previous?.current }));
+    }).catch(() => {
+      if (!cancelled) setFailedSource(source);
+    });
+    return () => {
+      cancelled = true;
+      if (!activeUrls.has(url)) URL.revokeObjectURL(url);
+    };
+  }, [fileIndex, source]);
+
+  useEffect(() => {
+    const activeUrls = urls.current;
+    return () => {
+      activeUrls.forEach((url) => URL.revokeObjectURL(url));
+      activeUrls.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    for (const url of urls.current) {
+      if (url === frames?.current.url || url === frames?.previous?.url) continue;
+      URL.revokeObjectURL(url);
+      urls.current.delete(url);
+    }
+  }, [frames]);
+
+  const pass = source && frames?.current.source === source && frames.current.index === fileIndex ? file?.pass : undefined;
+  const stage = snapshot.stage === 3 ? 3 : file?.stage ?? snapshot.stage;
+  const mark = selected && selected.index === fileIndex
+    ? pass?.marks.find((item) => item.id === selected.id)
+    : undefined;
+  const ownShifts = pass?.marks.filter((item): item is ScanMark & { shift: NonNullable<ScanMark["shift"]> } =>
+    Boolean(item.shift && item.worker && matchesWorker(item.worker))) ?? [];
+  return (
+    <div className="reading-state">
+      <div className="scan-photo-stage" aria-label="Schedule scan preview">
+        {(!frames || (source && failedSource === source)) && (
+          <div className="scan-photo-placeholder" role="status">
+            {file?.pdf ? <FileText /> : <FileImage />}
+            <span>{failedSource === source && source ? "Preview unavailable" : "Opening preview…"}</span>
+          </div>
+        )}
+        {[frames?.previous, frames?.current].map((frame) => frame && (
+          <div
+            key={frame.url}
+            className={`scan-photo-layer${frame === frames?.current ? " is-current" : ""}`}
+            aria-hidden={frame !== frames?.current || (source !== undefined && failedSource === source)}
+            style={source && failedSource === source ? { visibility: "hidden" } : undefined}
+            onAnimationEnd={(event) => {
+              if (event.target !== event.currentTarget || frame !== frames?.current) return;
+              setFrames((current) => current?.current.url === frame.url && current.previous
+                ? { current: frame }
+                : current);
+            }}
+          >
+            <figure style={{ width: `min(100cqw, calc(100cqh * ${frame.ratio}))`, aspectRatio: frame.ratio }}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- the preview uses a local object URL */}
+              <img src={frame.url} alt="Uploaded schedule" width={frame.width} height={frame.height} />
+              {pass && frame === frames?.current && (
+                <ScanOverlay
+                  pass={pass}
+                  ratio={frame.ratio}
+                  matchesWorker={matchesWorker}
+                  selected={mark?.id ?? null}
+                  onSelect={(id) => setSelected((current) =>
+                    current?.index === frame.index && current.id === id ? undefined : { index: frame.index, id })}
+                />
+              )}
+            </figure>
+          </div>
+        ))}
+      </div>
+      <div className="scan-preview-notes">
+        <ul className="scan-legend" aria-label="Scan confidence colors">
+          {Object.entries(confidenceLabels).map(([key, label]) => (
+            <li key={key} className={`scan-mark-${key}`}><i />{label}</li>
+          ))}
+        </ul>
+        <p className={`scan-observation${mark ? " scan-mark-" + scanConfidence(mark) : ""}`} aria-live="polite">
+          {mark ? `${confidenceLabels[scanConfidence(mark)]} · ${mark.text}` : pass?.marks.length ? "Tap a highlight to see what was read" : "\u00a0"}
+        </p>
+        <div className="scan-my-shifts" aria-label="Your shifts detected so far">
+          {ownShifts.map((item) => {
+            const confidence = scanConfidence(item);
+            return (
+              <span key={item.id} className={`scan-mark-${confidence}`}>
+                <b>{formatDate(item.shift.date)}</b>
+                <span>{formatTime(item.shift.start)} – {formatTime(item.shift.end)}</span>
+                {confidence !== "confident" && <small>Check time</small>}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      <div className="scan-footer">
+        <ol className="import-steps" aria-label="Import stages">
+          {IMPORT_STAGES.map((label, index) => (
+            <li
+              key={label}
+              className={index < stage ? "done" : index === stage ? "active" : ""}
+              aria-current={index === stage ? "step" : undefined}
+            >
+              <i>{index < stage ? <Check /> : null}</i>
+              <span>{label}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="progress-track" role="progressbar" aria-label="Import progress" aria-valuenow={snapshot.progress}>
+          <i style={{ transform: `scaleX(${snapshot.progress / 100})` }} />
+        </div>
+        <p className="import-detail">
+          <span>{file ? `Schedule ${file.index + 1} of ${count} · ${file.name}` : snapshot.detail || "Preparing"}</span>
+          <b>{snapshot.progress}%</b>
+        </p>
+      </div>
+    </div>
+  );
+}

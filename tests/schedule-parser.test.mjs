@@ -7,6 +7,7 @@ import {
   mergeScheduleParses,
   parseScheduleTsv,
   resolveSchedulePersonName,
+  scanConfidence,
   SCHEDULE_PARSER_VERSION,
 } from "../app/schedule-parser.ts";
 import {
@@ -96,6 +97,37 @@ test("imports the employee grid when a document date precedes the seven-day head
     parsed.flights.map((flight) => flight.raw),
     ["ACY 0353-F/0600 SRQ", "1000 SFB Airbus", "F In- SFB 1045 Boeing"],
   );
+});
+
+test("publishes truthful scan geometry and leaves empty shift cells unmarked", () => {
+  const rows = [
+    [1, 1, 0, 0, 0, 0, 0, 0, 1200, 650, -1, ""].join("\t"),
+    ...Array.from({ length: 7 }, (_, i) => word(`11/${15 + i}/2026`, 188 + i * 145, 327, 61, 13)),
+    word("David", 4, 500, 33),
+    word("LaBarre", 42, 500, 44),
+    word("0800-1700", 188, 500, 65),
+    word("0730-1630", 333, 500, 65).replace("\t90\t", "\t63\t"),
+    word("08?0-?", 478, 500, 55),
+    word("OFF", 623, 500, 25),
+  ];
+  let preview;
+  const parsed = parseScheduleTsv(rows.join("\n"), 90, (geometry) => { preview = geometry; });
+  assert.equal(parsed.shifts.filter((shift) => shift.status === "working").length, 2);
+  const marks = new Map(preview.marks.map((mark) => [mark.id, mark]));
+  assert.equal(preview.width, 1200);
+  assert.equal(preview.workerRows[0].name, "David LaBarre");
+  assert.ok(preview.dateHeader);
+  assert.equal(scanConfidence(marks.get("shift:David LaBarre:2026-11-15")), "confident");
+  assert.equal(scanConfidence(marks.get("shift:David LaBarre:2026-11-16")), "check");
+  assert.equal(scanConfidence(marks.get("shift:David LaBarre:2026-11-17")), "unreadable");
+  assert.equal(scanConfidence(marks.get("shift:David LaBarre:2026-11-18")), "confident");
+  assert.equal(marks.has("shift:David LaBarre:2026-11-19"), false);
+  assert.equal(marks.get("shift:David LaBarre:2026-11-16").x, 333);
+
+  const noWeek = parseScheduleTsv([rows[0], rows[8]].join("\n"), 90,
+    (geometry) => { preview = geometry; });
+  assert.equal(noWeek, null);
+  assert.equal(preview.marks[0].text, "David");
 });
 
 test("imports charter PDF text as tracked private flights", () => {

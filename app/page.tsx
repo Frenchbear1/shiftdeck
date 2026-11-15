@@ -43,11 +43,12 @@ import {
   ParsedSchedule,
   resolveSchedulePersonName,
   SCHEDULE_PARSER_VERSION,
+  scanConfidence,
+  type ScanMark,
   type ScheduleSourceLayout,
 } from "./schedule-parser";
 import {
   createImportProgress,
-  IMPORT_STAGES,
   ImportSnapshot,
   applyNameMerges,
   isScheduleRange,
@@ -81,6 +82,7 @@ import {
 import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
+import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { useLiveFlights } from "./live-flights";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
@@ -199,13 +201,14 @@ type ScheduleDocument = {
   revision: number;
   parserVersion?: number;
   mimeType?: string;
-  review?: { sourceLayout?: ScheduleSourceLayout; deskewed: boolean };
+  review?: { sourceLayout?: ScheduleSourceLayout; deskewed: boolean; uncertainShifts?: string[] };
 };
 
 type ImportComparison = Pick<ScheduleDocument, "hash" | "name" | "dates" | "shifts"> & {
   image?: Blob;
   sourceLayout?: ScheduleSourceLayout;
   sourceLoading?: boolean;
+  uncertainShifts?: string[];
 };
 
 const isSchedulePdf = ({ mimeType, name }: ScheduleDocument) =>
@@ -708,6 +711,7 @@ export default function HomePage() {
     stage: 0,
     detail: "",
   });
+  const [scanFile, setScanFile] = useState<ImportPreviewFile | null>(null);
   const [importMessage, setImportMessage] = useState("");
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -1786,6 +1790,14 @@ export default function HomePage() {
       ),
     ];
 
+    const allowScanMotion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const finishScanPreview = async () => {
+      progress.finish();
+      if (allowScanMotion && sheetRef.current === "import") {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 260));
+      }
+    };
+
     try {
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
@@ -1793,21 +1805,37 @@ export default function HomePage() {
           files.length > 1 ? `${file.name} · ${index + 1} of ${files.length}` : file.name,
         );
 
+        const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+        setScanFile({ index, name: file.name, pdf: isPdf, stage: isPdf ? 1 : 0, image: isPdf ? undefined : file });
+        let lastPreviewFrame = performance.now();
+        const updateScanFile = (patch: Partial<ImportPreviewFile>) => {
+          if (patch.image || patch.pass) lastPreviewFrame = performance.now();
+          setScanFile((current) => current?.index === index ? { ...current, ...patch } : current);
+        };
+        const shiftReads: ScanMark[] = [];
         try {
-          const isPdf =
-            file.type === "application/pdf" || /\.pdf$/i.test(file.name);
           const [hash, read] = await Promise.all([
             hashFile(file),
             isPdf
-              ? (progress.stage(1), parseCharterPdf(file))
+              ? (progress.stage(1), parseCharterPdf(file, (image) => updateScanFile({ image })))
               : readScheduleImage(file, {
                   matchesSourceRow: (name) => nameKey(resolveMergedName(
                     resolveSchedulePersonName(name, knownNames),
                     nameMerges,
                   )) === nameKey(prefs.person),
                   onFraction: (fraction) => progress.file(index, fraction),
-                  onReading: () => progress.stage(1),
-                  onDoubleCheck: () => progress.stage(2),
+                  onReading: () => {
+                    progress.stage(1);
+                    updateScanFile({ stage: 1 });
+                  },
+                  onDoubleCheck: () => {
+                    progress.stage(2);
+                    updateScanFile({ stage: 2 });
+                  },
+                  onPass: (pass) => {
+                    shiftReads.push(...pass.marks.filter((mark) => mark.shift));
+                    updateScanFile({ pass });
+                  },
                 }),
           ]);
           progress.file(index, 1);
@@ -1853,6 +1881,16 @@ export default function HomePage() {
           const reviewImage = read && "reviewImage" in read && read.reviewImage instanceof Blob
             ? read.reviewImage
             : undefined;
+          const shiftConfidence = new Map<string, boolean>();
+          for (const mark of shiftReads) {
+            if (!mark.shift || !mark.worker) continue;
+            const worker = resolveSchedulePersonName(mark.worker, knownNames);
+            const key = `${mark.shift.date}|${worker}|${mark.shift.start}|${mark.shift.end}`;
+            shiftConfidence.set(key, Boolean(shiftConfidence.get(key)) || scanConfidence(mark) === "confident");
+          }
+          const uncertainShifts = parsed.shifts.filter((shift) =>
+            shiftConfidence.get(`${shift.date}|${shift.worker}|${shift.start}|${shift.end}`) === false,
+          ).map((shift) => shift.id);
           const nextDocument: ScheduleDocument = {
             id: documentId,
             hash,
@@ -1865,7 +1903,7 @@ export default function HomePage() {
             revision: (replacement?.revision ?? 0) + 1,
             parserVersion: SCHEDULE_PARSER_VERSION,
             mimeType: isPdf ? "application/pdf" : file.type,
-            review: isPdf ? undefined : { sourceLayout, deskewed: Boolean(reviewImage) },
+            review: isPdf ? undefined : { sourceLayout, deskewed: Boolean(reviewImage), uncertainShifts },
           };
           if (replacement) {
             nextDocuments[replacementIndex] = nextDocument;
@@ -1882,17 +1920,23 @@ export default function HomePage() {
               shifts: parsed.shifts,
               image: reviewImage ?? file,
               sourceLayout,
+              uncertainShifts,
             });
           }
           await saveScheduleImage(documentId, file, reviewImage).catch(() => undefined);
         } catch {
           skippedFiles.push(file.name);
+        } finally {
+          const remaining = 230 - (performance.now() - lastPreviewFrame);
+          if (remaining > 0 && index < files.length - 1 && allowScanMotion && sheetRef.current === "import") {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, remaining));
+          }
         }
       }
 
       progress.stage(3);
       if (!parsedSchedules.length) {
-        progress.finish();
+        await finishScanPreview();
         setImportMessage(
           "No names, work hours, or flights could be read. Try a sharper, straight-on photo of the schedule.",
         );
@@ -1923,7 +1967,7 @@ export default function HomePage() {
         "shiftdeck.importHashes",
         JSON.stringify(nextDocuments.map((document) => document.hash)),
       );
-      progress.finish();
+      await finishScanPreview();
       setImportMessage(
         parsedShiftCount
           ? `${count} of your shifts · ${Math.max(0, parsedShiftCount - count)} coworker shifts · ${parsedFlightCount} flights`
@@ -1948,12 +1992,13 @@ export default function HomePage() {
       setImportState("review");
       setToast("Schedule imported");
     } catch {
-      progress.finish();
+      await finishScanPreview();
       setImportState("error");
       setImportMessage(
         "The readable schedule details couldn’t be saved. Please try again.",
       );
     } finally {
+      setScanFile(null);
       if (sheetRef.current !== "import") void releaseScheduleReader();
     }
   };
@@ -2051,10 +2096,19 @@ export default function HomePage() {
       const replaceShift = (shifts: Shift[]) =>
         shifts.map((shift) => shift.id === imported.shift.id ? correctedShift : shift);
       setImportComparisons((current) => current.map((photo) =>
-        photo.hash === imported.hash ? { ...photo, shifts: replaceShift(photo.shifts) } : photo,
+        photo.hash === imported.hash ? {
+          ...photo, shifts: replaceShift(photo.shifts),
+          uncertainShifts: photo.uncertainShifts?.filter((id) => id !== imported.shift.id),
+        } : photo,
       ));
       setScheduleDocuments((current) => current.map((document) =>
-        document.hash === imported.hash ? { ...document, shifts: replaceShift(document.shifts) } : document,
+        document.hash === imported.hash ? {
+          ...document, shifts: replaceShift(document.shifts),
+          review: document.review && {
+            ...document.review,
+            uncertainShifts: document.review.uncertainShifts?.filter((id) => id !== imported.shift.id),
+          },
+        } : document,
       ));
       setParsedShifts((current) => [
         ...current.filter((shift) => shift.id !== imported.shift.id && shift.id !== editing?.id),
@@ -2342,6 +2396,7 @@ export default function HomePage() {
       shifts={photo.shifts}
       sourceLayout={photo.sourceLayout}
       sourceLoading={photo.sourceLoading}
+      uncertainShifts={photo.uncertainShifts}
       person={prefs.person}
       nameMerges={nameMerges}
       onEdit={(shift) => openImportedShift(photo, shift)}
@@ -2394,33 +2449,15 @@ export default function HomePage() {
           aria-label="Upload schedule files"
         />
         {importState === "reading" ? (
-          <div className="reading-state" aria-live="polite">
-            <span className="scanner-icon"><FileImage /><i /></span>
-            <ol className="import-steps">
-              {IMPORT_STAGES.map((label, index) => (
-                <li
-                  key={label}
-                  className={
-                    index < importSnapshot.stage
-                      ? "done"
-                      : index === importSnapshot.stage
-                        ? "active"
-                        : ""
-                  }
-                >
-                  <i>{index < importSnapshot.stage ? <Check /> : null}</i>
-                  <span>{label}</span>
-                </li>
-              ))}
-            </ol>
-            <div className="progress-track">
-              <i style={{ transform: `scaleX(${importSnapshot.progress / 100})` }} />
-            </div>
-            <p className="import-detail">
-              <span>{importSnapshot.detail || "Preparing"}</span>
-              <b>{importSnapshot.progress}%</b>
-            </p>
-          </div>
+          <ScheduleImportPreview
+            file={scanFile}
+            count={loadedFiles.length}
+            snapshot={importSnapshot}
+            matchesWorker={(name) => nameKey(resolveMergedName(
+              resolveSchedulePersonName(name, [prefs.person]),
+              nameMerges,
+            )) === nameKey(prefs.person)}
+          />
         ) : (
           <button className="upload-inner" onClick={() => fileInput.current?.click()}>
             <span className="upload-icon"><Upload /></span>
@@ -2553,6 +2590,7 @@ export default function HomePage() {
                       ...document,
                       sourceLayout: prepared?.sourceLayout,
                       sourceLoading: !prepared,
+                      uncertainShifts: document.review?.uncertainShifts,
                       image: prepared?.image,
                     })
                   )}

@@ -278,7 +278,7 @@ test("reprocesses uploads and records the current schedule parser", async () => 
   assert.doesNotMatch(page, /document\.hash === hash/);
   assert.match(page, /parserVersion: SCHEDULE_PARSER_VERSION/);
   assert.match(page, /accept="image\/\*,application\/pdf,\.pdf"/);
-  assert.match(page, /parseCharterPdf\(file\)/);
+  assert.match(page, /parseCharterPdf\(file, \(image\)/);
   assert.match(page, /flight\.source === "charter" && flight\.trackingId/);
   assert.match(page, /canonicalizeScheduleShifts\(document\.shifts\)/);
   assert.match(charterParser, /pdfjs-dist\/build\/pdf\.worker\.mjs/);
