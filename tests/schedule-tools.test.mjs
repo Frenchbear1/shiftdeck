@@ -236,3 +236,20 @@ test("My shift keeps flights scheduled in it until they're 6+ hours late", () =>
   const early = { ...flight, arrival: "12:00", start: "12:00" };
   assert.equal(flightBelongsToShift(early, early, myShift, null), false);
 });
+
+test("fullscreen schedule photo zoom follows the pinch midpoint and recenters at normal size", async () => {
+  const { constrainPhoto, zoomPhoto } = await import("../app/schedule-photo-zoom.ts");
+  const frame = { width: 400, height: 800, photoWidth: 400, photoHeight: 300 };
+  const start = { scale: 2, x: -45, y: 0 };
+  const startPoint = { x: 120, y: 150 };
+  const endPoint = { x: 90, y: 130 };
+
+  const zoomed = zoomPhoto(start, startPoint, endPoint, 4, frame);
+  assert.deepEqual(zoomed, { scale: 4, x: -240, y: -170 });
+  assert.equal((zoomed.x - endPoint.x) / zoomed.scale, (start.x - startPoint.x) / start.scale);
+  assert.equal((zoomed.y - endPoint.y) / zoomed.scale, (start.y - startPoint.y) / start.scale);
+
+  const dragged = constrainPhoto({ scale: 4, x: -750, y: 300 }, frame);
+  assert.deepEqual(dragged, { scale: 4, x: -600, y: 200 });
+  assert.deepEqual(zoomPhoto(zoomed, endPoint, endPoint, 0.5, frame), { scale: 1, x: 0, y: 0 });
+});

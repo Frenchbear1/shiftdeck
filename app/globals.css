@@ -5480,10 +5480,16 @@ select:focus-visible {
 }
 
 .upload-document-options {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   padding: 0 10px 10px;
+}
+
+.upload-document-options .button {
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
 }
 
 .schedule-file-viewer {
@@ -5495,75 +5501,60 @@ select:focus-visible {
   max-height: none;
   margin: 0;
   border: 0;
-  background: var(--surface);
-  color: var(--text);
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: hidden;
+  background: #17191d;
+  color: white;
 }
 
 .schedule-file-viewer[open] {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
 }
 
-.schedule-file-viewer header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.schedule-file-viewer header strong {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-}
-
-.schedule-file-viewer header button {
+.schedule-file-close {
+  position: absolute;
+  z-index: 1;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
   display: grid;
   place-items: center;
-  min-width: 40px;
-  min-height: 42px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  background: rgb(23 25 29 / 78%);
+  color: white;
   cursor: pointer;
 }
 
-.schedule-file-viewer header button:disabled {
-  opacity: .35;
-}
-
-.schedule-zoom-controls {
-  display: flex;
-  align-items: center;
-  background: var(--surface-2);
-  border-radius: 8px;
-  font-size: 12px;
-}
-
-.schedule-file-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  touch-action: pan-x pan-y;
+.schedule-photo-stage {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;
   container-type: size;
 }
 
-.schedule-file-scroll img {
+.schedule-photo-stage img {
   display: block;
   width: 100%;
   max-width: none;
-  margin-inline: auto;
   user-select: none;
 }
 
+.schedule-file-viewer-pdf {
+  padding-top: calc(max(12px, env(safe-area-inset-top)) + 50px);
+}
+
 .schedule-file-viewer iframe {
-  flex: 1;
   width: 100%;
+  height: 100%;
   border: 0;
 }
 
 .schedule-file-viewer > p {
+  place-self: center;
   margin: 16px;
+  text-align: center;
 }

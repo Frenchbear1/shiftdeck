@@ -99,9 +99,35 @@ export type ReadCallbacks = {
  * merged result still looks thin. Every readable detail is kept, even when
  * parts of the image can't be read.
  */
-export async function readScheduleImage(
-  file: File,
+export function readScheduleImage(file: File, callbacks: ReadCallbacks) {
+  return scanScheduleImage(file, callbacks);
+}
+
+export async function recoverScheduleSource(
+  file: Blob,
+  matchesSourceRow: ReadCallbacks["matchesSourceRow"],
+) {
+  const { createWorker } = await import("tesseract.js");
+  // A saved photo can be opened while a new import starts using the shared reader.
+  const reader = createWorker("eng", 1);
+  const ignoreProgress = () => {};
+  try {
+    return await scanScheduleImage(file, {
+      matchesSourceRow,
+      onFraction: ignoreProgress,
+      onReading: ignoreProgress,
+      onDoubleCheck: ignoreProgress,
+    }, reader);
+  } finally {
+    const worker = await reader.catch(() => null);
+    await worker?.terminate().catch(() => undefined);
+  }
+}
+
+async function scanScheduleImage(
+  file: Blob,
   { matchesSourceRow, onFraction, onReading, onDoubleCheck }: ReadCallbacks,
+  dedicatedReader?: Promise<TesseractWorker>,
 ): Promise<(ParsedSchedule & { reviewImage?: Blob }) | null> {
   const { PSM } = await import("tesseract.js");
   let fraction = 0;
@@ -111,14 +137,17 @@ export async function readScheduleImage(
     onFraction(fraction);
   };
 
-  listener = ({ status, progress }) => {
-    if (/loading|initializ/i.test(status)) report(0.05 * progress);
+  const setListener = (next: ReaderListener | null) => {
+    if (!dedicatedReader) listener = next;
   };
+  setListener(({ status, progress }) => {
+    if (/loading|initializ/i.test(status)) report(0.05 * progress);
+  });
   const [worker, enhanced] = await Promise.all([
-    warmScheduleReader(),
+    dedicatedReader ?? warmScheduleReader(),
     enhanceScheduleImage(file),
   ]).finally(() => {
-    listener = null;
+    setListener(null);
   });
   report(0.06);
   onReading();
@@ -143,9 +172,9 @@ export async function readScheduleImage(
     if (index === passes.length) onDoubleCheck();
     const from = fraction;
     const to = from + (0.98 - from) / (planned - index);
-    listener = ({ status, progress }) => {
+    setListener(({ status, progress }) => {
       if (status === "recognizing text") report(from + (to - from) * progress);
-    };
+    });
     try {
       await worker.setParameters({
         tessedit_pageseg_mode: pass.mode as never,
@@ -182,7 +211,7 @@ export async function readScheduleImage(
     } catch {
       // Keep whatever the other passes could read.
     } finally {
-      listener = null;
+      setListener(null);
     }
     report(to);
 

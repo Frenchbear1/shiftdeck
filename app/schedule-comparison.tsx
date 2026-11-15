@@ -14,6 +14,7 @@ type Props = {
   dates: string[];
   shifts: Shift[];
   sourceLayout?: ScheduleSourceLayout;
+  sourceLoading?: boolean;
   person: string;
   nameMerges: NameMerges;
   onEdit: (shift: Shift) => void;
@@ -70,7 +71,7 @@ function drawSourceRows(canvas: HTMLCanvasElement, image: HTMLImageElement, view
 }
 
 export function ScheduleComparison({
-  image, dates, shifts, sourceLayout, person, nameMerges, onEdit,
+  image, dates, shifts, sourceLayout, sourceLoading, person, nameMerges, onEdit,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [displayedSource, setDisplayedSource] = useState<SourceView | null>(null);
@@ -131,8 +132,11 @@ export function ScheduleComparison({
       {sourceLayout && !source && (
         <p className="schedule-source-note">The scanner couldn’t locate the source row for {person}.</p>
       )}
-      {!sourceLayout && (
-        <p className="schedule-source-note">The scanner couldn’t locate the source rows.</p>
+      {sourceLoading && (
+        <p className="schedule-source-note" role="status">Finding source rows…</p>
+      )}
+      {!sourceLayout && !sourceLoading && (
+        <p className="schedule-source-note">The source rows couldn’t be recovered.</p>
       )}
       <div
         className="schedule-comparison-scroll"

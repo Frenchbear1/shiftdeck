@@ -60,6 +60,7 @@ import {
 } from "./schedule-tools";
 import {
   readScheduleImage,
+  recoverScheduleSource,
   releaseScheduleReader,
   warmScheduleReader,
 } from "./schedule-import";
@@ -203,7 +204,11 @@ type ScheduleDocument = {
 type ImportComparison = Pick<ScheduleDocument, "hash" | "name" | "dates" | "shifts"> & {
   image?: Blob;
   sourceLayout?: ScheduleSourceLayout;
+  sourceLoading?: boolean;
 };
+
+const isSchedulePdf = ({ mimeType, name }: ScheduleDocument) =>
+  mimeType === "application/pdf" || /\.pdf$/i.test(name);
 
 const DEFAULT_SHIFT_TITLE = "Work";
 const DEFAULT_ALERT_MINUTES = 120;
@@ -638,6 +643,7 @@ export default function HomePage() {
     id: string;
     hash: string;
     image?: Blob;
+    sourceLayout?: ScheduleSourceLayout;
     loading: boolean;
   } | null>(null);
   const [viewedDocument, setViewedDocument] = useState<ScheduleDocument | null>(null);
@@ -1900,13 +1906,33 @@ export default function HomePage() {
   };
 
   const reviewSavedImport = async (document: ScheduleDocument) => {
-    if (!document.review) return;
+    if (isSchedulePdf(document)) return;
     const request = { id: document.id, hash: document.hash, loading: true };
     setSavedReview(request);
-    const image = document.review.sourceLayout
-      ? await loadScheduleImage(document.id, document.review.deskewed).catch(() => undefined)
-      : undefined;
-    setSavedReview((current) => current === request ? { ...request, image, loading: false } : current);
+
+    let sourceLayout = document.review?.sourceLayout;
+    let image = await loadScheduleImage(document.id, document.review?.deskewed).catch(() => undefined);
+    if (!sourceLayout && image) {
+      const knownNames = [prefs.person, ...document.shifts.map((shift) => shift.worker)];
+      const resolveRowName = (name: string) => resolveSchedulePersonName(name, knownNames);
+      const parsed = await recoverScheduleSource(image, (name) =>
+        nameKey(resolveMergedName(resolveRowName(name), nameMerges)) === nameKey(prefs.person),
+      ).catch(() => null);
+
+      if (parsed?.sourceLayout && parsed.dates.join() === document.dates.join()) {
+        const layout = parsed.sourceLayout;
+        sourceLayout = {
+          ...layout,
+          rows: layout.rows.map((row) => ({ ...row, name: resolveRowName(row.name) })),
+        };
+        image = parsed.reviewImage ?? image;
+      }
+    }
+    // Recover visual crop coordinates only. Keep the imported shifts and any edits.
+    setSavedReview((current) => current === request
+      ? { ...request, image, sourceLayout, loading: false }
+      : current,
+    );
   };
 
   const removeScheduleDocument = async (document: ScheduleDocument) => {
@@ -2281,6 +2307,7 @@ export default function HomePage() {
       dates={photo.dates}
       shifts={photo.shifts}
       sourceLayout={photo.sourceLayout}
+      sourceLoading={photo.sourceLoading}
       person={prefs.person}
       nameMerges={nameMerges}
       onEdit={(shift) => openImportedShift(photo, shift)}
@@ -2470,8 +2497,9 @@ export default function HomePage() {
                       <button
                         type="button"
                         className="button soft"
-                        disabled={!document.review || importState === "reading"}
-                        title={document.review ? undefined : "Available for new schedule photo imports"}
+                        disabled={isSchedulePdf(document) || importState === "reading" ||
+                          (savedReview?.id === document.id && savedReview.loading)}
+                        title={isSchedulePdf(document) ? "Charter PDFs import flights" : undefined}
                         onClick={() => void reviewSavedImport(document)}
                       >
                         Edit imported results
@@ -2487,11 +2515,10 @@ export default function HomePage() {
                     </div>
                   )}
                   {isExpanded && savedReview?.id === document.id && savedReview.hash === document.hash && (
-                    savedReview.loading ? (
-                      <p className="schedule-comparison schedule-source-note" role="status">Loading imported results…</p>
-                    ) : renderComparison({
+                    renderComparison({
                       ...document,
-                      sourceLayout: document.review?.sourceLayout,
+                      sourceLayout: savedReview.sourceLayout,
+                      sourceLoading: savedReview.loading,
                       image: savedReview.image,
                     })
                   )}
@@ -2736,7 +2763,7 @@ export default function HomePage() {
         <ScheduleFileViewer
           id={viewedDocument.id}
           name={viewedDocument.name}
-          pdf={viewedDocument.mimeType === "application/pdf" || /\.pdf$/i.test(viewedDocument.name)}
+          pdf={isSchedulePdf(viewedDocument)}
           onClose={() => setViewedDocument(null)}
         />
       )}
