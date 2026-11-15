@@ -24,6 +24,7 @@ import {
   ChangeEvent,
   Fragment,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -639,13 +640,12 @@ export default function HomePage() {
   const [scheduleDocuments, setScheduleDocuments] = useState<ScheduleDocument[]>([]);
   const [importComparisons, setImportComparisons] = useState<ImportComparison[]>([]);
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
-  const [savedReview, setSavedReview] = useState<{
-    id: string;
-    hash: string;
+  const [openReviewHash, setOpenReviewHash] = useState<string | null>(null);
+  const [preparedReviews, setPreparedReviews] = useState<Record<string, {
     image?: Blob;
     sourceLayout?: ScheduleSourceLayout;
-    loading: boolean;
-  } | null>(null);
+  }>>({});
+  const preparingReview = useRef(false);
   const [viewedDocument, setViewedDocument] = useState<ScheduleDocument | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [homeOrder, setHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
@@ -1131,6 +1131,56 @@ export default function HomePage() {
     );
   }, [backgroundHydrated, scheduleDocuments]);
 
+  const prepareSavedReview = useEffectEvent(async (document: ScheduleDocument) => {
+    let sourceLayout = document.review?.sourceLayout;
+    let image = await loadScheduleImage(document.id, document.review?.deskewed).catch(() => undefined);
+    if (!sourceLayout && image) {
+      const knownNames = [prefs.person, ...document.shifts.map((shift) => shift.worker)];
+      const resolveRowName = (name: string) => resolveSchedulePersonName(name, knownNames);
+      const parsed = await recoverScheduleSource(image, (name) =>
+        nameKey(resolveMergedName(resolveRowName(name), nameMerges)) === nameKey(prefs.person),
+      ).catch(() => null);
+
+      if (parsed?.sourceLayout && parsed.dates.join() === document.dates.join()) {
+        const layout = parsed.sourceLayout;
+        sourceLayout = {
+          ...layout,
+          rows: layout.rows.map((row) => ({ ...row, name: resolveRowName(row.name) })),
+        };
+        image = parsed.reviewImage ?? image;
+      }
+    }
+    return { image, sourceLayout };
+  });
+
+  const finishPreparingReview = useEffectEvent((
+    hash: string,
+    prepared: { image?: Blob; sourceLayout?: ScheduleSourceLayout },
+  ) => {
+    const activeHashes = new Set(scheduleDocuments.map((document) => document.hash));
+    setPreparedReviews((current) => {
+      const next = Object.fromEntries(Object.entries(current).filter(([key]) => activeHashes.has(key)));
+      if (activeHashes.has(hash)) next[hash] = prepared;
+      return next;
+    });
+  });
+
+  useEffect(() => {
+    if (!backgroundHydrated || importState === "reading" || preparingReview.current) return;
+    const remaining = scheduleDocuments.filter(
+      (document) => !isSchedulePdf(document) && !preparedReviews[document.hash],
+    );
+    const next = remaining.find((document) => document.hash === openReviewHash) ??
+      remaining.find((document) => document.review?.sourceLayout) ?? remaining[0];
+    if (!next) return;
+
+    preparingReview.current = true;
+    void prepareSavedReview(next).catch(() => ({})).then((prepared) => {
+      preparingReview.current = false;
+      finishPreparingReview(next.hash, prepared);
+    });
+  }, [backgroundHydrated, importState, openReviewHash, preparedReviews, scheduleDocuments]);
+
   useEffect(() => {
     if (!backgroundHydrated) return;
     if (notificationProfile) {
@@ -1473,7 +1523,7 @@ export default function HomePage() {
     if (sheet === "import") {
       setImportComparisons([]);
       setExpandedDocument(null);
-      setSavedReview(null);
+      setOpenReviewHash(null);
       if (importState !== "reading") void releaseScheduleReader();
     }
     setSheet(null);
@@ -1719,7 +1769,7 @@ export default function HomePage() {
     setDuplicateNotice("");
     setLoadedFiles(files.map((file) => file.name));
     setImportComparisons([]);
-    setSavedReview(null);
+    setOpenReviewHash(null);
     const progress = createImportProgress(files.length, setImportSnapshot);
     setImportSnapshot(progress.snapshot());
 
@@ -1855,6 +1905,14 @@ export default function HomePage() {
         b.updatedAt.localeCompare(a.updatedAt),
       );
       setScheduleDocuments(nextDocuments);
+      setPreparedReviews((current) => {
+        const activeHashes = new Set(nextDocuments.map((document) => document.hash));
+        const next = Object.fromEntries(Object.entries(current).filter(([key]) => activeHashes.has(key)));
+        for (const { hash, image, sourceLayout } of comparisons) {
+          if (activeHashes.has(hash)) next[hash] = { image, sourceLayout };
+        }
+        return next;
+      });
       const parsedShiftCount = parsedSchedules
         .flatMap((schedule) => schedule.shifts)
         .filter((shift) => shift.status === "working").length;
@@ -1905,36 +1963,6 @@ export default function HomePage() {
     event.target.value = "";
   };
 
-  const reviewSavedImport = async (document: ScheduleDocument) => {
-    if (isSchedulePdf(document)) return;
-    const request = { id: document.id, hash: document.hash, loading: true };
-    setSavedReview(request);
-
-    let sourceLayout = document.review?.sourceLayout;
-    let image = await loadScheduleImage(document.id, document.review?.deskewed).catch(() => undefined);
-    if (!sourceLayout && image) {
-      const knownNames = [prefs.person, ...document.shifts.map((shift) => shift.worker)];
-      const resolveRowName = (name: string) => resolveSchedulePersonName(name, knownNames);
-      const parsed = await recoverScheduleSource(image, (name) =>
-        nameKey(resolveMergedName(resolveRowName(name), nameMerges)) === nameKey(prefs.person),
-      ).catch(() => null);
-
-      if (parsed?.sourceLayout && parsed.dates.join() === document.dates.join()) {
-        const layout = parsed.sourceLayout;
-        sourceLayout = {
-          ...layout,
-          rows: layout.rows.map((row) => ({ ...row, name: resolveRowName(row.name) })),
-        };
-        image = parsed.reviewImage ?? image;
-      }
-    }
-    // Recover visual crop coordinates only. Keep the imported shifts and any edits.
-    setSavedReview((current) => current === request
-      ? { ...request, image, sourceLayout, loading: false }
-      : current,
-    );
-  };
-
   const removeScheduleDocument = async (document: ScheduleDocument) => {
     const nextDocuments = scheduleDocuments.filter(
       (candidate) => candidate.id !== document.id,
@@ -1948,6 +1976,11 @@ export default function HomePage() {
     const nextDates = importedDates.filter((date) => !removedDates.has(date));
 
     setScheduleDocuments(nextDocuments);
+    setPreparedReviews((current) => {
+      const next = { ...current };
+      delete next[document.hash];
+      return next;
+    });
     setImportedDates(nextDates);
     setParsedShifts((current) =>
       current.filter((shift) => !removedDates.has(shift.date)),
@@ -1963,7 +1996,7 @@ export default function HomePage() {
     }
     if (expandedDocument === document.id) {
       setExpandedDocument(null);
-      setSavedReview(null);
+      setOpenReviewHash(null);
     }
     setImportComparisons((current) => current.filter((photo) => photo.hash !== document.hash));
     await deleteScheduleImage(document.id).catch(() => undefined);
@@ -2068,6 +2101,7 @@ export default function HomePage() {
       document.dates.forEach((date) => removedDates.add(date)),
     );
     setScheduleDocuments([]);
+    setPreparedReviews({});
     setImportedDates([]);
     setParsedShifts([]);
     setParsedFlights([]);
@@ -2076,7 +2110,7 @@ export default function HomePage() {
     );
     if (removedDates.has(selectedDate)) setSelectedDate(localDateKey());
     setImportComparisons([]);
-    setSavedReview(null);
+    setOpenReviewHash(null);
     setExpandedDocument(null);
     void clearScheduleImages().catch(() => undefined);
     localStorage.setItem("shiftdeck.importHashes", "[]");
@@ -2452,6 +2486,7 @@ export default function HomePage() {
           <div className="upload-document-list">
             {scheduleDocuments.map((document) => {
               const isExpanded = expandedDocument === document.id;
+              const prepared = preparedReviews[document.hash];
               return (
                 <article
                   className={`upload-document ${isExpanded ? "expanded" : ""}`}
@@ -2462,7 +2497,7 @@ export default function HomePage() {
                       className="upload-document-main"
                       onClick={() => {
                         setExpandedDocument(isExpanded ? null : document.id);
-                        setSavedReview(null);
+                        setOpenReviewHash(null);
                       }}
                       aria-expanded={isExpanded}
                     >
@@ -2497,12 +2532,11 @@ export default function HomePage() {
                       <button
                         type="button"
                         className="button soft"
-                        disabled={isSchedulePdf(document) || importState === "reading" ||
-                          (savedReview?.id === document.id && savedReview.loading)}
+                        disabled={isSchedulePdf(document) || importState === "reading"}
                         title={isSchedulePdf(document) ? "Charter PDFs import flights" : undefined}
-                        onClick={() => void reviewSavedImport(document)}
+                        onClick={() => setOpenReviewHash(document.hash)}
                       >
-                        Edit imported results
+                        Imported results
                       </button>
                       <button
                         type="button"
@@ -2514,12 +2548,12 @@ export default function HomePage() {
                       </button>
                     </div>
                   )}
-                  {isExpanded && savedReview?.id === document.id && savedReview.hash === document.hash && (
+                  {isExpanded && openReviewHash === document.hash && (
                     renderComparison({
                       ...document,
-                      sourceLayout: savedReview.sourceLayout,
-                      sourceLoading: savedReview.loading,
-                      image: savedReview.image,
+                      sourceLayout: prepared?.sourceLayout,
+                      sourceLoading: !prepared,
+                      image: prepared?.image,
                     })
                   )}
                 </article>

@@ -5553,7 +5553,16 @@ select:focus-visible {
   border: 0;
 }
 
-.schedule-file-viewer > p {
+.schedule-file-content {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.schedule-file-content:focus {
+  outline: none;
+}
+
+.schedule-file-content > p {
   place-self: center;
   margin: 16px;
   text-align: center;

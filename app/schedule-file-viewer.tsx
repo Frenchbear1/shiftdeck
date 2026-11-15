@@ -145,12 +145,14 @@ export function ScheduleFileViewer({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     const viewer = dialog.current;
     viewer?.showModal();
+    content.current?.focus({ preventScroll: true });
     let cancelled = false;
     let sourceUrl: string | undefined;
     const load = async () => {
@@ -180,16 +182,18 @@ export function ScheduleFileViewer({
         onClose();
       }}
     >
+      <div ref={content} className="schedule-file-content" tabIndex={-1}>
+        {unavailable ? (
+          <p role="status">This schedule file is unavailable on this device.</p>
+        ) : !url ? (
+          <p role="status">Loading schedule…</p>
+        ) : pdf ? (
+          <iframe title={name} src={url} />
+        ) : (
+          <FullscreenPhoto url={url} name={name} onError={() => setUnavailable(true)} />
+        )}
+      </div>
       <button className="schedule-file-close" type="button" onClick={onClose} aria-label="Close schedule"><X /></button>
-      {unavailable ? (
-        <p role="status">This schedule file is unavailable on this device.</p>
-      ) : !url ? (
-        <p role="status">Loading schedule…</p>
-      ) : pdf ? (
-        <iframe title={name} src={url} />
-      ) : (
-        <FullscreenPhoto url={url} name={name} onError={() => setUnavailable(true)} />
-      )}
     </dialog>
   );
 }
