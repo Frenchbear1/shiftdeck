@@ -58,7 +58,10 @@ import {
   nameKey,
   resolveMergedName,
   ScheduleRange,
-  toMinutes,
+  flightWorkday,
+  shiftBounds,
+  workdayAt,
+  workdayFor,
 } from "./schedule-tools";
 import {
   readScheduleImage,
@@ -292,12 +295,6 @@ const formatUpdatedAt = (value: string) =>
     minute: "2-digit",
   }).format(new Date(value));
 
-const getWorkingShift = (shifts: Shift[], date: string, person: string) =>
-  shifts.find(
-    (shift) =>
-      shift.date === date && shift.worker === person && shift.status === "working",
-  );
-
 function parseCoordinatePair(value: string) {
   const match = value
     .trim()
@@ -522,32 +519,6 @@ function eventStartAt(date: string, time: string) {
   return new Date(`${date}T${time}:00`).toISOString();
 }
 
-function localDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function workdayDateKey(now: Date, shifts: Shift[], person: string) {
-  const previousDate = new Date(now);
-  previousDate.setDate(previousDate.getDate() - 1);
-  const previousDateKey = localDateKey(previousDate);
-  const previousShift = getWorkingShift(shifts, previousDateKey, person);
-
-  if (
-    !previousShift ||
-    toMinutes(previousShift.end) > toMinutes(previousShift.start)
-  ) {
-    return localDateKey(now);
-  }
-
-  const [endHour, endMinute] = previousShift.end.split(":").map(Number);
-  const rolloverTime = new Date(now);
-  rolloverTime.setHours(endHour + 2, endMinute, 0, 0);
-  return now < rolloverTime ? previousDateKey : localDateKey(now);
-}
-
 function flightAwareRouteUrl(
   flight: Flight,
   homeAirport: string,
@@ -656,7 +627,7 @@ export default function HomePage() {
   const [dismissedMerges, setDismissedMerges] = useState<string[]>([]);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
-  const [selectedDate, setSelectedDate] = useState(() => localDateKey());
+  const [selectedDate, setSelectedDate] = useState(() => workdayAt());
   const [importedDates, setImportedDates] = useState<string[]>([]);
   const [parsedShifts, setParsedShifts] = useState<Shift[]>([]);
   const [parsedFlights, setParsedFlights] = useState<Flight[]>([]);
@@ -870,7 +841,7 @@ export default function HomePage() {
               typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date),
           );
           setImportedDates(parsedDates);
-          setSelectedDate(localDateKey());
+          setSelectedDate(workdayAt());
         } catch {
           localStorage.removeItem("shiftdeck.activeDates");
         }
@@ -1265,11 +1236,6 @@ export default function HomePage() {
 
   const importedDateSet = useMemo(() => new Set(importedDates), [importedDates]);
 
-  const scheduleDates = useMemo(
-    () => Array.from(importedDateSet).sort(),
-    [importedDateSet],
-  );
-
   const baseImportedShifts = useMemo(
     () =>
       applyNameMerges(
@@ -1314,13 +1280,9 @@ export default function HomePage() {
     [baseImportedShifts, events, prefs.person],
   );
 
-  const todayDate = useMemo(
-    () => workdayDateKey(clockNow, importedShifts, prefs.person),
-    [clockNow, importedShifts, prefs.person],
-  );
+  const todayDate = workdayAt(clockNow);
 
-  // Follow "today" as it rolls over (after an overnight shift ends), and
-  // land on it once saved data is restored.
+  // Follow the 5 AM rollover and land on today once saved data is restored.
   useEffect(() => {
     if (!hydrated) return;
     let cancelled = false;
@@ -1350,43 +1312,46 @@ export default function HomePage() {
     return names.length ? names : [prefs.person];
   }, [importedShifts, prefs.person]);
 
+  const scheduleDates = useMemo(() => [...new Set([
+    ...importedDates,
+    ...importedShifts.map((shift) => workdayFor(shift.date, shift.start)),
+    ...importedFlights.map(flightWorkday),
+  ])].sort(), [importedDates, importedShifts, importedFlights]);
+
   const hasSchedule = scheduleDates.length > 0;
-
-  const myEvent = useMemo(
-    () => events.find((event) => event.date === selectedDate),
-    [events, selectedDate],
-  );
-
-  const myShift = useMemo(
-    () => getWorkingShift(importedShifts, selectedDate, prefs.person),
-    [importedShifts, selectedDate, prefs.person],
-  );
-
   const dayShifts = useMemo(
-    () =>
-      importedShifts.filter(
-        (shift) => shift.date === selectedDate && shift.status === "working",
-      ),
+    () => importedShifts.filter((shift) =>
+      shift.status === "working" && workdayFor(shift.date, shift.start) === selectedDate,
+    ),
     [importedShifts, selectedDate],
   );
+  const myDayShifts = useMemo(
+    () => dayShifts.filter((shift) => shift.worker === prefs.person).sort((a, b) =>
+      `${a.date}T${a.start}`.localeCompare(`${b.date}T${b.start}`),
+    ),
+    [dayShifts, prefs.person],
+  );
+  const myShift = selectedDate === todayDate
+    ? myDayShifts.find((shift) => clockNow < shiftBounds(shift)[1]) ?? myDayShifts.at(-1)
+    : myDayShifts[0];
+  const myEvent = events.find((event) => event.id === myShift?.id);
 
   const myDayStatus = useMemo(() => {
     const statuses = new Map<string, DayStatus>();
-    importedDates.forEach((date) => statuses.set(date, { status: "off" }));
+    scheduleDates.forEach((date) => statuses.set(date, { status: "off" }));
     baseImportedShifts.forEach((shift) => {
       if (shift.status === "pto" && isSameSchedulePerson(shift.worker, prefs.person)) {
         statuses.set(shift.date, { status: "pto" });
       }
     });
-    events.forEach((event) =>
-      statuses.set(event.date, {
-        status: "working",
-        start: event.start,
-        end: event.end,
-      }),
-    );
+    events.forEach((event) => {
+      const date = workdayFor(event.date, event.start);
+      if (statuses.get(date)?.status !== "working") {
+        statuses.set(date, { status: "working", start: event.start, end: event.end });
+      }
+    });
     return statuses;
-  }, [baseImportedShifts, events, importedDates, prefs.person]);
+  }, [baseImportedShifts, events, prefs.person, scheduleDates]);
 
   const swapShifts = useMemo(
     () => [
@@ -1403,10 +1368,7 @@ export default function HomePage() {
   );
 
   const dayFlights = useMemo(
-    () =>
-      importedFlights
-        .filter((flight) => flight.date === selectedDate)
-        .sort((a, b) => toMinutes(a.start) - toMinutes(b.start)),
+    () => importedFlights.filter((flight) => flightWorkday(flight) === selectedDate),
     [importedFlights, selectedDate],
   );
 
@@ -1689,17 +1651,18 @@ export default function HomePage() {
     setShiftEditor({ mode: "add" });
   };
 
-  const openEditShift = () => {
-    if (!myEvent) return;
+  const openEditShift = (id: string) => {
+    const event = events.find((event) => event.id === id);
+    if (!event) return;
     setShiftDraft({
-      date: myEvent.date,
-      start: myEvent.start,
-      end: myEvent.end,
-      title: myEvent.customTitle
-        ? myEvent.title
+      date: event.date,
+      start: event.start,
+      end: event.end,
+      title: event.customTitle
+        ? event.title
         : DEFAULT_SHIFT_TITLE,
     });
-    setShiftEditor({ mode: "edit", eventId: myEvent.id });
+    setShiftEditor({ mode: "edit", eventId: event.id });
   };
 
   const openImportedShift = (photo: ImportComparison, shift: Shift) => {
@@ -2140,7 +2103,7 @@ export default function HomePage() {
       current.filter((event) => !removedDates.has(event.date)),
     );
     if (removedDates.has(selectedDate)) {
-      setSelectedDate(nextDates[0] ?? localDateKey());
+      setSelectedDate(nextDates[0] ?? workdayAt());
     }
     if (expandedDocument === document.id) {
       setExpandedDocument(null);
@@ -2235,7 +2198,7 @@ export default function HomePage() {
     setImportedDates((current) =>
       Array.from(new Set([...current, shiftDraft.date])).sort(),
     );
-    setSelectedDate(shiftDraft.date);
+    setSelectedDate(workdayFor(shiftDraft.date, shiftDraft.start));
     setShiftEditor(null);
     setToast(imported || editing || existingOnDate ? "Shift updated" : "Shift added");
   };
@@ -2265,7 +2228,7 @@ export default function HomePage() {
     setEvents((current) =>
       current.filter((event) => !removedDates.has(event.date)),
     );
-    if (removedDates.has(selectedDate)) setSelectedDate(localDateKey());
+    if (removedDates.has(selectedDate)) setSelectedDate(workdayAt());
     setImportComparisons([]);
     setOpenReviewHash(null);
     setExpandedDocument(null);
@@ -2892,8 +2855,9 @@ export default function HomePage() {
             ? myEvent.title.trim() || DEFAULT_SHIFT_TITLE
             : prefs.title.trim() || DEFAULT_SHIFT_TITLE
         }
-        shift={myShift ? { start: myShift.start, end: myShift.end } : null}
-        loaded={importedDateSet.has(selectedDate)}
+        shift={myShift ?? null}
+        otherShifts={myDayShifts.filter((shift) => shift.id !== myShift?.id)}
+        loaded={myDayStatus.has(selectedDate)}
         isPto={myDayStatus.get(selectedDate)?.status === "pto"}
         onEdit={openEditShift}
         onAdd={openAddShift}
@@ -2916,7 +2880,7 @@ export default function HomePage() {
     flights: (
       <FlightList
         flights={dayFlights}
-        shift={myShift}
+        shifts={myDayShifts}
         date={selectedDate}
         isToday={selectedDate === todayDate}
         now={clockNow}
@@ -2942,6 +2906,7 @@ export default function HomePage() {
     crew: (
       <CrewPanel
         shifts={dayShifts}
+        date={selectedDate}
         person={prefs.person}
         myShift={myShift}
         isToday={selectedDate === todayDate}

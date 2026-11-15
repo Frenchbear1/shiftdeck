@@ -132,3 +132,22 @@ test("reads plain-text airport alerts and keeps only HTTPS source links", () => 
   assert.deepEqual(parseAbeAlerts(header), []);
   assert.throws(() => parseAbeAlerts("<html>Try again later</html>"));
 });
+
+test("shows ABE flights before 5 AM under the prior workday with their actual flight date", () => {
+  const fetchedAt = Date.parse("2026-11-15T06:05:00Z");
+  const flights = parseAbeBoard({
+    code: "ok",
+    arrivals: abeRow("177", "1:20 AM", "Myrtle Beach", "on-time", "On Time") +
+      abeRow("178", "5:00 AM", "St. Petersburg", "on-time", "On Time"),
+    departures: "",
+  }, fetchedAt);
+  const live = { flights, airportBoardUpdatedAt: new Date(fetchedAt).toISOString() };
+
+  const saturday = addAbeBoardFlights([], "2026-11-14", live);
+  const sunday = addAbeBoardFlights([], "2026-11-15", live);
+  assert.deepEqual(saturday.map((flight) => [flight.date, flight.start]), [["2026-11-15", "01:20"]]);
+  assert.deepEqual(sunday.map((flight) => [flight.date, flight.start]), [["2026-11-15", "05:00"]]);
+  assert.equal(matchLiveFlight(saturday[0], saturday[0].start, live)?.live.ident, "G4177");
+  const imported = { ...saturday[0], source: "schedule" };
+  assert.equal(addAbeBoardFlights([imported], "2026-11-14", live).length, 1);
+});

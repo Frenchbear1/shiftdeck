@@ -86,16 +86,6 @@ export const normalizedInterval = (start: string, end: string) => {
   return [startMinutes, endMinutes] as const;
 };
 
-export const shiftsOverlap = (first: Shift, second: Shift) => {
-  const [aStart, aEnd] = normalizedInterval(first.start, first.end);
-  let [bStart, bEnd] = normalizedInterval(second.start, second.end);
-  if (aStart > 720 && bStart < 360) {
-    bStart += 1440;
-    bEnd += 1440;
-  }
-  return aStart < bEnd && bStart < aEnd;
-};
-
 /** "21:30" → "9:30p", "21:00" → "9p". */
 export const compactTime = (time: string) => {
   if (!time) return "";
@@ -132,6 +122,36 @@ export const addDays = (key: string, amount: number) => {
 
 export const daysBetween = (from: string, to: string) =>
   Math.round((dateFor(to).getTime() - dateFor(from).getTime()) / 86_400_000);
+
+const WORKDAY_START_MINUTES = 5 * 60;
+
+export const workdayFor = (date: string, time: string) =>
+  time && toMinutes(time) < WORKDAY_START_MINUTES ? addDays(date, -1) : date;
+
+export const workdayAt = (now = new Date()) => {
+  const date = keyFor(now);
+  return now.getHours() * 60 + now.getMinutes() < WORKDAY_START_MINUTES
+    ? addDays(date, -1)
+    : date;
+};
+
+export const minutesOnDay = (date: string, time: string, day: string) =>
+  daysBetween(day, date) * 1440 + toMinutes(time);
+
+export const minutesOnDayForInstant = (now: Date, day: string) =>
+  daysBetween(day, keyFor(now)) * 1440 + now.getHours() * 60 + now.getMinutes();
+
+export const shiftBounds = ({ date, start, end }: Pick<Shift, "date" | "start" | "end">) => {
+  const from = new Date(`${date}T${start}:00`);
+  const endDate = toMinutes(end) <= toMinutes(start) ? addDays(date, 1) : date;
+  return [from, new Date(`${endDate}T${end}:00`)] as const;
+};
+
+const shiftIntervalOnDay = (shift: Shift, day: string) => {
+  const offset = daysBetween(day, shift.date) * 1440;
+  const [start, end] = normalizedInterval(shift.start, shift.end);
+  return [start + offset, end + offset] as const;
+};
 
 export const startOfWeek = (key: string) => addDays(key, -dateFor(key).getDay());
 
@@ -249,11 +269,14 @@ export const flightPlace = (flight: Flight) =>
     ? flight.outboundAirport ?? flight.destination ?? "TBD"
     : flight.inboundAirport ?? flight.origin;
 
-/** Minutes on the shift's clock, so a 12:30a arrival sorts after 11p on a night shift. */
-export const flightMinutesOnShift = (flight: Flight, shift?: Shift | null) => {
-  let time = toMinutes(flightTime(flight));
-  if (shift && toMinutes(shift.start) > 720 && time < 360) time += 1440;
-  return time;
+export const flightWorkday = (flight: Flight) => workdayFor(flight.date, flightTime(flight));
+
+export const flightLegDate = (flight: Flight, time: string) =>
+  toMinutes(time) < toMinutes(flightTime(flight)) ? addDays(flight.date, 1) : flight.date;
+
+export const flightClockChange = (from: string, to: string) => {
+  const change = toMinutes(to) - toMinutes(from);
+  return ((change + 2160) % 1440) - 720;
 };
 
 /** Arrivals that landed this long before your start still count as "My shift". */
@@ -263,21 +286,22 @@ export const isFlightInShift = (
   flight: Flight,
   shift?: Shift | null,
   arrivalLeadMinutes = 0,
+  scheduled = flight,
 ) => {
   if (!shift) return false;
-  const [start, end] = normalizedInterval(shift.start, shift.end);
-  const arrivals = [flight.arrival, flight.kind !== "departure" ? flight.start : undefined];
-  const others = [flight.departure, flight.end, flight.kind === "departure" ? flight.start : undefined];
-  const inWindow = (value: string | undefined, from: number) => {
-    if (!value) return false;
-    let time = toMinutes(value);
-    if (start > 720 && time < 360) time += 1440;
-    return time >= from && time <= end;
-  };
-  return (
-    arrivals.some((value) => inWindow(value, start - arrivalLeadMinutes)) ||
-    others.some((value) => inWindow(value, start))
-  );
+  const [start, end] = shiftIntervalOnDay(shift, scheduled.date);
+  const primary = flightTime(scheduled);
+  const minutes = toMinutes(primary) + flightClockChange(primary, flightTime(flight));
+  const inWindow = (time: number, from: number) => time >= from && time <= end;
+  if (flight.kind === "departure") return inWindow(minutes, start);
+  if (inWindow(minutes, start - arrivalLeadMinutes)) return true;
+
+  // A turnaround's outbound leg can leave on the next civil date.
+  const scheduledOut = scheduled.departure ?? scheduled.end;
+  const effectiveOut = flight.departure ?? flight.end;
+  if (!scheduledOut || !effectiveOut) return false;
+  const out = minutesOnDay(flightLegDate(scheduled, scheduledOut), scheduledOut, scheduled.date);
+  return inWindow(out + flightClockChange(scheduledOut, effectiveOut), start);
 };
 
 /** How long after the shift a delayed flight that was scheduled during it still counts. */
@@ -294,14 +318,11 @@ export const flightBelongsToShift = (
   shift: Shift | null | undefined,
   liveIso: string | null,
 ) => {
-  if (isFlightInShift(effective, shift, SHIFT_ARRIVAL_LEAD_MINUTES)) return true;
+  if (isFlightInShift(effective, shift, SHIFT_ARRIVAL_LEAD_MINUTES, scheduled)) return true;
   if (!shift || !isFlightInShift(scheduled, shift, SHIFT_ARRIVAL_LEAD_MINUTES)) return false;
   const liveTime = Date.parse(liveIso ?? "");
   if (!Number.isFinite(liveTime) || !shift.start || !shift.end) return true;
-  const end = new Date(`${shift.date}T00:00:00`);
-  const [hours, minutes] = shift.end.split(":").map(Number);
-  end.setHours(hours, minutes, 0, 0);
-  if (toMinutes(shift.end) <= toMinutes(shift.start)) end.setDate(end.getDate() + 1);
+  const [, end] = shiftBounds(shift);
   return liveTime - end.getTime() <= SHIFT_DELAY_GRACE_MINUTES * 60_000;
 };
 
@@ -340,24 +361,17 @@ export function buildCrewTimeline(
   const working = dayShifts.filter(
     (shift) => shift.status === "working" && shift.start && shift.end,
   );
-  const visible = myShift
-    ? working.filter(
-        (shift) => shift.worker === person || shiftsOverlap(myShift, shift),
-      )
-    : working.filter((shift) => shift.worker !== person);
+  if (!working.length) return null;
+  const anchor = myShift ?? working[0];
+  const day = workdayFor(anchor.date, anchor.start);
+  const intervalOf = (shift: Shift) => shiftIntervalOnDay(shift, day);
+  const [mineStart, mineEnd] = myShift ? intervalOf(myShift) : [0, 0];
+  const visible = working.filter((shift) => {
+    if (!myShift) return shift.worker !== person;
+    const [start, end] = intervalOf(shift);
+    return shift.worker === person || (mineStart < end && start < mineEnd);
+  });
   if (!visible.length) return null;
-
-  const eveningAnchor = myShift
-    ? toMinutes(myShift.start) > 720
-    : visible.some((shift) => toMinutes(shift.start) > 720);
-  const intervalOf = (shift: Shift) => {
-    let [start, end] = normalizedInterval(shift.start, shift.end);
-    if (eveningAnchor && start < 240) {
-      start += 1440;
-      end += 1440;
-    }
-    return [start, end] as const;
-  };
 
   const intervals = visible.map(intervalOf);
   let axisStart: number;
@@ -378,7 +392,6 @@ export function buildCrewTimeline(
     width: ((end - start) / span) * 100,
   });
 
-  const [mineStart, mineEnd] = myShift ? intervalOf(myShift) : [0, 0];
   const groups = new Map<string, CrewRow>();
   visible.forEach((shift) => {
     const [start, end] = intervalOf(shift);
@@ -478,7 +491,7 @@ export function analyzeSwap({
     shifts.find(
       (shift) =>
         shift.worker === person &&
-        shift.date === offDate &&
+        workdayFor(shift.date, shift.start) === offDate &&
         shift.status === "working",
     ) ?? null;
   if (!myShift) return { myShift: null, matches: [], coverOnly: [] };
@@ -497,7 +510,7 @@ export function analyzeSwap({
           shift.worker === person &&
           (shift.status === "working" || shift.status === "pto"),
       )
-      .map((shift) => shift.date),
+      .map((shift) => workdayFor(shift.date, shift.start)),
   );
   const swapDates = (swapDate ? [swapDate] : candidateDates).filter(
     (date) => date !== offDate && !myBusyDates.has(date),
@@ -507,7 +520,7 @@ export function analyzeSwap({
   const coverOnly: SwapMatch[] = [];
 
   byWorker.forEach((workerShifts, worker) => {
-    const onOffDate = workerShifts.filter((shift) => shift.date === offDate);
+    const onOffDate = workerShifts.filter((shift) => workdayFor(shift.date, shift.start) === offDate);
     if (
       onOffDate.some(
         (shift) => shift.status === "working" || shift.status === "pto",
@@ -536,7 +549,7 @@ export function analyzeSwap({
 
     const swapDays = swapDates
       .flatMap<SwapDay>((date) => {
-        const theirs = history.find((shift) => shift.date === date);
+        const theirs = history.find((shift) => workdayFor(shift.date, shift.start) === date);
         if (!theirs) return [];
         const [start, end] = normalizedInterval(theirs.start, theirs.end);
         const tradeScore = closeness(myStart, myEnd, start, end);

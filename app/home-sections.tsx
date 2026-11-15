@@ -29,16 +29,20 @@ import {
   compactTime,
   durationLabel,
   flightBelongsToShift,
-  flightMinutesOnShift,
+  flightClockChange,
+  flightLegDate,
   flightPlace,
   flightTag,
   flightTime,
+  minutesOnDay,
+  minutesOnDayForInstant,
   minutesToClock,
   offsetContaining,
   SCHEDULE_RANGES,
   ScheduleRange,
   scheduleWindow,
-  toMinutes,
+  shiftBounds,
+  workdayFor,
 } from "./schedule-tools";
 
 /* ---------- popups ---------- */
@@ -157,19 +161,6 @@ export function EmptyState({
   );
 }
 
-const localDateTime = (date: string, time: string) => {
-  const [year, month, day] = date.split("-").map(Number);
-  const [hours, minutes] = time.split(":").map(Number);
-  return new Date(year, month - 1, day, hours, minutes, 0, 0);
-};
-
-const shiftBounds = (date: string, start: string, end: string) => {
-  const from = localDateTime(date, start);
-  const to = localDateTime(date, end);
-  if (to <= from) to.setDate(to.getDate() + 1);
-  return [from, to] as const;
-};
-
 const spanLabel = (ms: number) => {
   const total = Math.max(1, Math.round(ms / 60_000));
   const days = Math.floor(total / 1440);
@@ -194,6 +185,7 @@ export function TodayHero({
   now,
   title,
   shift,
+  otherShifts,
   loaded,
   isPto,
   onEdit,
@@ -204,10 +196,11 @@ export function TodayHero({
   isToday: boolean;
   now: Date;
   title: string;
-  shift: { start: string; end: string } | null;
+  shift: Shift | null;
+  otherShifts: Shift[];
   loaded: boolean;
   isPto: boolean;
-  onEdit: () => void;
+  onEdit: (id: string) => void;
   onAdd: () => void;
   onToday: () => void;
 }) {
@@ -215,7 +208,7 @@ export function TodayHero({
   let status: { tone: string; text: string } | null = null;
   let progress = 0;
   if (shift) {
-    const [from, to] = shiftBounds(date, shift.start, shift.end);
+    const [from, to] = shiftBounds(shift);
     if (now < from) {
       status = { tone: "upcoming", text: `Starts in ${spanLabel(from.getTime() - now.getTime())}` };
     } else if (now < to) {
@@ -223,7 +216,7 @@ export function TodayHero({
       status = { tone: "live", text: `On shift · ${spanLabel(to.getTime() - now.getTime())} left` };
     } else {
       progress = 1;
-      status = { tone: "done", text: isToday ? "Done for today" : "Worked" };
+      status = { tone: "done", text: isToday && !otherShifts.length ? "Done for today" : "Worked" };
     }
   }
 
@@ -238,7 +231,7 @@ export function TodayHero({
             </button>
           )}
           {shift ? (
-            <button type="button" className="hero-icon" onClick={onEdit} aria-label="Edit this shift">
+            <button type="button" className="hero-icon" onClick={() => onEdit(shift.id)} aria-label="Edit this shift">
               <Pencil />
             </button>
           ) : (
@@ -288,6 +281,21 @@ export function TodayHero({
         )}
       </div>
 
+      {otherShifts.length > 0 && (
+        <div className="chip-rail" aria-label="Other shifts this workday">
+          {otherShifts.map((other) => (
+            <button
+              type="button"
+              key={other.id}
+              className="hero-chip"
+              onClick={() => onEdit(other.id)}
+              aria-label={`Edit shift from ${formatTime(other.start)} to ${formatTime(other.end)}`}
+            >
+              {formatTime(other.start)}–{formatTime(other.end)} <Pencil />
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -569,7 +577,7 @@ export const flightRadar24AirportUrl = (
 
 export function FlightList({
   flights,
-  shift,
+  shifts,
   date,
   isToday,
   now,
@@ -581,7 +589,7 @@ export function FlightList({
   refreshing = false,
 }: {
   flights: Flight[];
-  shift: Shift | null | undefined;
+  shifts: Shift[];
   date: string;
   isToday: boolean;
   now: Date;
@@ -619,7 +627,7 @@ export function FlightList({
       }
       if (flight.kind === "turnaround" && flight.departure) {
         departureMatch = matchLiveFlight(
-          { ...flight, kind: "departure" },
+          { ...flight, date: flightLegDate(flight, flight.departure), kind: "departure" },
           flight.departure,
           live,
         );
@@ -633,23 +641,25 @@ export function FlightList({
     return result;
   }, [boardFlights, live]);
   const effectiveOf = (flight: Flight) => liveById.get(flight.id)?.effective ?? flight;
-  const sorted = [...boardFlights].sort(
-    (a, b) =>
-      flightMinutesOnShift(effectiveOf(a), shift) - flightMinutesOnShift(effectiveOf(b), shift),
-  );
+  const minutesFor = (flight: Flight) => {
+    const scheduled = flightTime(flight);
+    return minutesOnDay(flight.date, scheduled, date) +
+      flightClockChange(scheduled, flightTime(effectiveOf(flight)));
+  };
+  const sorted = [...boardFlights].sort((a, b) => minutesFor(a) - minutesFor(b));
   const belongsToShift = (flight: Flight) => {
     const live = liveById.get(flight.id)?.match?.live;
-    return flightBelongsToShift(
+    return shifts.some((shift) => flightBelongsToShift(
       flight,
       effectiveOf(flight),
       shift,
       live?.estimated ?? live?.scheduled ?? null,
-    );
+    ));
   };
   const inShift = sorted.filter(belongsToShift);
-  const canFilter = Boolean(shift) && inShift.length < sorted.length;
-  const visible = shift && !showAll ? inShift : sorted;
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const canFilter = shifts.length > 0 && inShift.length < sorted.length;
+  const visible = shifts.length && !showAll ? inShift : sorted;
+  const nowMinutes = minutesOnDayForInstant(now, date);
   const appName = FLIGHT_APP_NAMES[app];
   const [confirmEmergency, setConfirmEmergency] = useState(false);
   // Safe to read on first render: the toggle and details only appear once
@@ -863,9 +873,7 @@ export function FlightList({
             const match = liveById.get(flight.id)?.match ?? null;
             const out = liveById.get(flight.id)?.departureMatch ?? null;
             const time = match?.time ?? scheduledTime;
-            let shift24 = toMinutes(time) - toMinutes(scheduledTime);
-            if (shift24 > 720) shift24 -= 1440;
-            if (shift24 < -720) shift24 += 1440;
+            const shift24 = flightClockChange(scheduledTime, time);
             const changed = Boolean(match) && Math.abs(shift24) >= 3;
             const timeTone = match?.live.cancelled
               ? "cancelled"
@@ -876,9 +884,7 @@ export function FlightList({
                   : shift24 > 0
                     ? "behind"
                     : "early";
-            let minutes = toMinutes(time);
-            if (shift && toMinutes(shift.start) > 720 && minutes < 360) minutes += 1440;
-            const past = isToday && minutes + 20 < nowMinutes;
+            const past = isToday && minutesFor(flight) + 20 < nowMinutes;
             return (
               <li
                 key={flight.id}
@@ -1089,12 +1095,14 @@ function FlightDetails({
 
 export function CrewPanel({
   shifts,
+  date,
   person,
   myShift,
   isToday,
   now,
 }: {
   shifts: Shift[];
+  date: string;
   person: string;
   myShift: Shift | null | undefined;
   isToday: boolean;
@@ -1112,8 +1120,7 @@ export function CrewPanel({
 
   let nowLeft: number | null = null;
   if (timeline && isToday) {
-    let minutes = now.getHours() * 60 + now.getMinutes();
-    if (timeline.axisStart > 720 && minutes < timeline.axisStart - 720) minutes += 1440;
+    const minutes = minutesOnDayForInstant(now, date);
     const span = timeline.axisEnd - timeline.axisStart;
     const left = ((minutes - timeline.axisStart) / span) * 100;
     if (left >= 0 && left <= 100) nowLeft = left;
@@ -1197,7 +1204,9 @@ export function SwapSheet({
   const myDays = useMemo(() => {
     const map = new Map<string, Shift>();
     shifts.forEach((shift) => {
-      if (shift.worker === person) map.set(shift.date, shift);
+      if (shift.worker !== person) return;
+      const date = workdayFor(shift.date, shift.start);
+      if (map.get(date)?.status !== "working") map.set(date, shift);
     });
     return map;
   }, [person, shifts]);

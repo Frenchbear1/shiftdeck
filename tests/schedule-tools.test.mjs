@@ -6,6 +6,10 @@ import {
   compactTime,
   flightTag,
   flightBelongsToShift,
+  flightWorkday,
+  shiftBounds,
+  workdayAt,
+  workdayFor,
   isFlightInShift,
   offsetContaining,
   scheduleWindow,
@@ -205,7 +209,7 @@ test("My shift includes arrivals that landed up to 45 minutes before the start",
   // Night shift that crosses midnight.
   const night = shift("Kenneth Swain", "2026-11-13", "21:00", "01:00");
   assert.equal(isFlightInShift(arrival("20:30"), night, 45), true);
-  assert.equal(isFlightInShift(arrival("00:40"), night, 45), true);
+  assert.equal(isFlightInShift({ ...arrival("00:40"), date: "2026-11-14" }, night, 45), true);
 });
 
 test("My shift keeps flights scheduled in it until they're 6+ hours late", () => {
@@ -252,4 +256,29 @@ test("fullscreen schedule photo zoom follows the pinch midpoint and recenters at
   const dragged = constrainPhoto({ scale: 4, x: -750, y: 300 }, frame);
   assert.deepEqual(dragged, { scale: 4, x: -600, y: 200 });
   assert.deepEqual(zoomPhoto(zoomed, endPoint, endPoint, 0.5, frame), { scale: 1, x: 0, y: 0 });
+});
+
+test("the workday rolls over at 5 AM while shifts keep their calendar start", () => {
+  const saturday = "2026-11-14";
+  const sunday = "2026-11-15";
+  const late = shift("Me", sunday, "00:30", "03:30");
+  assert.equal(workdayFor(late.date, late.start), saturday);
+  assert.equal(workdayFor(sunday, "04:59"), saturday);
+  assert.equal(workdayFor(sunday, "05:00"), sunday);
+  assert.equal(workdayAt(new Date(2026, 10, 15, 4, 59)), saturday);
+  assert.equal(workdayAt(new Date(2026, 10, 15, 5)), sunday);
+  assert.equal(shiftBounds(late)[0].getDate(), 15);
+
+  const arriving = { date: sunday, kind: "arrival", start: "01:00" };
+  assert.equal(flightWorkday(arriving), saturday);
+  assert.equal(isFlightInShift(arriving, late), true);
+  assert.equal(isFlightInShift({ ...arriving, date: saturday }, late), false);
+
+  const timeline = buildCrewTimeline([
+    late,
+    shift("Ana", saturday, "20:00", "01:00"),
+    shift("Ben", sunday, "01:00", "04:30"),
+    shift("Cal", saturday, "06:00", "13:00"),
+  ], "Me", late);
+  assert.deepEqual(timeline.rows.flatMap((row) => row.workers).sort(), ["Ana", "Ben", "Me"]);
 });
