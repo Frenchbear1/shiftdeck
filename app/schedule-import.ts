@@ -84,6 +84,7 @@ async function enhanceScheduleImage(file: Blob): Promise<Blob> {
 }
 
 export type ReadCallbacks = {
+  matchesSourceRow: (name: string) => boolean;
   /** 0–1 for this file only; callers keep it monotonic. */
   onFraction: (fraction: number) => void;
   /** Called once the engine is ready and real reading starts. */
@@ -100,7 +101,7 @@ export type ReadCallbacks = {
  */
 export async function readScheduleImage(
   file: File,
-  { onFraction, onReading, onDoubleCheck }: ReadCallbacks,
+  { matchesSourceRow, onFraction, onReading, onDoubleCheck }: ReadCallbacks,
 ): Promise<(ParsedSchedule & { reviewImage?: Blob }) | null> {
   const { PSM } = await import("tesseract.js");
   let fraction = 0;
@@ -126,7 +127,7 @@ export async function readScheduleImage(
     { image: enhanced, mode: PSM.SPARSE_TEXT },
     { image: file, mode: PSM.SPARSE_TEXT },
   ];
-  const fallback = { image: enhanced, mode: PSM.AUTO };
+  let fallback = { image: enhanced, mode: PSM.AUTO };
   const readable: ParsedSchedule[] = [];
   const sources: Array<{
     schedule: ParsedSchedule;
@@ -138,7 +139,7 @@ export async function readScheduleImage(
 
   for (let index = 0; index < planned; index += 1) {
     const pass = index < passes.length ? passes[index] : fallback;
-    const original = index === 1;
+    const original = pass.image === file;
     if (index === passes.length) onDoubleCheck();
     const from = fraction;
     const to = from + (0.98 - from) / (planned - index);
@@ -185,12 +186,14 @@ export async function readScheduleImage(
     }
     report(to);
 
-    if (
-      index === passes.length - 1 &&
-      planned === passes.length &&
-      !isStrongScheduleRead(mergeScheduleParses(readable))
-    ) {
-      planned += 1;
+    if (index === passes.length - 1) {
+      const merged = mergeScheduleParses(readable);
+      const hasSelectedRow = sources.some((candidate) =>
+        candidate.schedule.dates.join() === merged?.dates.join() &&
+        candidate.layout.rows.some((row) => matchesSourceRow(row.name)),
+      );
+      if (!hasSelectedRow) fallback = { image: file, mode: PSM.AUTO };
+      if (!hasSelectedRow || !isStrongScheduleRead(merged)) planned += 1;
     }
   }
 
@@ -202,8 +205,10 @@ export async function readScheduleImage(
     .filter((candidate) => candidate.schedule.dates.join() === schedule.dates.join())
     .map((candidate) => ({
       ...candidate,
+      includesSelectedRow: candidate.layout.rows.some((row) => matchesSourceRow(row.name)),
       matched: new Set(candidate.layout.rows.filter((row) => workers.has(row.name)).map((row) => row.name)).size,
     }))
-    .sort((a, b) => b.matched - a.matched || Number(b.original) - Number(a.original))[0];
+    .sort((a, b) => Number(b.includesSelectedRow) - Number(a.includesSelectedRow) ||
+      b.matched - a.matched || Number(b.original) - Number(a.original))[0];
   return { ...schedule, sourceLayout: source?.layout, reviewImage: source?.image };
 }

@@ -54,6 +54,7 @@ import {
   mergePairKey,
   NameMerges,
   nameKey,
+  resolveMergedName,
   ScheduleRange,
   toMinutes,
 } from "./schedule-tools";
@@ -77,6 +78,7 @@ import {
 } from "./home-sections";
 import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
+import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { useLiveFlights } from "./live-flights";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
@@ -195,10 +197,11 @@ type ScheduleDocument = {
   revision: number;
   parserVersion?: number;
   mimeType?: string;
+  review?: { sourceLayout?: ScheduleSourceLayout; deskewed: boolean };
 };
 
 type ImportComparison = Pick<ScheduleDocument, "hash" | "name" | "dates" | "shifts"> & {
-  image: Blob;
+  image?: Blob;
   sourceLayout?: ScheduleSourceLayout;
 };
 
@@ -631,7 +634,13 @@ export default function HomePage() {
   const [scheduleDocuments, setScheduleDocuments] = useState<ScheduleDocument[]>([]);
   const [importComparisons, setImportComparisons] = useState<ImportComparison[]>([]);
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
-  const [documentPreviews, setDocumentPreviews] = useState<Record<string, string>>({});
+  const [savedReview, setSavedReview] = useState<{
+    id: string;
+    hash: string;
+    image?: Blob;
+    loading: boolean;
+  } | null>(null);
+  const [viewedDocument, setViewedDocument] = useState<ScheduleDocument | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [homeOrder, setHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
   const [draftHomeOrder, setDraftHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
@@ -677,6 +686,7 @@ export default function HomePage() {
   const [shiftEditor, setShiftEditor] = useState<{
     mode: "add" | "edit";
     eventId?: string;
+    imported?: { hash: string; shift: Shift };
   } | null>(null);
   const [shiftDraft, setShiftDraft] = useState<ShiftDraft>({
     date: "2026-07-26",
@@ -1456,6 +1466,8 @@ export default function HomePage() {
   const closeSheet = () => {
     if (sheet === "import") {
       setImportComparisons([]);
+      setExpandedDocument(null);
+      setSavedReview(null);
       if (importState !== "reading") void releaseScheduleReader();
     }
     setSheet(null);
@@ -1597,6 +1609,27 @@ export default function HomePage() {
     setShiftEditor({ mode: "edit", eventId: myEvent.id });
   };
 
+  const openImportedShift = (photo: ImportComparison, shift: Shift) => {
+    const original = photo.shifts.find((candidate) => candidate.id === shift.id) ??
+      photo.shifts.find((candidate) =>
+        candidate.status === "working" && candidate.date === shift.date &&
+        candidate.start === shift.start && candidate.end === shift.end &&
+        nameKey(resolveMergedName(candidate.worker, nameMerges)) === nameKey(shift.worker),
+      );
+    if (!original) return;
+
+    const event = events.find((candidate) => candidate.id === original.id) ??
+      events.find((candidate) => candidate.date === shift.date &&
+        candidate.start === shift.start && candidate.end === shift.end);
+    setShiftDraft({
+      date: shift.date,
+      start: shift.start,
+      end: shift.end,
+      title: event?.customTitle ? event.title : DEFAULT_SHIFT_TITLE,
+    });
+    setShiftEditor({ mode: "edit", eventId: event?.id, imported: { hash: photo.hash, shift: original } });
+  };
+
   const hashFile = async (file: File) => {
     const bytes = await file.arrayBuffer();
     const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -1680,6 +1713,7 @@ export default function HomePage() {
     setDuplicateNotice("");
     setLoadedFiles(files.map((file) => file.name));
     setImportComparisons([]);
+    setSavedReview(null);
     const progress = createImportProgress(files.length, setImportSnapshot);
     setImportSnapshot(progress.snapshot());
 
@@ -1711,6 +1745,10 @@ export default function HomePage() {
             isPdf
               ? (progress.stage(1), parseCharterPdf(file))
               : readScheduleImage(file, {
+                  matchesSourceRow: (name) => nameKey(resolveMergedName(
+                    resolveSchedulePersonName(name, knownNames),
+                    nameMerges,
+                  )) === nameKey(prefs.person),
                   onFraction: (fraction) => progress.file(index, fraction),
                   onReading: () => progress.stage(1),
                   onDoubleCheck: () => progress.stage(2),
@@ -1756,6 +1794,9 @@ export default function HomePage() {
             replacementIndex >= 0 ? nextDocuments[replacementIndex] : null;
           const now = new Date().toISOString();
           const documentId = replacement?.id ?? `schedule-${hash.slice(0, 20)}`;
+          const reviewImage = read && "reviewImage" in read && read.reviewImage instanceof Blob
+            ? read.reviewImage
+            : undefined;
           const nextDocument: ScheduleDocument = {
             id: documentId,
             hash,
@@ -1768,24 +1809,15 @@ export default function HomePage() {
             revision: (replacement?.revision ?? 0) + 1,
             parserVersion: SCHEDULE_PARSER_VERSION,
             mimeType: isPdf ? "application/pdf" : file.type,
+            review: isPdf ? undefined : { sourceLayout, deskewed: Boolean(reviewImage) },
           };
           if (replacement) {
             nextDocuments[replacementIndex] = nextDocument;
             updatedDocuments += 1;
-            const preview = documentPreviews[documentId];
-            if (preview) URL.revokeObjectURL(preview);
-            setDocumentPreviews((current) => {
-              const next = { ...current };
-              delete next[documentId];
-              return next;
-            });
             if (expandedDocument === documentId) setExpandedDocument(null);
           } else {
             nextDocuments.push(nextDocument);
           }
-          const reviewImage = read && "reviewImage" in read && read.reviewImage instanceof Blob
-            ? read.reviewImage
-            : undefined;
           if (!isPdf) {
             comparisons.push({
               hash,
@@ -1796,7 +1828,7 @@ export default function HomePage() {
               sourceLayout,
             });
           }
-          await saveScheduleImage(documentId, file).catch(() => undefined);
+          await saveScheduleImage(documentId, file, reviewImage).catch(() => undefined);
         } catch {
           skippedFiles.push(file.name);
         }
@@ -1867,22 +1899,14 @@ export default function HomePage() {
     event.target.value = "";
   };
 
-  const toggleScheduleDocument = async (document: ScheduleDocument) => {
-    if (expandedDocument === document.id) {
-      setExpandedDocument(null);
-      return;
-    }
-    setExpandedDocument(document.id);
-    if (documentPreviews[document.id]) return;
-    const image = await loadScheduleImage(document.id).catch(() => undefined);
-    if (!image) {
-      setToast("The saved preview isn’t available on this device");
-      return;
-    }
-    setDocumentPreviews((current) => ({
-      ...current,
-      [document.id]: URL.createObjectURL(image),
-    }));
+  const reviewSavedImport = async (document: ScheduleDocument) => {
+    if (!document.review) return;
+    const request = { id: document.id, hash: document.hash, loading: true };
+    setSavedReview(request);
+    const image = document.review.sourceLayout
+      ? await loadScheduleImage(document.id, document.review.deskewed).catch(() => undefined)
+      : undefined;
+    setSavedReview((current) => current === request ? { ...request, image, loading: false } : current);
   };
 
   const removeScheduleDocument = async (document: ScheduleDocument) => {
@@ -1911,14 +1935,11 @@ export default function HomePage() {
     if (removedDates.has(selectedDate)) {
       setSelectedDate(nextDates[0] ?? localDateKey());
     }
-    const preview = documentPreviews[document.id];
-    if (preview) URL.revokeObjectURL(preview);
-    setDocumentPreviews((current) => {
-      const next = { ...current };
-      delete next[document.id];
-      return next;
-    });
-    if (expandedDocument === document.id) setExpandedDocument(null);
+    if (expandedDocument === document.id) {
+      setExpandedDocument(null);
+      setSavedReview(null);
+    }
+    setImportComparisons((current) => current.filter((photo) => photo.hash !== document.hash));
     await deleteScheduleImage(document.id).catch(() => undefined);
     localStorage.setItem(
       "shiftdeck.importHashes",
@@ -1941,25 +1962,52 @@ export default function HomePage() {
     const editing = shiftEditor?.eventId
       ? events.find((event) => event.id === shiftEditor.eventId)
       : undefined;
+    const imported = shiftEditor?.imported;
     const existingOnDate = events.find(
       (event) =>
         event.date === shiftDraft.date && event.id !== shiftEditor?.eventId,
     );
+    if (imported && existingOnDate && (!editing || imported.shift.date !== shiftDraft.date)) {
+      setToast("You already have a shift on that date");
+      return;
+    }
+    const correctedShift = imported ? {
+      ...imported.shift,
+      date: shiftDraft.date,
+      start: shiftDraft.start,
+      end: shiftDraft.end,
+      id: `${shiftDraft.date}-${imported.shift.worker}-${shiftDraft.start}`,
+    } : undefined;
     const nextEvent: CalendarEvent = {
-      id: editing?.id ?? existingOnDate?.id ?? `manual-${Date.now()}`,
+      id: correctedShift?.id ?? editing?.id ?? existingOnDate?.id ?? `manual-${Date.now()}`,
       calendarKey: calendarKeyFor(prefs.person, shiftDraft.date),
       date: shiftDraft.date,
       start: shiftDraft.start,
       end: shiftDraft.end,
       title: shiftDraft.title.trim(),
-      customTitle: true,
+      customTitle: !imported || Boolean(editing?.customTitle) || shiftDraft.title.trim() !== DEFAULT_SHIFT_TITLE,
     };
+
+    if (imported && correctedShift) {
+      const replaceShift = (shifts: Shift[]) =>
+        shifts.map((shift) => shift.id === imported.shift.id ? correctedShift : shift);
+      setImportComparisons((current) => current.map((photo) =>
+        photo.hash === imported.hash ? { ...photo, shifts: replaceShift(photo.shifts) } : photo,
+      ));
+      setScheduleDocuments((current) => current.map((document) =>
+        document.hash === imported.hash ? { ...document, shifts: replaceShift(document.shifts) } : document,
+      ));
+      setParsedShifts((current) => [
+        ...current.filter((shift) => shift.id !== imported.shift.id && shift.id !== editing?.id),
+        correctedShift,
+      ]);
+    }
 
     setEvents((current) =>
       [
         ...current.filter(
           (event) =>
-            event.id !== editing?.id && event.id !== existingOnDate?.id,
+            event.id !== editing?.id && (imported || event.id !== existingOnDate?.id),
         ),
         nextEvent,
       ].sort((first, second) =>
@@ -1973,7 +2021,7 @@ export default function HomePage() {
     );
     setSelectedDate(shiftDraft.date);
     setShiftEditor(null);
-    setToast(editing || existingOnDate ? "Shift updated" : "Shift added");
+    setToast(imported || editing || existingOnDate ? "Shift updated" : "Shift added");
   };
 
   const deleteShift = () => {
@@ -2001,8 +2049,8 @@ export default function HomePage() {
       current.filter((event) => !removedDates.has(event.date)),
     );
     if (removedDates.has(selectedDate)) setSelectedDate(localDateKey());
-    Object.values(documentPreviews).forEach((url) => URL.revokeObjectURL(url));
-    setDocumentPreviews({});
+    setImportComparisons([]);
+    setSavedReview(null);
     setExpandedDocument(null);
     void clearScheduleImages().catch(() => undefined);
     localStorage.setItem("shiftdeck.importHashes", "[]");
@@ -2227,8 +2275,25 @@ export default function HomePage() {
     }
   };
 
+  const renderComparison = (photo: ImportComparison) => (
+    <ScheduleComparison
+      image={photo.image}
+      dates={photo.dates}
+      shifts={photo.shifts}
+      sourceLayout={photo.sourceLayout}
+      person={prefs.person}
+      nameMerges={nameMerges}
+      onEdit={(shift) => openImportedShift(photo, shift)}
+    />
+  );
+
   const renderImportSheet = () => (
-    <div className="modal-layer" role="presentation" {...backdropClose(closeSheet)}>
+    <div
+      className="modal-layer"
+      role="presentation"
+      inert={Boolean(shiftEditor?.imported)}
+      {...backdropClose(closeSheet)}
+    >
     <section
       className="panel-sheet import-sheet"
       role="dialog"
@@ -2345,14 +2410,7 @@ export default function HomePage() {
                 <strong>{formatDocumentRange(photo.dates)}</strong>
                 <span>{photo.name}</span>
               </div>
-              <ScheduleComparison
-                image={photo.image}
-                dates={photo.dates}
-                shifts={photo.shifts}
-                sourceLayout={photo.sourceLayout}
-                person={prefs.person}
-                nameMerges={nameMerges}
-              />
+              {renderComparison(photo)}
             </article>
           ))}
         </section>
@@ -2375,7 +2433,10 @@ export default function HomePage() {
                   <div className="upload-document-row">
                     <button
                       className="upload-document-main"
-                      onClick={() => void toggleScheduleDocument(document)}
+                      onClick={() => {
+                        setExpandedDocument(isExpanded ? null : document.id);
+                        setSavedReview(null);
+                      }}
                       aria-expanded={isExpanded}
                     >
                       <span className="upload-document-icon">
@@ -2405,23 +2466,34 @@ export default function HomePage() {
                     </button>
                   </div>
                   {isExpanded && (
-                    <div className="upload-document-preview">
-                      {documentPreviews[document.id] ? (
-                        document.mimeType === "application/pdf" ? (
-                          <iframe
-                            src={documentPreviews[document.id]}
-                            title={`Uploaded schedule ${document.name}`}
-                          />
-                        ) : (
-                          <img
-                            src={documentPreviews[document.id]}
-                            alt={`Uploaded schedule ${document.name}`}
-                          />
-                        )
-                      ) : (
-                        <span>Loading file…</span>
-                      )}
+                    <div className="upload-document-options">
+                      <button
+                        type="button"
+                        className="button soft"
+                        disabled={!document.review || importState === "reading"}
+                        title={document.review ? undefined : "Available for new schedule photo imports"}
+                        onClick={() => void reviewSavedImport(document)}
+                      >
+                        Edit imported results
+                      </button>
+                      <button
+                        type="button"
+                        className="button soft"
+                        disabled={importState === "reading"}
+                        onClick={() => setViewedDocument(document)}
+                      >
+                        View schedule
+                      </button>
                     </div>
+                  )}
+                  {isExpanded && savedReview?.id === document.id && savedReview.hash === document.hash && (
+                    savedReview.loading ? (
+                      <p className="schedule-comparison schedule-source-note" role="status">Loading imported results…</p>
+                    ) : renderComparison({
+                      ...document,
+                      sourceLayout: document.review?.sourceLayout,
+                      image: savedReview.image,
+                    })
                   )}
                 </article>
               );
@@ -2660,6 +2732,14 @@ export default function HomePage() {
       </dialog>
 
       {sheet === "import" && renderImportSheet()}
+      {viewedDocument && (
+        <ScheduleFileViewer
+          id={viewedDocument.id}
+          name={viewedDocument.name}
+          pdf={viewedDocument.mimeType === "application/pdf" || /\.pdf$/i.test(viewedDocument.name)}
+          onClose={() => setViewedDocument(null)}
+        />
+      )}
       {sheet === "swap" && (
         <SwapSheet
           shifts={swapShifts}
@@ -2678,7 +2758,7 @@ export default function HomePage() {
           setDraft={setShiftDraft}
           onClose={() => setShiftEditor(null)}
           onSave={saveShift}
-          onDelete={deleteShift}
+          onDelete={shiftEditor.imported ? undefined : deleteShift}
         />
       )}
 

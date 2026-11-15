@@ -10,12 +10,13 @@ import {
 import { applyNameMerges, nameKey, resolveMergedName, type NameMerges } from "./schedule-tools";
 
 type Props = {
-  image: Blob;
+  image?: Blob;
   dates: string[];
   shifts: Shift[];
   sourceLayout?: ScheduleSourceLayout;
   person: string;
   nameMerges: NameMerges;
+  onEdit: (shift: Shift) => void;
 };
 
 function getSourceView(layout: ScheduleSourceLayout, person: string, merges: NameMerges) {
@@ -69,7 +70,7 @@ function drawSourceRows(canvas: HTMLCanvasElement, image: HTMLImageElement, view
 }
 
 export function ScheduleComparison({
-  image, dates, shifts, sourceLayout, person, nameMerges,
+  image, dates, shifts, sourceLayout, person, nameMerges, onEdit,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [displayedSource, setDisplayedSource] = useState<SourceView | null>(null);
@@ -92,7 +93,7 @@ export function ScheduleComparison({
   }, [nameMerges, selectedName, shifts]);
 
   useEffect(() => {
-    if (!source) return;
+    if (!source || !image) return;
     let cancelled = false;
     let url: string | undefined;
     const load = async () => {
@@ -121,10 +122,10 @@ export function ScheduleComparison({
   const aligned = displayed && days.every(([date]) => dates.includes(date)) ? displayed : null;
   return (
     <div className="schedule-comparison">
-      {source && !displayed && failedSource !== source && (
+      {source && image && !displayed && failedSource !== source && (
         <p className="schedule-source-note" role="status">Loading the source rows…</p>
       )}
-      {source && failedSource === source && (
+      {source && (!image || failedSource === source) && (
         <p className="schedule-source-note">The source crop couldn’t be displayed.</p>
       )}
       {sourceLayout && !source && (
@@ -163,9 +164,11 @@ export function ScheduleComparison({
                       marginInlineStart: column - columnWidth / 2 + 4,
                     }}
                   >
-                    <time dateTime={date}>{formatDate(date)}</time>
                     {shiftsForDay.map((shift) => (
-                      <strong key={shift.id}>{formatTime(shift.start)} – {formatTime(shift.end)}</strong>
+                      <button type="button" key={shift.id} onClick={() => onEdit(shift)}>
+                        <time dateTime={date}>{formatDate(date)}</time>
+                        <strong>{formatTime(shift.start)} – {formatTime(shift.end)}</strong>
+                      </button>
                     ))}
                   </li>
                 );

@@ -284,7 +284,7 @@ export function ShiftEditorSheet({
   setDraft: Dispatch<SetStateAction<ShiftEditorDraft>>;
   onClose: () => void;
   onSave: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
 }) {
   const [open, setOpen] = useState<Field | null>(mode === "add" ? "start" : null);
   const update = (patch: Partial<ShiftEditorDraft>) =>
@@ -370,7 +370,7 @@ export function ShiftEditorSheet({
         </p>
 
         <div className="shift-actions">
-          {mode === "edit" && (
+          {mode === "edit" && onDelete && (
             <button type="button" className="button danger subtle" onClick={onDelete}><Trash2 /> Delete</button>
           )}
           <button type="button" className="button primary" onClick={onSave}>

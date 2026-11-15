@@ -518,30 +518,6 @@ select:focus-visible {
   background: var(--red-soft);
 }
 
-.upload-document-preview {
-  min-height: 120px;
-  display: grid;
-  place-items: center;
-  padding: 0 13px 13px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.upload-document-preview img,
-.upload-document-preview iframe {
-  width: 100%;
-  max-height: 420px;
-  display: block;
-  object-fit: contain;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 11px;
-}
-
-.upload-document-preview iframe {
-  height: 420px;
-}
-
 .notice {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -5487,4 +5463,107 @@ select:focus-visible {
 
 .schedule-source-note {
   margin: 0;
+}
+
+.schedule-shift-cards button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-height: 36px;
+  padding: 2px 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.schedule-shift-cards button:hover {
+  background: var(--blue-soft);
+}
+
+.upload-document-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.schedule-file-viewer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.schedule-file-viewer[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.schedule-file-viewer header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.schedule-file-viewer header strong {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.schedule-file-viewer header button {
+  display: grid;
+  place-items: center;
+  min-width: 40px;
+  min-height: 42px;
+  cursor: pointer;
+}
+
+.schedule-file-viewer header button:disabled {
+  opacity: .35;
+}
+
+.schedule-zoom-controls {
+  display: flex;
+  align-items: center;
+  background: var(--surface-2);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.schedule-file-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  container-type: size;
+}
+
+.schedule-file-scroll img {
+  display: block;
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+  user-select: none;
+}
+
+.schedule-file-viewer iframe {
+  flex: 1;
+  width: 100%;
+  border: 0;
+}
+
+.schedule-file-viewer > p {
+  margin: 16px;
 }
