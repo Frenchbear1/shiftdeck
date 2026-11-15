@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   constrainPhoto,
   zoomPhoto,
@@ -25,15 +25,18 @@ function pointInStage(element: HTMLElement, event: { clientX: number; clientY: n
   };
 }
 
-function FullscreenPhoto({
-  url, name, onError,
+export function FullscreenPhoto({
+  url, name, onError, renderOverlay,
 }: {
   url: string;
   name: string;
   onError: () => void;
+  renderOverlay?: (ratio: number) => ReactNode;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const photo = useRef<HTMLImageElement>(null);
+  const photoLayer = useRef<HTMLDivElement>(null);
+  const pointerTravel = useRef(0);
   const transform = useRef<PhotoTransform>({ scale: 1, x: 0, y: 0 });
   const pointers = useRef(new Map<number, PhotoPoint>());
   const pinch = useRef<{ center: PhotoPoint; distance: number; transform: PhotoTransform } | null>(null);
@@ -48,8 +51,8 @@ function FullscreenPhoto({
 
   const apply = (next: PhotoTransform) => {
     transform.current = next;
-    if (photo.current) {
-      photo.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
+    if (photoLayer.current) {
+      photoLayer.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
     }
   };
 
@@ -89,8 +92,10 @@ function FullscreenPhoto({
       onPointerDown={(event) => {
         if (event.button !== 0 || pointers.current.size >= 2 || !photo.current?.naturalWidth) return;
         const point = pointInStage(event.currentTarget, event);
-        event.currentTarget.setPointerCapture(event.pointerId);
+        if (!pointers.current.size) pointerTravel.current = 0;
+        (event.target as Element).setPointerCapture(event.pointerId);
         pointers.current.set(event.pointerId, point);
+        if (pointers.current.size > 1) pointerTravel.current = Infinity;
         if (pointers.current.size === 2) {
           const [a, b] = Array.from(pointers.current.values());
           pinch.current = {
@@ -104,6 +109,7 @@ function FullscreenPhoto({
         const previous = pointers.current.get(event.pointerId);
         if (!previous) return;
         const point = pointInStage(event.currentTarget, event);
+        pointerTravel.current += distanceBetween(point, previous);
         pointers.current.set(event.pointerId, point);
         const start = pinch.current;
         if (start?.distance) {
@@ -121,17 +127,24 @@ function FullscreenPhoto({
       onPointerUp={(event) => endGesture(event.pointerId)}
       onPointerCancel={(event) => endGesture(event.pointerId)}
       onLostPointerCapture={(event) => endGesture(event.pointerId)}
+      onClickCapture={(event) => {
+        if (event.detail && pointerTravel.current > 10) event.stopPropagation();
+      }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- display the locally uploaded photo */}
-      <img
-        ref={photo}
-        src={url}
-        alt={name}
-        draggable={false}
-        onLoad={(event) => setAspect(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight)}
-        onError={onError}
-        style={aspect ? { width: `min(100cqw, 100cqh * ${aspect})` } : undefined}
-      />
+      <div className="schedule-photo-layer" ref={photoLayer} style={
+        aspect ? { width: `min(100cqw, 100cqh * ${aspect})`, aspectRatio: aspect } : undefined
+      }>
+        {/* eslint-disable-next-line @next/next/no-img-element -- display the locally uploaded photo */}
+        <img
+          ref={photo}
+          src={url}
+          alt={name}
+          draggable={false}
+          onLoad={(event) => setAspect(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight)}
+          onError={onError}
+        />
+        {aspect > 0 && renderOverlay?.(aspect)}
+      </div>
     </div>
   );
 }

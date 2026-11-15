@@ -1,3 +1,5 @@
+import type { ScanPreviewPass } from "./schedule-import";
+
 const DATABASE_NAME = "shiftdeck-uploads";
 const STORE_NAME = "schedule-images";
 const DATABASE_VERSION = 1;
@@ -32,10 +34,19 @@ const runRequest = async <T>(
   }
 };
 
-type SavedSchedule = { original: Blob; deskewed?: Blob };
+type SavedSchedule = { original: Blob; deskewed?: Blob; scan?: ScanPreviewPass };
 
-export const saveScheduleImage = (id: string, image: Blob, deskewed?: Blob) =>
-  runRequest("readwrite", (store) => store.put(deskewed ? { original: image, deskewed } : image, id));
+export const saveScheduleImage = (id: string, image: Blob, deskewed?: Blob, scan?: ScanPreviewPass) =>
+  runRequest("readwrite", (store) =>
+    store.put(deskewed || scan ? { original: image, deskewed, scan } : image, id),
+  );
+
+export const loadScheduleScan = async (id: string) => {
+  const saved = await runRequest<Blob | SavedSchedule | undefined>("readonly", (store) => store.get(id));
+  return saved instanceof Blob
+    ? { original: saved }
+    : { original: saved?.original, scan: saved?.scan };
+};
 
 export const loadScheduleImage = async (id: string, sourceCrop = false) => {
   const saved = await runRequest<Blob | SavedSchedule | undefined>(

@@ -1,10 +1,11 @@
 "use client";
 
-import { Check, FileImage, FileText } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Check, FileImage, FileText, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { formatDate, formatTime } from "./home-sections";
 import { scanConfidence, type ScanMark } from "./schedule-parser";
 import type { ScanPreviewPass } from "./schedule-import";
+import { scanSweepDelays } from "./scan-annotations";
 import { IMPORT_STAGES, type ImportSnapshot } from "./schedule-tools";
 
 export type ImportPreviewFile = {
@@ -25,28 +26,31 @@ type PhotoFrame = {
   height: number;
 };
 
-const confidenceLabels = {
+export const confidenceLabels = {
   confident: "Clear",
   check: "Check",
   unreadable: "Unreadable",
 };
 
-function ScanOverlay({
-  pass, ratio, matchesWorker, selected, onSelect,
+export function ScanOverlay({
+  pass, ratio, matchesWorker, selected, onSelect, sweep = false, definitionFor,
 }: {
   pass: ScanPreviewPass;
   ratio: number;
   matchesWorker: (name: string) => boolean;
   selected: string | null;
   onSelect: (id: string) => void;
+  sweep?: boolean;
+  definitionFor?: (mark: ScanMark) => string;
 }) {
+  const delays = useMemo(() => sweep ? scanSweepDelays(pass.marks) : null, [pass.marks, sweep]);
   if (Math.abs((pass.width / pass.height) / ratio - 1) > 0.04) return null;
   const chosenRow = pass.workerRows.find((row) => matchesWorker(row.name));
   const row = chosenRow && pass.grid && { ...chosenRow, ...pass.grid };
   const header = pass.dateHeader && pass.grid && { ...pass.dateHeader, ...pass.grid };
   return (
     <svg
-      className="scan-overlay"
+      className={`scan-overlay${sweep ? " is-sweeping" : ""}`}
       viewBox={`0 0 ${pass.width} ${pass.height}`}
       preserveAspectRatio="none"
       aria-label="Recognized schedule text"
@@ -61,15 +65,19 @@ function ScanOverlay({
       ))}
       {pass.marks.map((mark) => {
         const score = scanConfidence(mark);
-        const pad = Math.max(3, mark.height * 0.19);
+        const padX = Math.max(3, mark.height * 0.36);
+        const padY = Math.max(1.5, mark.height * 0.24);
+        const defined = definitionFor?.(mark);
+        const delay = delays?.get(mark.id) ?? 0;
         return (
           <g
             key={mark.id}
             tabIndex={score === "confident" ? undefined : 0}
             role="button"
-            aria-label={`${confidenceLabels[score]}: ${mark.text}`}
+            aria-label={`${confidenceLabels[score]}: ${mark.text}${defined ? " · " + defined : ""}`}
             aria-pressed={selected === mark.id}
-            className={`scan-mark scan-mark-${mark.kind} scan-mark-${score}`}
+            className={`scan-mark scan-mark-${mark.kind} scan-mark-${score}${defined ? " is-defined" : ""}`}
+            style={{ "--scan-delay": `${delay}ms` } as CSSProperties}
             onClick={() => onSelect(mark.id)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -79,19 +87,19 @@ function ScanOverlay({
             }}
           >
             <rect
-              x={mark.x - pad}
-              y={mark.y - pad}
-              width={mark.width + 2 * pad}
-              height={mark.height + 2 * pad}
-              rx={pad}
+              x={mark.x - padX}
+              y={mark.y - padY}
+              width={mark.width + 2 * padX}
+              height={mark.height + 2 * padY}
+              rx={padY}
               vectorEffect="non-scaling-stroke"
             />
             {mark.worker && matchesWorker(mark.worker) && mark.kind === "shift" && (
               <line
                 x1={mark.x}
                 x2={mark.x + mark.width}
-                y1={mark.y + mark.height + pad}
-                y2={mark.y + mark.height + pad}
+                y1={mark.y + mark.height + padY}
+                y2={mark.y + mark.height + padY}
                 vectorEffect="non-scaling-stroke"
               />
             )}
@@ -103,19 +111,39 @@ function ScanOverlay({
 }
 
 export function ScheduleImportPreview({
-  file, count, snapshot, matchesWorker,
+  file, count, snapshot, matchesWorker, onClose, definitionFor,
 }: {
   file: ImportPreviewFile | null;
   count: number;
   snapshot: ImportSnapshot;
   matchesWorker: (name: string) => boolean;
+  onClose: () => void;
+  definitionFor?: (mark: ScanMark) => string;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const stageElement = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [frames, setFrames] = useState<{ current: PhotoFrame; previous?: PhotoFrame }>();
   const [selected, setSelected] = useState<{ index: number; id: string }>();
   const [failedSource, setFailedSource] = useState<Blob>();
   const urls = useRef(new Set<string>());
   const fileIndex = file?.index;
   const source = file?.pass?.image ?? file?.image;
+
+  useEffect(() => {
+    const viewer = dialog.current;
+    const element = stageElement.current;
+    viewer?.showModal();
+    if (!element) return () => viewer?.close();
+    const observer = new ResizeObserver(([entry]) => {
+      setStageSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      viewer?.close();
+    };
+  }, []);
 
   useEffect(() => {
     if (!source || fileIndex === undefined) return;
@@ -165,8 +193,15 @@ export function ScheduleImportPreview({
   const ownShifts = pass?.marks.filter((item): item is ScanMark & { shift: NonNullable<ScanMark["shift"]> } =>
     Boolean(item.shift && item.worker && matchesWorker(item.worker))) ?? [];
   return (
-    <div className="reading-state">
-      <div className="scan-photo-stage" aria-label="Schedule scan preview">
+    <dialog className="schedule-scan-dialog" ref={dialog} aria-label="Scanning schedules" onCancel={(event) => {
+      event.preventDefault();
+      onClose();
+    }}>
+      <header className="scan-dialog-heading">
+        <h2>Import schedule</h2>
+        <button type="button" aria-label="Close scan preview" onClick={onClose}><X /></button>
+      </header>
+      <div className="scan-photo-stage" ref={stageElement} aria-label="Schedule scan preview">
         {(!frames || (source && failedSource === source)) && (
           <div className="scan-photo-placeholder" role="status">
             {file?.pdf ? <FileText /> : <FileImage />}
@@ -186,7 +221,10 @@ export function ScheduleImportPreview({
                 : current);
             }}
           >
-            <figure style={{ width: `min(100cqw, calc(100cqh * ${frame.ratio}))`, aspectRatio: frame.ratio }}>
+            <figure style={{
+              width: Math.min(stageSize.width, stageSize.height * frame.ratio),
+              height: Math.min(stageSize.height, stageSize.width / frame.ratio),
+            }}>
               {/* eslint-disable-next-line @next/next/no-img-element -- the preview uses a local object URL */}
               <img src={frame.url} alt="Uploaded schedule" width={frame.width} height={frame.height} />
               {pass && frame === frames?.current && (
@@ -195,6 +233,8 @@ export function ScheduleImportPreview({
                   ratio={frame.ratio}
                   matchesWorker={matchesWorker}
                   selected={mark?.id ?? null}
+                  sweep
+                  definitionFor={definitionFor}
                   onSelect={(id) => setSelected((current) =>
                     current?.index === frame.index && current.id === id ? undefined : { index: frame.index, id })}
                 />
@@ -210,7 +250,7 @@ export function ScheduleImportPreview({
           ))}
         </ul>
         <p className={`scan-observation${mark ? " scan-mark-" + scanConfidence(mark) : ""}`} aria-live="polite">
-          {mark ? `${confidenceLabels[scanConfidence(mark)]} · ${mark.text}` : pass?.marks.length ? "Tap a highlight to see what was read" : "\u00a0"}
+          {mark ? `${definitionFor?.(mark) || confidenceLabels[scanConfidence(mark)]} · ${mark.text}` : pass?.marks.length ? "Tap a highlight to see what was read" : "\u00a0"}
         </p>
         <div className="scan-my-shifts" aria-label="Your shifts detected so far">
           {ownShifts.map((item) => {
@@ -246,6 +286,6 @@ export function ScheduleImportPreview({
           <b>{snapshot.progress}%</b>
         </p>
       </div>
-    </div>
+    </dialog>
   );
 }

@@ -300,12 +300,6 @@ select:focus-visible {
   border-radius: 19px;
 }
 
-.reading-state {
-  width: 100%;
-  min-width: 0;
-  text-align: center;
-}
-
 .progress-track {
   width: 100%;
   height: 8px;
@@ -2952,12 +2946,6 @@ select:focus-visible {
   50% { transform: scale(1); }
 }
 
-.reading-state .progress-track i {
-  width: 100%;
-  transform-origin: left center;
-  transition: transform 400ms var(--ease-out);
-}
-
 .import-detail {
   width: 100%;
   display: flex;
@@ -5533,20 +5521,70 @@ select:focus-visible {
 
 /* ---------- live schedule scan ---------- */
 
-.import-sheet .upload-card.is-reading {
-  display: block;
-  padding: 9px;
-  border-style: solid;
-  border-color: var(--line);
+.schedule-scan-dialog,
+.schedule-scan-review {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  overflow: hidden;
+  margin: 0;
+  border: 0;
+  box-sizing: border-box;
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   background: var(--surface);
+  color: var(--text);
+}
+
+.schedule-scan-dialog[open],
+.schedule-scan-review[open] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(4px, 1.2dvh, 12px);
+}
+
+.schedule-scan-dialog[open] {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.schedule-scan-review[open] {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.scan-dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scan-dialog-heading h2 {
+  margin: 0;
+  font-size: clamp(16px, 5vw, 22px);
+}
+
+.scan-dialog-heading button {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--muted);
+  border-radius: 11px;
+  background: var(--surface-2);
+  cursor: pointer;
 }
 
 .scan-photo-stage {
   position: relative;
-  height: clamp(195px, 38svh, 400px);
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   isolation: isolate;
-  container-type: size;
   border-radius: 14px;
   background: #202631;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
@@ -5603,32 +5641,39 @@ select:focus-visible {
 
 .scan-date-band,
 .scan-person-band {
-  fill: rgb(86 149 235 / 16%);
-  stroke: rgb(49 107 198 / 52%);
-  stroke-width: 1px;
+  fill: rgb(86 149 235 / 7%);
+  stroke: rgb(49 107 198 / 34%);
+  stroke-width: 0.65px;
   animation: scan-mark-in 260ms ease-out both;
 }
 
 .scan-person-band {
-  fill: rgb(85 159 238 / 20%);
-  stroke: #3269bf;
-  stroke-width: 1.4px;
+  fill: rgb(85 159 238 / 8%);
+  stroke: rgb(50 105 191 / 61%);
+  stroke-width: 0.95px;
 }
 
-.scan-mark-confident { --scan-color: #137d57; --scan-wash: rgb(29 175 109 / 22%); }
-.scan-mark-check { --scan-color: #965a09; --scan-wash: rgb(239 163 45 / 33%); }
-.scan-mark-unreadable { --scan-color: #b52f42; --scan-wash: rgb(234 70 88 / 29%); }
+.scan-mark-confident { --scan-color: #137d57; --scan-wash: rgb(29 175 109 / 11%); }
+.scan-mark-check { --scan-color: #965a09; --scan-wash: rgb(239 163 45 / 18%); }
+.scan-mark-unreadable { --scan-color: #b52f42; --scan-wash: rgb(234 70 88 / 15%); }
 
 .scan-mark {
   pointer-events: auto;
   cursor: pointer;
-  animation: scan-mark-in 240ms ease-out both;
+}
+
+.scan-overlay.is-sweeping .scan-mark {
+  animation: scan-mark-in 230ms ease-out var(--scan-delay, 0ms) both;
+}
+
+.scan-mark.is-defined rect {
+  stroke-dasharray: none;
 }
 
 .scan-mark rect {
   fill: var(--scan-wash);
-  stroke: var(--scan-color);
-  stroke-width: 1.1px;
+  stroke: color-mix(in srgb, var(--scan-color) 65%, transparent);
+  stroke-width: 0.67px;
   transition: fill 230ms ease-out, stroke 230ms ease-out, stroke-width 190ms ease,
     x 200ms var(--ease-out), y 200ms var(--ease-out),
     width 200ms var(--ease-out), height 200ms var(--ease-out);
@@ -5642,12 +5687,12 @@ select:focus-visible {
 
 .scan-mark-unreadable rect {
   stroke-dasharray: 3 2;
-  stroke-width: 1.2px;
+  stroke-width: 0.85px;
 }
 
 .scan-mark line {
-  stroke: var(--scan-color);
-  stroke-width: 2px;
+  stroke: color-mix(in srgb, var(--scan-color) 65%, transparent);
+  stroke-width: 1px;
   stroke-linecap: round;
   transition: stroke 230ms ease-out;
 }
@@ -5655,11 +5700,13 @@ select:focus-visible {
 .scan-mark:hover rect,
 .scan-mark[aria-pressed="true"] rect,
 .scan-mark:focus-visible rect {
-  stroke-width: 2px;
+  stroke-width: 1.15px;
 }
 
 .scan-preview-notes {
-  padding: 0 5px;
+  min-width: 0;
+  padding: 0 2px;
+  text-align: center;
 }
 
 .scan-legend {
@@ -5701,7 +5748,9 @@ select:focus-visible {
 .scan-my-shifts {
   display: flex;
   gap: 6px;
-  height: 51px;
+  height: 47px;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   scrollbar-width: thin;
 }
@@ -5738,10 +5787,8 @@ select:focus-visible {
 }
 
 .scan-footer {
-  position: sticky;
-  z-index: 1;
-  bottom: 0;
-  padding: 2px 5px 1px;
+  min-width: 0;
+  padding: 1px 2px 0;
   background: var(--surface);
 }
 
@@ -5759,7 +5806,132 @@ select:focus-visible {
 }
 
 .scan-footer .progress-track i {
-  transition-duration: 260ms;
+  transform-origin: left center;
+  transition: transform 260ms var(--ease-out);
+}
+
+.scan-footer .import-detail b {
+  flex: 0 0 auto;
+}
+
+.schedule-photo-layer {
+  position: relative;
+}
+
+.schedule-photo-layer img {
+  width: 100%;
+  height: 100%;
+}
+
+.scan-recent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.scan-recent .button {
+  min-width: 0;
+  justify-content: space-between;
+}
+
+.scan-recent span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+
+.scan-history-link {
+  margin: 0 10px 10px;
+  width: calc(100% - 20px);
+  justify-content: center;
+}
+
+.scan-review-photo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #202631;
+  color: white;
+}
+
+.scan-review-photo:focus {
+  outline: none;
+}
+
+.scan-review-photo > p {
+  place-self: center;
+  margin: 12px;
+  text-align: center;
+}
+
+.scan-review-details {
+  min-width: 0;
+  max-height: 46dvh;
+  overflow: auto;
+  padding: 8px 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.scan-review-details p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.scan-review-details form {
+  display: grid;
+  gap: 7px;
+}
+
+.scan-review-read strong {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 5px;
+  background: var(--scan-wash);
+  border-radius: 4px;
+}
+
+.scan-definition-label {
+  display: grid;
+  gap: 4px;
+  font-weight: 650;
+}
+
+.scan-definition-label input {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px;
+}
+
+.scan-definition-remember, .scan-definition-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scan-definition-actions {
+  justify-content: space-between;
+}
+
+@media (max-height: 450px) {
+  .scan-legend { margin-top: 1px; }
+  .scan-my-shifts { display: none; }
+  .scan-footer .import-steps { margin: 1px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-overlay.is-sweeping .scan-mark { animation-delay: 0ms !important; }
 }
 
 @keyframes scan-photo-in {

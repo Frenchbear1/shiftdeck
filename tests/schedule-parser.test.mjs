@@ -15,6 +15,13 @@ import {
   parseCharterTextItems,
 } from "../app/charter-parser.ts";
 
+import {
+  emptyScanDefinitions,
+  getScanDefinition,
+  saveScanDefinition,
+  scanSweepDelays,
+} from "../app/scan-annotations.ts";
+
 const word = (text, x, y, width = Math.max(8, text.length * 6), height = 10) =>
   [5, 1, 1, 1, 1, 1, x, y, width, height, 90, text].join("\t");
 
@@ -332,4 +339,33 @@ test("merges the Labare misspelling into David LaBarre", () => {
       },
     ],
   );
+});
+
+test("reveals OCR marks from the top left through the last row", () => {
+  const marks = [
+    { id: "bottom-right", x: 200, y: 30, height: 10 },
+    { id: "top-right", x: 200, y: 5, height: 10 },
+    { id: "top-left", x: 10, y: 6, height: 11 },
+    { id: "bottom-left", x: 10, y: 30, height: 10 },
+  ];
+  const ordered = scanSweepDelays(marks);
+  assert.deepEqual([...ordered.keys()], ["top-left", "top-right", "bottom-left", "bottom-right"]);
+  assert.equal(ordered.get("top-left"), 0);
+  assert.ok(ordered.get("bottom-right") > ordered.get("top-right"));
+  const many = Array.from({ length: 700 }, (_, index) => ({ id: index, x: index, y: index, height: 10 }));
+  assert.ok(Math.max(...scanSweepDelays(many).values()) <= 730);
+});
+
+test("keeps single-cell definitions local and reuses matching text only in the same field type", () => {
+  const mark = { id: "shift:1", kind: "shift", text: "  XYZ   2  " };
+  const nextShift = { ...mark, id: "shift:2", text: "xyz 2" };
+  const sameTextInFlight = { ...nextShift, kind: "flight" };
+  const spot = saveScanDefinition(emptyScanDefinitions, "file-a", mark, "Local note", false);
+  assert.equal(getScanDefinition(spot, "file-a", mark).value, "Local note");
+  assert.equal(getScanDefinition(spot, "file-b", mark).value, "");
+  assert.equal(getScanDefinition(spot, "file-a", nextShift).value, "");
+  const repeat = saveScanDefinition(spot, "file-a", mark, "Training", true);
+  assert.deepEqual(getScanDefinition(repeat, "file-a", mark), { value: "Training", repeat: true });
+  assert.deepEqual(getScanDefinition(repeat, "file-b", nextShift), { value: "Training", repeat: true });
+  assert.equal(getScanDefinition(repeat, "file-b", sameTextInFlight).value, "");
 });

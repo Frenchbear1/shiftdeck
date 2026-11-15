@@ -62,6 +62,7 @@ import {
 } from "./schedule-tools";
 import {
   readScheduleImage,
+  type ScanPreviewPass,
   recoverScheduleSource,
   releaseScheduleReader,
   warmScheduleReader,
@@ -83,6 +84,14 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
+import { ScheduleScanReview, type ScanReviewTarget } from "./schedule-scan-review";
+import {
+  emptyScanDefinitions,
+  getScanDefinition,
+  saveScanDefinition,
+  SCAN_DEFINITIONS_KEY,
+  type ScanDefinitions,
+} from "./scan-annotations";
 import { useLiveFlights } from "./live-flights";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
@@ -650,6 +659,17 @@ export default function HomePage() {
   }>>({});
   const preparingReview = useRef(false);
   const [viewedDocument, setViewedDocument] = useState<ScheduleDocument | null>(null);
+  const [viewedScan, setViewedScan] = useState<ScanReviewTarget | null>(null);
+  const [recentScans, setRecentScans] = useState<ScanReviewTarget[]>([]);
+  const [scanDefinitions, setScanDefinitions] = useState<ScanDefinitions>(() => {
+    if (typeof window === "undefined") return emptyScanDefinitions;
+    try {
+      const stored = JSON.parse(localStorage.getItem(SCAN_DEFINITIONS_KEY) ?? "{}");
+      return { spots: stored?.spots ?? {}, matching: stored?.matching ?? {} };
+    } catch {
+      return emptyScanDefinitions;
+    }
+  });
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [homeOrder, setHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
   const [draftHomeOrder, setDraftHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
@@ -1518,6 +1538,7 @@ export default function HomePage() {
   const openSheet = (next: Exclude<Sheet, null>) => {
     if (next === "import") {
       setImportComparisons([]);
+      setRecentScans([]);
       void warmScheduleReader().catch(() => undefined);
     }
     setSheet(next);
@@ -1526,6 +1547,7 @@ export default function HomePage() {
   const closeSheet = () => {
     if (sheet === "import") {
       setImportComparisons([]);
+      setRecentScans([]);
       setExpandedDocument(null);
       setOpenReviewHash(null);
       if (importState !== "reading") void releaseScheduleReader();
@@ -1773,6 +1795,7 @@ export default function HomePage() {
     setDuplicateNotice("");
     setLoadedFiles(files.map((file) => file.name));
     setImportComparisons([]);
+    setRecentScans([]);
     setOpenReviewHash(null);
     const progress = createImportProgress(files.length, setImportSnapshot);
     setImportSnapshot(progress.snapshot());
@@ -1780,6 +1803,7 @@ export default function HomePage() {
     const parsedSchedules: ParsedSchedule[] = [];
     const skippedFiles: string[] = [];
     const comparisons: ImportComparison[] = [];
+    const scans: ScanReviewTarget[] = [];
     let nextDocuments = [...scheduleDocuments];
     let updatedDocuments = 0;
     const knownNames = [
@@ -1813,6 +1837,7 @@ export default function HomePage() {
           setScanFile((current) => current?.index === index ? { ...current, ...patch } : current);
         };
         const shiftReads: ScanMark[] = [];
+        let scan: ScanPreviewPass | undefined;
         try {
           const [hash, read] = await Promise.all([
             hashFile(file),
@@ -1834,11 +1859,13 @@ export default function HomePage() {
                   },
                   onPass: (pass) => {
                     shiftReads.push(...pass.marks.filter((mark) => mark.shift));
+                    if (pass.marks.length && (pass.grid || !scan?.grid)) scan = pass;
                     updateScanFile({ pass });
                   },
                 }),
           ]);
           progress.file(index, 1);
+          if (scan) scans.push({ hash, name: file.name, pass: scan, original: file });
           let parsed: ParsedSchedule | null = read;
 
           if (!parsed) {
@@ -1923,7 +1950,7 @@ export default function HomePage() {
               uncertainShifts,
             });
           }
-          await saveScheduleImage(documentId, file, reviewImage).catch(() => undefined);
+          await saveScheduleImage(documentId, file, reviewImage, scan).catch(() => undefined);
         } catch {
           skippedFiles.push(file.name);
         } finally {
@@ -1935,6 +1962,7 @@ export default function HomePage() {
       }
 
       progress.stage(3);
+      if (sheetRef.current === "import") setRecentScans(scans);
       if (!parsedSchedules.length) {
         await finishScanPreview();
         setImportMessage(
@@ -2389,6 +2417,10 @@ export default function HomePage() {
     }
   };
 
+  const matchesScanWorker = (name: string) => nameKey(resolveMergedName(
+    resolveSchedulePersonName(name, [prefs.person]), nameMerges,
+  )) === nameKey(prefs.person);
+
   const renderComparison = (photo: ImportComparison) => (
     <ScheduleComparison
       image={photo.image}
@@ -2428,7 +2460,7 @@ export default function HomePage() {
       </header>
       <div className="sheet-scroll">
       <section
-        className={`upload-card ${importState === "reading" ? "is-reading" : ""} ${dragActive ? "is-dragging" : ""}`}
+        className={`upload-card ${dragActive ? "is-dragging" : ""}`}
         onDragOver={(event) => {
           event.preventDefault();
           if (importState !== "reading") setDragActive(true);
@@ -2448,24 +2480,12 @@ export default function HomePage() {
           onChange={onFiles}
           aria-label="Upload schedule files"
         />
-        {importState === "reading" ? (
-          <ScheduleImportPreview
-            file={scanFile}
-            count={loadedFiles.length}
-            snapshot={importSnapshot}
-            matchesWorker={(name) => nameKey(resolveMergedName(
-              resolveSchedulePersonName(name, [prefs.person]),
-              nameMerges,
-            )) === nameKey(prefs.person)}
-          />
-        ) : (
-          <button className="upload-inner" onClick={() => fileInput.current?.click()}>
-            <span className="upload-icon"><Upload /></span>
-            <h2>{dragActive ? "Drop to import" : "Add schedule files"}</h2>
-            <p>Tap to choose, or drop them here</p>
-            <small>JPG, PNG, HEIC or PDF · several at once is fine</small>
-          </button>
-        )}
+        <button className="upload-inner" onClick={() => fileInput.current?.click()}>
+          <span className="upload-icon"><Upload /></span>
+          <h2>{dragActive ? "Drop to import" : "Add schedule files"}</h2>
+          <p>Tap to choose, or drop them here</p>
+          <small>JPG, PNG, HEIC or PDF · several at once is fine</small>
+        </button>
       </section>
 
       {(importState === "review" || importState === "error") && (
@@ -2496,6 +2516,22 @@ export default function HomePage() {
               </button>
             )}
           </div>
+        </section>
+      )}
+
+      {recentScans.length > 0 && (
+        <section className="scan-recent" aria-label="Recent scans">
+          {recentScans.map((target, index) => (
+            <button
+              className="button soft"
+              key={`${target.hash}-${index}`}
+              type="button"
+              onClick={() => setViewedScan(target)}
+              aria-label={`View highlighted scan for ${target.name}`}
+            >
+              View highlighted scan{recentScans.length > 1 && <span>{target.name}</span>}
+            </button>
+          ))}
         </section>
       )}
 
@@ -2584,6 +2620,15 @@ export default function HomePage() {
                         View schedule
                       </button>
                     </div>
+                  )}
+                  {isExpanded && !isSchedulePdf(document) && (
+                    <button
+                      className="button soft scan-history-link"
+                      type="button"
+                      onClick={() => setViewedScan({ id: document.id, hash: document.hash, name: document.name })}
+                    >
+                      View highlighted scan
+                    </button>
                   )}
                   {isExpanded && openReviewHash === document.hash && (
                     renderComparison({
@@ -2830,7 +2875,34 @@ export default function HomePage() {
         </div>
       </dialog>
 
-      {sheet === "import" && renderImportSheet()}
+      {sheet === "import" && (importState === "reading" ? (
+        <ScheduleImportPreview
+          file={scanFile}
+          count={loadedFiles.length}
+          snapshot={importSnapshot}
+          onClose={closeSheet}
+          matchesWorker={matchesScanWorker}
+          definitionFor={(mark) => getScanDefinition(scanDefinitions, "", mark).value}
+        />
+      ) : renderImportSheet())}
+      {viewedScan && (
+        <ScheduleScanReview
+          target={viewedScan}
+          definitions={scanDefinitions}
+          matchesWorker={matchesScanWorker}
+          onSaveDefinition={(mark, value, repeat) => {
+            const next = saveScanDefinition(scanDefinitions, viewedScan.hash, mark, value, repeat);
+            try {
+              localStorage.setItem(SCAN_DEFINITIONS_KEY, JSON.stringify(next));
+            } catch {
+              return false;
+            }
+            setScanDefinitions(next);
+            return true;
+          }}
+          onClose={() => setViewedScan(null)}
+        />
+      )}
       {viewedDocument && (
         <ScheduleFileViewer
           id={viewedDocument.id}

@@ -110,6 +110,7 @@ export function readScheduleImage(file: File, callbacks: ReadCallbacks) {
 export async function recoverScheduleSource(
   file: Blob,
   matchesSourceRow: ReadCallbacks["matchesSourceRow"],
+  onPass?: ReadCallbacks["onPass"],
 ) {
   const { createWorker } = await import("tesseract.js");
   // A saved photo can be opened while a new import starts using the shared reader.
@@ -118,6 +119,7 @@ export async function recoverScheduleSource(
   try {
     return await scanScheduleImage(file, {
       matchesSourceRow,
+      onPass,
       onFraction: ignoreProgress,
       onReading: ignoreProgress,
       onDoubleCheck: ignoreProgress,
