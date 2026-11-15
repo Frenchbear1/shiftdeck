@@ -59,7 +59,9 @@ import {
   resolveMergedName,
   ScheduleRange,
   flightWorkday,
+  importedFlightOnCalendar,
   shiftBounds,
+  shiftCalendarDate,
   workdayAt,
   workdayFor,
 } from "./schedule-tools";
@@ -136,6 +138,7 @@ type CalendarEvent = {
   end: string;
   title: string;
   customTitle?: boolean;
+  fromSchedule?: boolean;
 };
 
 type Preferences = {
@@ -336,6 +339,19 @@ const cleanAirportCode = (value: string) =>
 const calendarKeyFor = (person: string, date: string) =>
   `shift:${person.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${date}`;
 
+const importedEventFor = (shift: Shift, person: string): CalendarEvent => ({
+  id: shift.id,
+  calendarKey: calendarKeyFor(person, shift.date),
+  date: shift.date,
+  start: shift.start,
+  end: shift.end,
+  title: DEFAULT_SHIFT_TITLE,
+  customTitle: false,
+  fromSchedule: true,
+});
+
+const eventCalendarDate = (event: CalendarEvent) => shiftCalendarDate(event, event.fromSchedule);
+
 const eventsFor = (shifts: Shift[], person: string) =>
   shifts
     .filter(
@@ -343,15 +359,7 @@ const eventsFor = (shifts: Shift[], person: string) =>
         (nameKey(shift.worker) === nameKey(person) || isSameSchedulePerson(shift.worker, person)) &&
         shift.status === "working",
     )
-    .map((shift) => ({
-      id: shift.id,
-      calendarKey: calendarKeyFor(person, shift.date),
-      date: shift.date,
-      start: shift.start,
-      end: shift.end,
-      title: DEFAULT_SHIFT_TITLE,
-      customTitle: false,
-    }));
+    .map((shift) => importedEventFor(shift, person));
 
 const CALENDAR_SERVICE_ORIGIN =
   "https://shiftdeck-calendar.frenchbear1.workers.dev";
@@ -870,6 +878,7 @@ export default function HomePage() {
       );
       if (savedEvents) {
         try {
+          const sourceDates = new Map(restoredShifts.map((shift) => [shift.id, shift.date]));
           const parsedEvents = (JSON.parse(savedEvents) as CalendarEvent[])
             .filter(
               (event) =>
@@ -882,6 +891,7 @@ export default function HomePage() {
             .map((event) => ({
               ...event,
               calendarKey: calendarKeyFor(parsedPrefs.person, event.date),
+              fromSchedule: event.fromSchedule ?? sourceDates.get(event.id) === event.date,
               title: event.customTitle
                 ? event.title.trim() || DEFAULT_SHIFT_TITLE
                 : DEFAULT_SHIFT_TITLE,
@@ -1267,10 +1277,12 @@ export default function HomePage() {
 
   const importedShifts = useMemo(
     () => [
-      ...baseImportedShifts.filter((shift) => shift.worker !== prefs.person),
+      ...baseImportedShifts
+        .filter((shift) => shift.worker !== prefs.person)
+        .map((shift) => ({ ...shift, date: shiftCalendarDate(shift, true) })),
       ...events.map<Shift>((event) => ({
         id: event.id,
-        date: event.date,
+        date: eventCalendarDate(event),
         worker: prefs.person,
         start: event.start,
         end: event.end,
@@ -1303,7 +1315,7 @@ export default function HomePage() {
   }, [hydrated, scheduleRange, showRanges]);
 
   const importedFlights = useMemo(
-    () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)),
+    () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)).map(importedFlightOnCalendar),
     [importedDateSet, parsedFlights],
   );
 
@@ -1345,7 +1357,7 @@ export default function HomePage() {
       }
     });
     events.forEach((event) => {
-      const date = workdayFor(event.date, event.start);
+      const date = workdayFor(eventCalendarDate(event), event.start);
       if (statuses.get(date)?.status !== "working") {
         statuses.set(date, { status: "working", start: event.start, end: event.end });
       }
@@ -1380,16 +1392,19 @@ export default function HomePage() {
         Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
       alerts: prefs.alerts,
       events: events
-        .map((event) => ({
-          key: event.calendarKey,
-          date: event.date,
-          start: event.start,
-          end: event.end,
-          startAt: eventStartAt(event.date, event.start),
-          title: event.customTitle
-            ? event.title.trim() || DEFAULT_SHIFT_TITLE
-            : prefs.title.trim() || DEFAULT_SHIFT_TITLE,
-        }))
+        .map((event) => {
+          const date = eventCalendarDate(event);
+          return {
+            key: event.calendarKey,
+            date,
+            start: event.start,
+            end: event.end,
+            startAt: eventStartAt(date, event.start),
+            title: event.customTitle
+              ? event.title.trim() || DEFAULT_SHIFT_TITLE
+              : prefs.title.trim() || DEFAULT_SHIFT_TITLE,
+          };
+        })
         .sort((first, second) =>
           `${first.date}-${first.start}-${first.key}`.localeCompare(
             `${second.date}-${second.start}-${second.key}`,
@@ -1448,7 +1463,7 @@ export default function HomePage() {
       events: events
         .map((event) => ({
           key: event.calendarKey,
-          date: event.date,
+          date: eventCalendarDate(event),
           start: event.start,
           end: event.end,
           title: event.customTitle
@@ -1552,15 +1567,7 @@ export default function HomePage() {
             shift.status === "working" &&
             !known.has(shift.date),
         )
-        .map((shift) => ({
-          id: shift.id,
-          calendarKey: calendarKeyFor(prefs.person, shift.date),
-          date: shift.date,
-          start: shift.start,
-          end: shift.end,
-          title: DEFAULT_SHIFT_TITLE,
-          customTitle: false,
-        }));
+        .map((shift) => importedEventFor(shift, prefs.person));
       if (added.length) {
         setEvents((current) =>
           [...current, ...added].sort((a, b) =>
@@ -1588,8 +1595,8 @@ export default function HomePage() {
   const savePrefs = (next: Partial<Preferences>) => {
     const updated = { ...prefs, ...next };
     setPrefs(updated);
-    if (next.person) {
-      setEvents(eventsFor(importedShifts, next.person));
+    if (next.person && next.person !== prefs.person) {
+      setEvents(eventsFor(baseImportedShifts, next.person));
     }
   };
 
@@ -1718,15 +1725,7 @@ export default function HomePage() {
           shift.status === "working" &&
           detectedDates.includes(shift.date),
       )
-      .map((shift) => ({
-        id: shift.id,
-        calendarKey: calendarKeyFor(prefs.person, shift.date),
-        date: shift.date,
-        start: shift.start,
-        end: shift.end,
-        title: DEFAULT_SHIFT_TITLE,
-        customTitle: false,
-      }));
+      .map((shift) => importedEventFor(shift, prefs.person));
     if (matching.length || confirmedDaysOff.size) {
       setEvents((current) => {
         const untouched = current.filter((event) => matching.length
@@ -2156,6 +2155,7 @@ export default function HomePage() {
       end: shiftDraft.end,
       title: shiftDraft.title.trim(),
       customTitle: !imported || Boolean(editing?.customTitle) || shiftDraft.title.trim() !== DEFAULT_SHIFT_TITLE,
+      fromSchedule: Boolean(imported || (editing?.fromSchedule && editing.date === shiftDraft.date)),
     };
 
     if (imported && correctedShift) {
@@ -2198,7 +2198,7 @@ export default function HomePage() {
     setImportedDates((current) =>
       Array.from(new Set([...current, shiftDraft.date])).sort(),
     );
-    setSelectedDate(workdayFor(shiftDraft.date, shiftDraft.start));
+    setSelectedDate(workdayFor(eventCalendarDate(nextEvent), nextEvent.start));
     setShiftEditor(null);
     setToast(imported || editing || existingOnDate ? "Shift updated" : "Shift added");
   };
@@ -2516,11 +2516,7 @@ export default function HomePage() {
       if (oldEvent) eventIds.add(oldEvent.id);
       if (mineAfter && after.status === "working") {
         revisedEvents.push({
-          id: after.id,
-          calendarKey: calendarKeyFor(person, after.date),
-          date: after.date,
-          start: after.start,
-          end: after.end,
+          ...importedEventFor(after, person),
           title: oldEvent?.title ?? DEFAULT_SHIFT_TITLE,
           customTitle: oldEvent?.customTitle ?? false,
         });

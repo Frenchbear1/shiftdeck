@@ -128,6 +128,19 @@ const WORKDAY_START_MINUTES = 5 * 60;
 export const workdayFor = (date: string, time: string) =>
   time && toMinutes(time) < WORKDAY_START_MINUTES ? addDays(date, -1) : date;
 
+// The roster can print overnight-only shifts under the evening they belong to.
+// Keep the printed date for review and use the next morning for timed events.
+export const shiftCalendarDate = (
+  { date, start, end }: Pick<Shift, "date" | "start" | "end">,
+  fromSchedule = false,
+) => {
+  const from = toMinutes(start);
+  const to = toMinutes(end);
+  return fromSchedule && start && end && from < to && to <= WORKDAY_START_MINUTES
+    ? addDays(date, 1)
+    : date;
+};
+
 export const workdayAt = (now = new Date()) => {
   const date = keyFor(now);
   return now.getHours() * 60 + now.getMinutes() < WORKDAY_START_MINUTES
@@ -270,6 +283,13 @@ export const flightPlace = (flight: Flight) =>
     : flight.inboundAirport ?? flight.origin;
 
 export const flightWorkday = (flight: Flight) => workdayFor(flight.date, flightTime(flight));
+
+export const importedFlightOnCalendar = (flight: Flight): Flight => {
+  // Overnight flights in the roster's Evening section use its workday column.
+  if ((flight.source && flight.source !== "schedule") || flight.period !== "Evening" ||
+    toMinutes(flightTime(flight)) >= WORKDAY_START_MINUTES) return flight;
+  return { ...flight, date: addDays(flight.date, 1) };
+};
 
 export const flightLegDate = (flight: Flight, time: string) =>
   toMinutes(time) < toMinutes(flightTime(flight)) ? addDays(flight.date, 1) : flight.date;

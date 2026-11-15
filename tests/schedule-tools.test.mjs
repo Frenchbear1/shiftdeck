@@ -7,7 +7,9 @@ import {
   flightTag,
   flightBelongsToShift,
   flightWorkday,
+  importedFlightOnCalendar,
   shiftBounds,
+  shiftCalendarDate,
   workdayAt,
   workdayFor,
   isFlightInShift,
@@ -281,4 +283,25 @@ test("the workday rolls over at 5 AM while shifts keep their calendar start", ()
     shift("Cal", saturday, "06:00", "13:00"),
   ], "Me", late);
   assert.deepEqual(timeline.rows.flatMap((row) => row.workers).sort(), ["Ana", "Ben", "Me"]);
+});
+
+test("an overnight-only shift printed on Saturday stays on Saturday's workday", () => {
+  const saturday = "2026-11-14";
+  const sunday = "2026-11-15";
+  const printed = shift("Me", saturday, "00:30", "03:30");
+  assert.equal(shiftCalendarDate(printed, true), sunday);
+  assert.equal(shiftCalendarDate(printed), saturday);
+  assert.equal(shiftCalendarDate(shift("Ana", saturday, "04:30", "13:00"), true), saturday);
+  const overnight = { ...printed, date: shiftCalendarDate(printed, true) };
+  assert.equal(workdayFor(overnight.date, overnight.start), saturday);
+  assert.equal(shiftBounds(overnight)[0].getDate(), 15);
+
+  const flight = { date: saturday, kind: "arrival", period: "Evening", start: "01:45" };
+  const evening = importedFlightOnCalendar(flight);
+  assert.equal(evening.date, sunday);
+  assert.equal(flight.date, saturday);
+  assert.equal(flightWorkday(evening), saturday);
+  assert.equal(isFlightInShift(evening, overnight), true);
+  assert.equal(importedFlightOnCalendar({ ...flight, source: "charter" }).date, saturday);
+  assert.equal(importedFlightOnCalendar({ ...flight, period: "Morning" }).date, saturday);
 });
