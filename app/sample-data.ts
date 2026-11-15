@@ -8,6 +8,7 @@ export type Shift = {
   end: string;
   status: ShiftStatus;
   note?: string;
+  workerConfirmed?: boolean;
 };
 
 export type Flight = {

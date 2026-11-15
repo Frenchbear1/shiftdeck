@@ -899,7 +899,7 @@ export function FlightList({
                       : ""
                   } at ${formatTime(time)}${
                     changed ? `, scheduled ${formatTime(scheduledTime)}` : ""
-                  }${match?.label ? `, ${match.label}` : ""}. ${expanded ? "Hide" : "Show"} details`}
+                  }${flight.trackingId ? `, flight ${flightNumber(flight.trackingId)}` : ""}${match?.label ? `, ${match.label}` : ""}. ${expanded ? "Hide" : "Show"} details`}
                 >
                   <span className={`flight-time ${timeTone}`}>
                     <time>{formatTime(time)}</time>
@@ -994,7 +994,11 @@ function FlightDetails({
   boardUpdatedAt?: string | null;
 }) {
   if (!match) {
-    return <span className="flight-details muted">No live info for this flight yet</span>;
+    return (
+      <span className="flight-details muted">
+        {flight.trackingId ? `${flightNumber(flight.trackingId)} · No live info yet` : "No live info for this flight yet"}
+      </span>
+    );
   }
   const live = match.live;
   const place = flightPlace(flight);

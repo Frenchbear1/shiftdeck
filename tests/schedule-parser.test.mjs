@@ -16,13 +16,17 @@ import {
 } from "../app/charter-parser.ts";
 
 import {
+  confirmScanMark,
   emptyScanDefinitions,
+  getScanConfirmation,
   getScanDefinition,
   isCompleteScanMeaning,
   newScanMeaning,
   saveScanDefinition,
   scanSweepDelays,
 } from "../app/scan-annotations.ts";
+
+import { applyScanChanges, applyScanCorrection, recognizedScanMeanings } from "../app/scan-corrections.ts";
 
 const word = (text, x, y, width = Math.max(8, text.length * 6), height = 10) =>
   [5, 1, 1, 1, 1, 1, x, y, width, height, 90, text].join("\t");
@@ -401,4 +405,57 @@ test("validates type-specific data and accepts off and PTO without extra text", 
   const result = saveScanDefinition(emptyScanDefinitions, "file-a", mark, [newScanMeaning("off")], true);
   assert.equal(getScanDefinition(result, "file-b", mark).value, "No scheduled time (X)");
   assert.equal(saveScanDefinition(result, "file-a", mark, [newScanMeaning("range")], true), result);
+});
+
+test("verifying the displayed range updates just that shift and marks the source read as verified", () => {
+  const date = "2026-11-15";
+  const worker = "David LaBarre";
+  const shift = { id: date + "-" + worker + "-08:00", worker, date, start: "08:00", end: "15:00", status: "working" };
+  const other = { ...shift, id: "other", worker: "Nicole Watson" };
+  const mark = { kind: "shift", id: `shift:${worker}:${date}`, date, worker, text: "0800–1700",
+    shift: { date, start: "08:00", end: "17:00" }, confidence: 68 };
+  const original = { dates: [date], flights: [], shifts: [shift, other] };
+  const patch = applyScanCorrection(original, mark, recognizedScanMeanings(mark), (name) => name);
+  assert.ok(patch.ok);
+  assert.deepEqual(patch.shifts, [{ before: shift, after: { ...shift, end: "17:00", note: undefined } }]);
+  assert.deepEqual(applyScanChanges([other, shift], patch.shifts), [other, patch.shifts[0].after]);
+  const confirmed = confirmScanMark(emptyScanDefinitions, "photo", mark, "verified");
+  assert.equal(getScanConfirmation(confirmed, "photo", mark), "verified");
+  assert.equal(getScanConfirmation(confirmed, "another photo", mark), undefined);
+  const modified = saveScanDefinition(confirmed, "photo", mark, [{ kind: "range", start: "08:00", end: "18:00" }], true);
+  assert.equal(getScanConfirmation(modified, "photo", mark), "verified");
+});
+
+test("defines unreadable shifts, turns shifts off, and follows later name/date corrections", () => {
+  const date = "2026-11-15";
+  const mark = { kind: "shift", id: "shift:David LaBarre:" + date, worker: "David LaBarre", text: "**" };
+  const source = { dates: [date], shifts: [], flights: [] };
+  const corrected = applyScanCorrection(source, mark, [{ kind: "range", start: "22:00", end: "04:00" }], (name) => name);
+  assert.ok(corrected.ok);
+  assert.equal(corrected.schedule.shifts[0].end, "04:00");
+  const renamed = applyScanCorrection(corrected.schedule, { kind: "name", id: "name:David LaBarre", worker: mark.worker }, [{ kind: "person", text: "David Smith" }], (name) => name);
+  assert.ok(renamed.ok);
+  const moved = applyScanCorrection(renamed.schedule, { kind: "date", id: "date:" + date }, [{ kind: "date", date: "2026-11-16" }], (name) => name);
+  assert.ok(moved.ok);
+  const off = applyScanCorrection(moved.schedule, mark, [{ kind: "off" }], (name) => name);
+  assert.ok(off.ok);
+  assert.deepEqual(off.schedule.shifts.map(({ worker, date, status, end }) => ({ worker, date, status, end })),
+    [{ worker: "David Smith", date: "2026-11-16", status: "off", end: "" }]);
+  assert.equal(applyScanCorrection(source, mark, [{ kind: "time", time: "08:00" }], (name) => name).ok, false);
+});
+
+test("uses a defined flight in the correct date column without adding duplicates", () => {
+  const date = "2026-11-15";
+  const source = { dates: [date], shifts: [], flights: [] };
+  const mark = { kind: "flight", id: "flight:2:0", date, text: "??", period: "Morning" };
+  const meaning = { kind: "flight", identifier: "G499", origin: "RSW", destination: "", arrival: "09:20", departure: "" };
+  const corrected = applyScanCorrection(source, mark, [meaning], (name) => name);
+  assert.ok(corrected.ok);
+  assert.equal(corrected.schedule.flights[0].inboundAirport, "RSW");
+  assert.equal(corrected.schedule.flights[0].start, "09:20");
+  const edit = applyScanCorrection(corrected.schedule, mark, [{ ...meaning, arrival: "09:45" }], (name) => name);
+  assert.ok(edit.ok);
+  assert.equal(edit.schedule.flights.length, 1);
+  assert.equal(edit.schedule.flights[0].start, "09:45");
+  assert.equal(applyScanCorrection(source, { ...mark, date: "2026-11-14" }, [meaning], (name) => name).ok, false);
 });

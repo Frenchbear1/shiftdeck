@@ -29,6 +29,9 @@ export type ScanMark = {
   confidence: number;
   unreadable: boolean;
   worker?: string;
+  date?: string;
+  flight?: Flight;
+  period?: Flight["period"];
   shift?: Pick<Shift, "date" | "start" | "end">;
 };
 
@@ -37,6 +40,7 @@ export type ScanGeometry = {
   height: number;
   marks: ScanMark[];
   workerRows: Array<{ name: string; top: number; bottom: number }>;
+  dates?: string[];
   dateHeader?: SourceBand;
   grid?: { left: number; right: number; slope: number };
 };
@@ -692,6 +696,7 @@ const parseShifts = (
           id: `shift:${row.name}:${date}`,
           kind: "shift",
           worker: row.name,
+          date,
           unreadable: !range && !/^(?:OFF|PTO|X|[-–—]+)(?:\s|$)/.test(normalized),
           shift: range ? { date, start: range.start, end: range.end } : undefined,
         }, words);
@@ -927,14 +932,21 @@ const parseFlights = (
         labelPeriod ?? "Morning",
         rowIndex * 7 + columnIndex,
       );
-      if (!provisional) return;
-      collect?.({ id: `flight:${rowIndex}:${columnIndex}`, kind: "flight", unreadable: false }, words);
-      const period = labelPeriod ?? periodForTime(provisional.start);
-      flights.push({
+      const period = labelPeriod ?? (provisional ? periodForTime(provisional.start) : undefined);
+      const flight = provisional && period ? {
         ...provisional,
         id: `${provisional.date}-${period}-${rowIndex * 7 + columnIndex}-${provisional.start}`,
         period,
-      });
+      } : undefined;
+      collect?.({
+        id: `flight:${rowIndex}:${columnIndex}`,
+        kind: "flight",
+        date: week.dates[columnIndex],
+        period,
+        unreadable: !flight,
+        flight,
+      }, words);
+      if (flight) flights.push(flight);
     });
   });
   return flights;
@@ -981,7 +993,7 @@ export function parseScheduleTsv(
       }, [word]);
     }
     onGeometry({
-      ...size, marks: [...marks.values()], workerRows: layout?.rows ?? [],
+      ...size, marks: [...marks.values()], workerRows: layout?.rows ?? [], dates: week?.dates,
       dateHeader: week ? sourceBand(week.headerWords, week.slope) : undefined,
       grid: layout && { left: layout.left, right: layout.right, slope: layout.slope },
     });
@@ -991,7 +1003,7 @@ export function parseScheduleTsv(
     return null;
   }
   for (const word of week.headerWords) {
-    collect?.({ id: `date:${isoDate(word.value)}`, kind: "date", unreadable: false }, [word]);
+    collect?.({ id: `date:${isoDate(word.value)}`, kind: "date", date: isoDate(word.value), unreadable: false }, [word]);
   }
   const { shifts, rows } = parseShifts(words, week, collect);
   const flights = parseFlights(words, week, collect);

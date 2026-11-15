@@ -86,12 +86,22 @@ import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { ScheduleScanReview, type ScanReviewTarget } from "./schedule-scan-review";
 import {
+  confirmScanMark,
   emptyScanDefinitions,
+  getScanConfirmation,
   getScanDefinition,
   saveScanDefinition,
   SCAN_DEFINITIONS_KEY,
   type ScanDefinitions,
+  type ScanMeaning,
 } from "./scan-annotations";
+import {
+  applyScanChanges,
+  applyScanCorrection,
+  meaningsAffectSchedule,
+  recognizedScanMeanings,
+  type ScanEdits,
+} from "./scan-corrections";
 import { useLiveFlights } from "./live-flights";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
@@ -210,6 +220,7 @@ type ScheduleDocument = {
   revision: number;
   parserVersion?: number;
   mimeType?: string;
+  scanEdits?: ScanEdits;
   review?: { sourceLayout?: ScheduleSourceLayout; deskewed: boolean; uncertainShifts?: string[] };
 };
 
@@ -332,7 +343,7 @@ const eventsFor = (shifts: Shift[], person: string) =>
   shifts
     .filter(
       (shift) =>
-        isSameSchedulePerson(shift.worker, person) &&
+        (nameKey(shift.worker) === nameKey(person) || isSameSchedulePerson(shift.worker, person)) &&
         shift.status === "working",
     )
     .map((shift) => ({
@@ -665,7 +676,7 @@ export default function HomePage() {
     if (typeof window === "undefined") return emptyScanDefinitions;
     try {
       const stored = JSON.parse(localStorage.getItem(SCAN_DEFINITIONS_KEY) ?? "{}");
-      return { spots: stored?.spots ?? {}, matching: stored?.matching ?? {} };
+      return { spots: stored?.spots ?? {}, matching: stored?.matching ?? {}, confirmed: stored?.confirmed };
     } catch {
       return emptyScanDefinitions;
     }
@@ -874,7 +885,7 @@ export default function HomePage() {
                 typeof shift.id === "string" &&
                 typeof shift.date === "string" &&
                 typeof shift.worker === "string" &&
-                isPlausibleWorkerName(shift.worker),
+                (shift.workerConfirmed === true || isPlausibleWorkerName(shift.worker)),
             ),
           );
         } catch {
@@ -1720,7 +1731,7 @@ export default function HomePage() {
       .join("");
   };
 
-  const loadParsedSchedules = (schedules: ParsedSchedule[]) => {
+  const loadParsedSchedules = (schedules: ParsedSchedule[], confirmedDaysOff: Set<string>) => {
     const detectedDates = Array.from(
       new Set(schedules.flatMap((schedule) => schedule.dates)),
     ).sort();
@@ -1739,7 +1750,8 @@ export default function HomePage() {
     const matching = nextParsedShifts
       .filter(
         (shift) =>
-          isSameSchedulePerson(shift.worker, prefs.person) &&
+          (nameKey(resolveMergedName(shift.worker, nameMerges)) === nameKey(prefs.person) ||
+            isSameSchedulePerson(shift.worker, prefs.person)) &&
           shift.status === "working" &&
           detectedDates.includes(shift.date),
       )
@@ -1752,11 +1764,11 @@ export default function HomePage() {
         title: DEFAULT_SHIFT_TITLE,
         customTitle: false,
       }));
-    if (matching.length) {
+    if (matching.length || confirmedDaysOff.size) {
       setEvents((current) => {
-        const untouched = current.filter(
-          (event) => !detectedDates.includes(event.date),
-        );
+        const untouched = current.filter((event) => matching.length
+          ? !detectedDateSet.has(event.date)
+          : !confirmedDaysOff.has(event.date) || event.id.startsWith("manual-"));
         const refreshed = matching.map((event) => {
           const previous = current.find(
             (candidate) => candidate.calendarKey === event.calendarKey,
@@ -1801,6 +1813,8 @@ export default function HomePage() {
     setImportSnapshot(progress.snapshot());
 
     const parsedSchedules: ParsedSchedule[] = [];
+    let nextScanDefinitions = scanDefinitions;
+    const confirmedDaysOff = new Set<string>();
     const skippedFiles: string[] = [];
     const comparisons: ImportComparison[] = [];
     const scans: ScanReviewTarget[] = [];
@@ -1866,14 +1880,17 @@ export default function HomePage() {
           ]);
           progress.file(index, 1);
           if (scan) scans.push({ hash, name: file.name, pass: scan, original: file });
-          let parsed: ParsedSchedule | null = read;
+          const scanDates = scan?.dates;
+          let parsed: ParsedSchedule | null = read ?? (scanDates?.length ? {
+            dates: scanDates, shifts: [], flights: [], confidence: 0, warnings: [],
+          } : null);
 
           if (!parsed) {
             skippedFiles.push(file.name);
             continue;
           }
 
-          const sourceLayout = parsed.sourceLayout && {
+          let sourceLayout = parsed.sourceLayout && {
             ...parsed.sourceLayout,
             rows: parsed.sourceLayout.rows.map((row) => ({
               ...row,
@@ -1896,6 +1913,53 @@ export default function HomePage() {
             ),
           };
           knownNames.push(...parsed.shifts.map((shift) => shift.worker));
+          const resolvedWorker = (name: string) => resolveSchedulePersonName(name, knownNames);
+          let scanEdits: ScanEdits | undefined;
+          const confirmedShiftIds = new Set<string>();
+          let nextFileDefinitions = nextScanDefinitions;
+          for (const mark of scan?.marks ?? []) {
+            const confirmation = getScanConfirmation(nextScanDefinitions, hash, mark);
+            const { meanings } = getScanDefinition(nextScanDefinitions, hash, mark);
+            const activeMeanings = confirmation === "verified" && !meanings.length
+              ? recognizedScanMeanings(mark)
+              : meanings;
+            if (!meaningsAffectSchedule(mark, activeMeanings)) continue;
+            const correction = applyScanCorrection({ ...parsed, scanEdits }, mark, activeMeanings, resolvedWorker, scan, sourceLayout);
+            if (!correction.ok) continue;
+            parsed = { ...parsed, ...correction.schedule };
+            scanEdits = correction.schedule.scanEdits;
+            if (sourceLayout && correction.renamedWorker) {
+              const { from, to } = correction.renamedWorker;
+              sourceLayout = { ...sourceLayout, rows: sourceLayout.rows.map((row) =>
+                nameKey(row.name) === nameKey(from) ? { ...row, name: to } : row) };
+            }
+            for (const { before, after } of correction.shifts) {
+              if (mark.kind === "shift" && activeMeanings.some((meaning) => meaning.kind !== "note")) {
+                confirmedShiftIds.add(after.id);
+                if (after.status !== "working" &&
+                    isSameSchedulePerson(resolveMergedName(after.worker, nameMerges), prefs.person)) {
+                  confirmedDaysOff.add(after.date);
+                }
+              }
+              if (before && confirmedShiftIds.delete(before.id)) confirmedShiftIds.add(after.id);
+            }
+            if (activeMeanings.some((meaning) => meaning.kind !== "note")) {
+              nextFileDefinitions = confirmScanMark(nextFileDefinitions, hash, mark, confirmation ?? "corrected");
+            }
+          }
+          if (!read && !parsed.flights.length && !confirmedShiftIds.size) {
+            skippedFiles.push(file.name);
+            continue;
+          }
+          nextScanDefinitions = nextFileDefinitions;
+          const hasWorkHours = parsed.shifts.some((shift) => shift.status === "working");
+          const hasFlights = parsed.flights.length > 0;
+          parsed = {
+            ...parsed,
+            warnings: parsed.warnings.filter((warning) =>
+              !(hasWorkHours && warning.startsWith("No work hours")) &&
+              !(hasFlights && warning.startsWith("No flight rows"))),
+          };
           parsedSchedules.push(parsed);
 
           const replacementIndex = nextDocuments.findIndex((document) =>
@@ -1911,11 +1975,13 @@ export default function HomePage() {
           const shiftConfidence = new Map<string, boolean>();
           for (const mark of shiftReads) {
             if (!mark.shift || !mark.worker) continue;
-            const worker = resolveSchedulePersonName(mark.worker, knownNames);
-            const key = `${mark.shift.date}|${worker}|${mark.shift.start}|${mark.shift.end}`;
+            const worker = scanEdits?.workers[nameKey(mark.worker)] ?? resolvedWorker(mark.worker);
+            const date = scanEdits?.dates[mark.shift.date] ?? mark.shift.date;
+            const key = `${date}|${worker}|${mark.shift.start}|${mark.shift.end}`;
             shiftConfidence.set(key, Boolean(shiftConfidence.get(key)) || scanConfidence(mark) === "confident");
           }
           const uncertainShifts = parsed.shifts.filter((shift) =>
+            !confirmedShiftIds.has(shift.id) &&
             shiftConfidence.get(`${shift.date}|${shift.worker}|${shift.start}|${shift.end}`) === false,
           ).map((shift) => shift.id);
           const nextDocument: ScheduleDocument = {
@@ -1930,6 +1996,7 @@ export default function HomePage() {
             revision: (replacement?.revision ?? 0) + 1,
             parserVersion: SCHEDULE_PARSER_VERSION,
             mimeType: isPdf ? "application/pdf" : file.type,
+            scanEdits,
             review: isPdf ? undefined : { sourceLayout, deskewed: Boolean(reviewImage), uncertainShifts },
           };
           if (replacement) {
@@ -1972,11 +2039,19 @@ export default function HomePage() {
         return;
       }
 
-      const count = loadParsedSchedules(parsedSchedules);
+      const count = loadParsedSchedules(parsedSchedules, confirmedDaysOff);
       nextDocuments = nextDocuments.sort((a, b) =>
         b.updatedAt.localeCompare(a.updatedAt),
       );
       setScheduleDocuments(nextDocuments);
+      if (nextScanDefinitions !== scanDefinitions) {
+        setScanDefinitions(nextScanDefinitions);
+        try {
+          localStorage.setItem(SCAN_DEFINITIONS_KEY, JSON.stringify(nextScanDefinitions));
+        } catch {
+          // Imported shifts are already in memory even if scan annotations cannot persist.
+        }
+      }
       setPreparedReviews((current) => {
         const activeHashes = new Set(nextDocuments.map((document) => document.hash));
         const next = Object.fromEntries(Object.entries(current).filter(([key]) => activeHashes.has(key)));
@@ -2415,6 +2490,146 @@ export default function HomePage() {
       setCalendarSyncState("error");
       setToast("Apple Calendar couldn’t connect. Try again.");
     }
+  };
+
+  const reviewScanMark = (
+    mark: ScanMark, meanings: ScanMeaning[], repeat: boolean, verify: boolean, pass?: ScanPreviewPass,
+  ): string | undefined => {
+    if (!viewedScan) return "Reopen the highlighted scan to make a correction.";
+    const { hash, original, name } = viewedScan;
+    const previous = scheduleDocuments.find((document) => document.hash === hash);
+    const dates = pass?.dates;
+    const affectsSchedule = meaningsAffectSchedule(mark, meanings);
+    const isSemantic = meanings.some((meaning) => meaning.kind !== "note");
+
+    let document = previous;
+    if (affectsSchedule && !document && isSemantic) {
+      if (!original || !dates?.length) return "A recognized schedule date is needed to add this item.";
+      if (scheduleDocuments.some((saved) => !isSchedulePdf(saved) && saved.dates.some((day) => dates.includes(day)))) {
+        return "Open the saved schedule for this week to apply the correction.";
+      }
+      const now = new Date().toISOString();
+      document = {
+        id: `schedule-${hash.slice(0, 20)}`, hash, name, dates, shifts: [], flights: [],
+        uploadedAt: now, updatedAt: now, revision: 1, mimeType: original.type,
+      };
+    }
+
+    const knownWorkers = [prefs.person, ...document?.shifts.map((shift) => shift.worker) ?? []];
+    const correction = document && affectsSchedule
+      ? applyScanCorrection(document, mark, meanings,
+        (worker) => resolveSchedulePersonName(worker, knownWorkers), pass, document.review?.sourceLayout)
+      : undefined;
+    if (correction && !correction.ok) return correction.message;
+    if (correction?.movedDate && scheduleDocuments.some((saved) =>
+      saved.hash !== hash && !isSchedulePdf(saved) && saved.dates.includes(correction.movedDate!.to))) {
+      return "Another imported schedule already covers the new date.";
+    }
+
+    if (correction?.shifts.some(({ before, after }) =>
+      !parsedShifts.some((shift) => shift.id === before?.id) &&
+      parsedShifts.some((shift) => shift.date === (before?.date ?? after.date) &&
+        nameKey(shift.worker) === nameKey(before?.worker ?? after.worker) && shift.id !== after.id))) {
+      return "A newer schedule already covers this shift. Open that scan to make the correction.";
+    }
+
+    const rename = correction?.renamedWorker;
+    const isMine = (worker: string) => {
+      const resolved = resolveMergedName(worker, nameMerges);
+      return nameKey(resolved) === nameKey(prefs.person) || isSameSchedulePerson(resolved, prefs.person);
+    };
+    const renameMe = rename && isMine(rename.from);
+    const person = renameMe ? rename.to : prefs.person;
+    const myShiftChanges = correction?.shifts.filter(({ before, after }) =>
+      Boolean(before && isMine(before.worker)) || isMine(after.worker) || (renameMe && after.worker === person)) ?? [];
+
+    // Only replace the event that came from this cell. Keep manually added
+    // shifts, and preserve titles, calendar IDs and notification behavior.
+    const eventIds = new Set<string>();
+    const revisedEvents: CalendarEvent[] = [];
+    for (const { before, after } of myShiftChanges) {
+      const oldEvent = before && events.find((event) => event.id === before.id);
+      const mineAfter = renameMe ? after.worker === person : isMine(after.worker);
+      if (oldEvent) eventIds.add(oldEvent.id);
+      if (mineAfter && after.status === "working") {
+        revisedEvents.push({
+          id: after.id,
+          calendarKey: calendarKeyFor(person, after.date),
+          date: after.date,
+          start: after.start,
+          end: after.end,
+          title: oldEvent?.title ?? DEFAULT_SHIFT_TITLE,
+          customTitle: oldEvent?.customTitle ?? false,
+        });
+      }
+    }
+    if (revisedEvents.some((event) => events.some((existing) =>
+      existing.date === event.date && !eventIds.has(existing.id)))) {
+      return "That date already has another shift. Edit it in Imported results.";
+    }
+
+    let definitions = verify ? scanDefinitions : saveScanDefinition(scanDefinitions, hash, mark, meanings, repeat);
+    if (verify || isSemantic) definitions = confirmScanMark(definitions, hash, mark, verify ? "verified" : "corrected");
+    try {
+      localStorage.setItem(SCAN_DEFINITIONS_KEY, JSON.stringify(definitions));
+    } catch {
+      return "Couldn’t save the correction on this device.";
+    }
+    setScanDefinitions(definitions);
+
+    if (document && correction) {
+      const oldReview = document.review;
+      const renamedLayout = oldReview?.sourceLayout && rename
+        ? { ...oldReview.sourceLayout, rows: oldReview.sourceLayout.rows.map((row) =>
+          nameKey(row.name) === nameKey(rename.from) ? { ...row, name: rename.to } : row) }
+        : oldReview?.sourceLayout;
+      const clearTimeCheck = mark.kind === "shift" && (isSemantic || verify);
+      const uncertainShifts = oldReview?.uncertainShifts?.flatMap((id) => {
+        const change = correction.shifts.find(({ before }) => before?.id === id);
+        return change ? clearTimeCheck ? [] : [change.after.id] : [id];
+      });
+      const corrected = {
+        ...document, ...correction.schedule,
+        review: { ...oldReview, deskewed: oldReview?.deskewed ?? false, sourceLayout: renamedLayout, uncertainShifts },
+      };
+      setScheduleDocuments((current) => previous
+        ? current.map((saved) => saved.hash === hash ? corrected : saved)
+        : [corrected, ...current]);
+      setParsedShifts((current) => applyScanChanges(current, correction.shifts));
+      setParsedFlights((current) => applyScanChanges(current, correction.flights));
+      setImportComparisons((current) => current.map((photo) => photo.hash === hash ? {
+        ...photo, dates: corrected.dates, shifts: corrected.shifts, sourceLayout: renamedLayout, uncertainShifts,
+      } : photo));
+      if (rename) {
+        setPreparedReviews((current) => current[hash]
+          ? { ...current, [hash]: { ...current[hash], sourceLayout: renamedLayout } }
+          : current);
+      }
+      const moved = correction.movedDate;
+      const keepOldDate = moved && (scheduleDocuments.some((saved) => saved.hash !== hash && saved.dates.includes(moved.from)) ||
+        events.some((event) => event.date === moved.from && !eventIds.has(event.id)));
+      setImportedDates((current) => [...new Set([
+        ...current.filter((day) => day !== moved?.from || keepOldDate),
+        ...corrected.dates,
+      ])].sort());
+      if (moved && selectedDate === moved.from) setSelectedDate(moved.to);
+      if (eventIds.size || revisedEvents.length || renameMe) {
+        setEvents((current) => [
+          ...current.filter((event) => !eventIds.has(event.id)).map((event) => renameMe
+            ? { ...event, calendarKey: calendarKeyFor(person, event.date) }
+            : event),
+          ...revisedEvents,
+        ].sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`)));
+      }
+      if (renameMe) {
+        setPrefs((current) => ({ ...current, person }));
+        setNameMerges((current) => ({ ...current, [nameKey(rename.from)]: person }));
+      }
+      if (!previous && original) {
+        void saveScheduleImage(corrected.id, original, undefined, pass).catch(() => undefined);
+      }
+    }
+    return undefined;
   };
 
   const matchesScanWorker = (name: string) => nameKey(resolveMergedName(
@@ -2890,16 +3105,7 @@ export default function HomePage() {
           target={viewedScan}
           definitions={scanDefinitions}
           matchesWorker={matchesScanWorker}
-          onSaveDefinition={(mark, meanings, repeat) => {
-            const next = saveScanDefinition(scanDefinitions, viewedScan.hash, mark, meanings, repeat);
-            try {
-              localStorage.setItem(SCAN_DEFINITIONS_KEY, JSON.stringify(next));
-            } catch {
-              return false;
-            }
-            setScanDefinitions(next);
-            return true;
-          }}
+          onReviewMark={reviewScanMark}
           onClose={() => setViewedScan(null)}
         />
       )}

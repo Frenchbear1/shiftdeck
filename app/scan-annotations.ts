@@ -26,6 +26,7 @@ type StoredDefinition = string | ScanMeaning[];
 export type ScanDefinitions = {
   spots: Record<string, StoredDefinition>;
   matching: Record<string, StoredDefinition>;
+  confirmed?: Record<string, "verified" | "corrected">;
 };
 
 export const SCAN_DEFINITIONS_KEY = "shiftdeck.scanDefinitions";
@@ -130,7 +131,20 @@ export function saveScanDefinition(
   if (!repeat) return { ...definitions, spots: { ...definitions.spots, [key]: saved } };
   const spots = { ...definitions.spots };
   delete spots[key];
-  return { spots, matching: { ...definitions.matching, [matchKey(mark)]: saved } };
+  return { ...definitions, spots, matching: { ...definitions.matching, [matchKey(mark)]: saved } };
+}
+
+export function getScanConfirmation(definitions: ScanDefinitions, hash: string, mark: ScanMark) {
+  return definitions.confirmed?.[spotKey(hash, mark)];
+}
+
+export function confirmScanMark(
+  definitions: ScanDefinitions, hash: string, mark: ScanMark, action: "verified" | "corrected",
+): ScanDefinitions {
+  return {
+    ...definitions,
+    confirmed: { ...definitions.confirmed, [spotKey(hash, mark)]: action },
+  };
 }
 
 /** Ordering is visual only. The OCR worker can start its next pass immediately. */

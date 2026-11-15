@@ -33,7 +33,7 @@ export const confidenceLabels = {
 };
 
 export function ScanOverlay({
-  pass, ratio, matchesWorker, selected, onSelect, sweep = false, definitionFor,
+  pass, ratio, matchesWorker, selected, onSelect, sweep = false, definitionFor, confirmationFor,
 }: {
   pass: ScanPreviewPass;
   ratio: number;
@@ -42,6 +42,7 @@ export function ScanOverlay({
   onSelect: (id: string) => void;
   sweep?: boolean;
   definitionFor?: (mark: ScanMark) => string;
+  confirmationFor?: (mark: ScanMark) => "verified" | "corrected" | undefined;
 }) {
   const delays = useMemo(() => sweep ? scanSweepDelays(pass.marks) : null, [pass.marks, sweep]);
   if (Math.abs((pass.width / pass.height) / ratio - 1) > 0.04) return null;
@@ -64,7 +65,9 @@ export function ScanOverlay({
         />
       ))}
       {pass.marks.map((mark) => {
-        const score = scanConfidence(mark);
+        const confirmation = confirmationFor?.(mark);
+        const score = confirmation ? "confident" : scanConfidence(mark);
+        const label = confirmation === "verified" ? "Verified" : confirmation === "corrected" ? "Corrected" : confidenceLabels[score];
         const padX = Math.max(3, mark.height * 0.36);
         const padY = Math.max(1.5, mark.height * 0.24);
         const defined = definitionFor?.(mark);
@@ -74,7 +77,7 @@ export function ScanOverlay({
             key={mark.id}
             tabIndex={sweep && score === "confident" ? undefined : 0}
             role="button"
-            aria-label={`${confidenceLabels[score]}: ${mark.text}${defined ? " · " + defined : ""}`}
+            aria-label={`${label}: ${mark.text}${defined ? " · " + defined : ""}`}
             aria-pressed={selected === mark.id}
             className={`scan-mark scan-mark-${mark.kind} scan-mark-${score}${defined ? " is-defined" : ""}`}
             style={{ "--scan-delay": `${delay}ms` } as CSSProperties}
