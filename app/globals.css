@@ -3554,10 +3554,14 @@ select:focus-visible {
   list-style: none;
 }
 
+/* Names stacked on the left with the swap button centered between them;
+   Merge and Different people on the right. */
 .merge-suggestions li {
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
   background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--line));
   border-radius: 12px;
@@ -3565,14 +3569,16 @@ select:focus-visible {
 }
 
 .merge-pair {
+  min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, .8fr) auto minmax(0, 1.2fr);
-  align-items: center;
-  gap: 8px;
+  justify-items: center;
+  gap: 4px;
   font-size: 13.5px;
+  text-align: center;
 }
 
 .merge-drop {
+  max-width: 100%;
   overflow: hidden;
   color: var(--muted);
   text-decoration: line-through;
@@ -3581,13 +3587,14 @@ select:focus-visible {
 }
 
 .merge-keep {
+  max-width: 100%;
   min-width: 0;
   font-weight: 800;
-  text-align: right;
+  text-align: center;
 }
 
 .merge-keep .person-name-with-tag {
-  justify-content: flex-end;
+  justify-content: center;
   flex-wrap: wrap;
 }
 
@@ -3596,8 +3603,8 @@ select:focus-visible {
 }
 
 .merge-flip {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -3614,10 +3621,9 @@ select:focus-visible {
 }
 
 .merge-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  justify-items: stretch;
+  gap: 2px;
 }
 
 .merge-actions .button {
@@ -3638,7 +3644,8 @@ select:focus-visible {
 }
 
 .merge-dismiss {
-  padding: 6px 4px;
+  padding: 5px 4px;
+  white-space: nowrap;
   color: var(--muted);
   background: none;
   border: 0;

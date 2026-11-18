@@ -2,6 +2,7 @@
 
 import {
   ArrowLeftRight,
+  ArrowUpDown,
   ArrowUpRight,
   CalendarDays,
   CalendarRange,
@@ -1618,7 +1619,7 @@ export function NameMergeSheet({
                         aria-label={`Keep ${drop} instead`}
                         title="Swap which name is kept"
                       >
-                        <ArrowLeftRight />
+                        <ArrowUpDown />
                       </button>
                       <span className="merge-keep">
                         <PersonName name={keep} />
