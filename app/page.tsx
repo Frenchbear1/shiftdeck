@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowLeftRight,
+  ArrowUpRight,
   Bell,
   BookUser,
   CalendarDays,
@@ -10,6 +11,7 @@ import {
   ChevronDown,
   FileImage,
   FileText,
+  Info,
   MapPin,
   Moon,
   Plus,
@@ -807,6 +809,7 @@ export default function HomePage() {
   const airportNoticeCount = visibleAirportAlerts.length;
   const notificationCount = airportNoticeCount + unseenSwapAnswers;
   const openNotifications = () => airportAlertsDialog.current?.showModal();
+  const [notificationsInfo, setNotificationsInfo] = useState(false);
   const dismissAirportAlert = (text: string) => {
     const next = [...dismissedAirportAlerts, text];
     setDismissedAirportAlerts(next);
@@ -1334,6 +1337,9 @@ export default function HomePage() {
   );
 
   const todayDate = workdayAt(clockNow);
+  const liveSwapReplies = [...sentSwaps]
+    .filter((swap) => swap.status !== "cancelled" && isLiveSwap(swap, todayDate))
+    .reverse();
 
   // Check for swap answers while any request is still live: on open, when the
   // app comes back to the foreground, and once a minute.
@@ -2881,22 +2887,50 @@ export default function HomePage() {
           updateSentSwaps((current) => current.some((swap) => swap.status !== "waiting" && !swap.seen)
             ? current.map((swap) => swap.status !== "waiting" ? { ...swap, seen: true } : swap)
             : current);
+          setNotificationsInfo(false);
           airportAlertsButton.current?.focus();
         }}
       >
-        <header className="sheet-head">
-          <div>
-            <h2 id="airport-alerts-title">Notifications</h2>
-            <p>Swap replies and ABE airport alerts</p>
-          </div>
+        <header className="sheet-head notifications-head">
+          <h2 id="airport-alerts-title">Notifications</h2>
+          <button
+            type="button"
+            className={`notifications-info${notificationsInfo ? " on" : ""}`}
+            aria-expanded={notificationsInfo}
+            aria-label="About notifications"
+            onClick={() => setNotificationsInfo((open) => !open)}
+          >
+            <Info />
+          </button>
           <form method="dialog"><button type="submit" aria-label="Close notifications"><X /></button></form>
         </header>
-        <div className="sheet-scroll">
-          {sentSwaps.some((swap) => swap.status !== "cancelled" && isLiveSwap(swap, todayDate)) && (
+        <div className="sheet-scroll notifications-body">
+          {notificationsInfo && (
+            <div className="notifications-about">
+              <p>
+                <b>Swap replies</b> show up here when a coworker answers a swap you sent by email or text.
+              </p>
+              <p>
+                <b>ABE airport alerts</b> come from the airport’s website
+                {airportAlerts ? `, last checked ${formatUpdatedAt(airportAlerts.updatedAt)}` : ""}.
+              </p>
+              <a href="https://www.flyabe.com/flights/" target="_blank" rel="noreferrer">
+                Official ABE flight board <ArrowUpRight />
+              </a>
+            </div>
+          )}
+          {!liveSwapReplies.length && !airportNoticeCount && (
+            <div className="notifications-empty">
+              <Bell aria-hidden="true" />
+              <p>You’re all caught up</p>
+              <small>{airportAlerts ? "No swap replies or airport notices." : "Airport notices are still loading."}</small>
+            </div>
+          )}
+          {liveSwapReplies.length > 0 && (
             <section className="notice-group" aria-label="Swap replies">
               <h3>Swap replies</h3>
               <ul className="swap-reply-list">
-                {[...sentSwaps].filter((swap) => swap.status !== "cancelled" && isLiveSwap(swap, todayDate)).reverse().map((swap) => (
+                {liveSwapReplies.map((swap) => (
                   <li key={swap.id} className={`is-${swap.status}${swap.status !== "waiting" && !swap.seen ? " is-new" : ""}`}>
                     <span className="swap-reply-icon">
                       {swap.status === "yes" ? <Check /> : swap.status === "no" ? <X /> : <ArrowLeftRight />}
@@ -2928,9 +2962,9 @@ export default function HomePage() {
               </ul>
             </section>
           )}
-          <h3 className="notice-group-title">ABE airport alerts</h3>
-          {airportAlerts && <p className="quiet-line notice-checked">Last checked {formatUpdatedAt(airportAlerts.updatedAt)}</p>}
-          {airportNoticeCount ? (
+          {airportNoticeCount > 0 && (
+            <section className="notice-group" aria-label="ABE airport alerts">
+            <h3>ABE airport alerts</h3>
             <ul className="airport-alert-list">
               {visibleAirportAlerts.map(({ text, url }, index) => (
                 <li key={`${index}-${text}`}>
@@ -2945,12 +2979,8 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="quiet-line">{airportAlerts ? "No new airport notices." : "Airport notices haven’t loaded yet."}</p>
+            </section>
           )}
-          <a className="airport-alert-source" href="https://www.flyabe.com/flights/" target="_blank" rel="noreferrer">
-            Official ABE flight board
-          </a>
         </div>
       </dialog>
 
