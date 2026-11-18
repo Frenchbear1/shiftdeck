@@ -6316,3 +6316,278 @@ select:focus-visible {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ---------- coworker contacts ---------- */
+
+.settings-tile.wide {
+  grid-column: 1 / -1;
+}
+
+.contacts-sheet .sheet-scroll {
+  display: grid;
+  gap: 10px;
+}
+
+.contacts-quick {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.contacts-quick .button {
+  min-height: 42px;
+  justify-content: center;
+}
+
+.contacts-paste {
+  display: grid;
+  gap: 8px;
+}
+
+.contacts-paste textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 10px 11px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.contacts-paste .button {
+  justify-self: end;
+  min-height: 38px;
+}
+
+.contacts-notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.contacts-unmatched {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  background: var(--amber-soft);
+  border-radius: 12px;
+}
+
+.contacts-unmatched h3 {
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.contacts-unmatched label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 46%);
+  align-items: center;
+  gap: 8px;
+}
+
+.contacts-unmatched label span {
+  min-width: 0;
+  display: grid;
+}
+
+.contacts-unmatched b,
+.contacts-unmatched small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contacts-unmatched b {
+  font-size: 13.5px;
+}
+
+.contacts-unmatched small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.contacts-unmatched select {
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 16px;
+}
+
+.contacts-skip {
+  justify-self: start;
+  padding: 2px 0;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.contacts-list-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.contacts-list-head small {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.contacts-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.contacts-search svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.contacts-search input {
+  min-width: 0;
+  width: 100%;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: 16px;
+}
+
+.contacts-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contacts-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 5px 6px;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.contacts-list li > b {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contacts-list label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.contacts-list label:focus-within {
+  border-color: var(--blue);
+}
+
+.contacts-list label svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.contacts-list input {
+  min-width: 0;
+  width: 100%;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: 16px;
+}
+
+/* Swap match: one-tap email / text to that person. */
+.match-contact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.match-contact .button {
+  flex: 1;
+  min-height: 36px;
+  justify-content: center;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.match-contact .button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.match-add-contact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.match-add-contact svg {
+  width: 15px;
+  height: 15px;
+}
+
+.match-edit-contact {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.match-edit-contact svg {
+  width: 15px;
+  height: 15px;
+}

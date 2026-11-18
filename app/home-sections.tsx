@@ -15,6 +15,8 @@ import {
   Plane,
   Plus,
   Lock,
+  Mail,
+  MessageSquare,
   RefreshCw,
   Sun,
   Undo2,
@@ -23,6 +25,7 @@ import {
 } from "lucide-react";
 import { Fragment, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Flight, Shift } from "./sample-data";
+import { contactKey, emailLink, swapMessage, textLink, type Contacts } from "./contacts-data";
 import { addAbeBoardFlights, LiveFlights, LiveMatch, matchLiveFlight, RefreshResult } from "./live-flights";
 import {
   analyzeSwap,
@@ -1426,14 +1429,20 @@ export function SwapSheet({
   person,
   dates,
   initialOffDate,
+  contacts,
+  onEditContact,
   onClose,
 }: {
   shifts: Shift[];
   person: string;
   dates: string[];
   initialOffDate: string;
+  /** Saved emails/numbers, keyed by contactKey(name). */
+  contacts: Contacts;
+  onEditContact: (worker: string) => void;
   onClose: () => void;
 }) {
+  const apple = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent);
   const myDays = useMemo(() => {
     const map = new Map<string, Shift>();
     shifts.forEach((shift) => {
@@ -1639,6 +1648,39 @@ export function SwapSheet({
                             <small>match</small>
                           </span>
                         </div>
+                        {(() => {
+                          const contact = contacts[contactKey(match.worker)];
+                          const take = match.swapDays.find((day) => day.date === swapDate) ?? match.swapDays[0];
+                          const message = myOffShift && swapMessage({
+                            to: match.worker,
+                            from: person,
+                            give: { date: offDate, start: myOffShift.start, end: myOffShift.end },
+                            take,
+                          });
+                          return (
+                            <div className="match-contact">
+                              {contact?.email && message && (
+                                <a className="button soft" href={emailLink(contact.email, message)}>
+                                  <Mail /> Email
+                                </a>
+                              )}
+                              {contact?.phone && message && (
+                                <a className="button soft" href={textLink(contact.phone, `${message.subject}\n${message.body}`, apple)}>
+                                  <MessageSquare /> Text
+                                </a>
+                              )}
+                              {!contact?.email && !contact?.phone ? (
+                                <button type="button" className="match-add-contact" onClick={() => onEditContact(match.worker)}>
+                                  <Plus /> Add email or number
+                                </button>
+                              ) : (
+                                <button type="button" className="match-edit-contact" onClick={() => onEditContact(match.worker)} aria-label={`Edit ${match.worker}'s contact`}>
+                                  <Pencil />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <div className="match-days">
                           {match.swapDays.slice(0, swapDate ? 1 : 4).map((day) => (
                             <button

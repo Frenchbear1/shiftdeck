@@ -16,6 +16,7 @@ import {
   Sun,
   Trash2,
   Upload,
+  Users,
   X,
 } from "lucide-react";
 import {
@@ -91,6 +92,8 @@ import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { useLiveFlights } from "./live-flights";
+import { ContactsSheet } from "./contacts";
+import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
 import { DEFAULT_HOME_ORDER, HOME_TILES, HomeOrderRow, type HomeTile } from "./home-order";
 import { isAndroid, isHeic } from "./platform";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
@@ -655,6 +658,25 @@ export default function HomePage() {
   const [settingsSnapshot, setSettingsSnapshot] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [nameMergeOpen, setNameMergeOpen] = useState(false);
+  // Coworker emails/numbers live only in this device's storage.
+  const [contacts, setContacts] = useState<Contacts>({});
+  const [contactsOpen, setContactsOpen] = useState<{ focus?: string } | null>(null);
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(CONTACTS_KEY) ?? "{}");
+      if (saved && typeof saved === "object") queueMicrotask(() => setContacts(saved as Contacts));
+    } catch {
+      // Start with no contacts.
+    }
+  }, []);
+  const saveContacts = (next: Contacts) => {
+    setContacts(next);
+    try {
+      localStorage.setItem(CONTACTS_KEY, JSON.stringify(next));
+    } catch {
+      // Keep them for this visit.
+    }
+  };
   const [shiftEditor, setShiftEditor] = useState<{
     mode: "add" | "edit";
     eventId?: string;
@@ -1281,6 +1303,12 @@ export default function HomePage() {
     () => parsedFlights.filter((flight) => importedDateSet.has(flight.date)).map(importedFlightOnCalendar),
     [importedDateSet, parsedFlights],
   );
+
+  // Everyone on the imported schedules except you, for contacts.
+  const contactWorkers = useMemo(() => [...new Set(baseImportedShifts
+    .map((shift) => resolveMergedName(shift.worker, nameMerges))
+    .filter((worker) => nameKey(worker) !== nameKey(prefs.person) && !isSameSchedulePerson(worker, prefs.person)))],
+  [baseImportedShifts, nameMerges, prefs.person]);
 
   const availableWorkers = useMemo(() => {
     const names = Array.from(new Set(importedShifts.map((shift) => shift.worker)));
@@ -2833,6 +2861,8 @@ export default function HomePage() {
           person={prefs.person}
           dates={scheduleDates.filter((date) => date >= todayDate)}
           initialOffDate={selectedDate}
+          contacts={contacts}
+          onEditContact={(worker) => setContactsOpen({ focus: worker })}
           onClose={closeSheet}
         />
       )}
@@ -3263,6 +3293,25 @@ export default function HomePage() {
             <div className="settings-tiles">
               <button
                 type="button"
+                className="settings-tile wide"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setContactsOpen({});
+                }}
+              >
+                <span><Users /> Coworker contacts</span>
+                <b>
+                  {(() => {
+                    const count = contactWorkers.filter((worker) => {
+                      const contact = contacts[contactKey(worker)];
+                      return Boolean(contact?.email || contact?.phone);
+                    }).length;
+                    return count ? `${count} saved · for swap emails and texts` : "Add emails or numbers for swaps";
+                  })()}
+                </b>
+              </button>
+              <button
+                type="button"
                 className="settings-tile"
                 onClick={() => {
                   setSettingsOpen(false);
@@ -3313,6 +3362,16 @@ export default function HomePage() {
             )}
           </section>
         </div>
+      )}
+
+      {contactsOpen && (
+        <ContactsSheet
+          workers={contactWorkers}
+          contacts={contacts}
+          focus={contactsOpen.focus}
+          onChange={saveContacts}
+          onClose={() => setContactsOpen(null)}
+        />
       )}
 
       {nameMergeOpen && (
