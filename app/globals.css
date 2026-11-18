@@ -5345,6 +5345,12 @@ select:focus-visible {
   gap: 6px;
 }
 
+/* Center the chevron on the 40px name picker. */
+.settings-name-row label > svg {
+  height: 15px;
+  bottom: 12.5px;
+}
+
 /* Home layout: drag the section icons sideways to reorder the Home Screen. */
 .home-order {
   display: grid;
