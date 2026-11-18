@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, X,
+  ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus, X,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
@@ -20,6 +20,7 @@ import {
 } from "./directory-data";
 import type { Contacts } from "./contacts-data";
 import { ReadingBar } from "./reading-bar";
+import { AddMenu, SearchToggle } from "./sheet-tools";
 import type { ReadProgress } from "./read-progress";
 
 type Draft = Omit<DirectoryEntry, "id" | "check"> & { id?: string; coworker?: string; fromSchedule?: boolean };
@@ -91,6 +92,7 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, onChange
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
   const [department, setDepartment] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<Draft | null>(null);
@@ -160,28 +162,40 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, onChange
   return (
     <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
       <section className="panel-sheet directory-sheet" role="dialog" aria-modal="true" aria-label="Directory">
-        <header className="sheet-head">
-          <div>
-            <h2>Directory</h2>
-            <p>Your work phone list. Saved only on this phone.</p>
+        <header className="sheet-head sheet-head-tools">
+          <h2>{editing ? (editing.id && !editing.fromSchedule ? "Edit" : "Add to directory") : "Directory"}</h2>
+          <div className="sheet-tools">
+            {!editing && everyone.length > 0 && (
+              <SearchToggle
+                open={searching}
+                label="Search the directory"
+                onToggle={() => {
+                  if (searching) setQuery("");
+                  setSearching(!searching);
+                }}
+              />
+            )}
+            {!editing && (
+              <AddMenu
+                label="Add to the directory"
+                busy={Boolean(reading)}
+                note="Screenshot each page of the directory and pick them all at once. Read and saved only on this phone."
+                items={[
+                  { icon: ImageIcon, label: "Screenshots", onSelect: () => images.current?.click() },
+                  { icon: FileText, label: "PDF", onSelect: () => pdf.current?.click() },
+                  { icon: UserPlus, label: "Add by hand", onSelect: () => setEditing({ department: department && department !== COWORKERS ? department : undefined }) },
+                ]}
+              />
+            )}
+            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close directory"><X /></button>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close directory"><X /></button>
         </header>
         <div className="sheet-scroll">
           {editing ? (
             <EntryForm draft={editing} departments={departments} onSave={save} onCancel={() => setEditing(null)} />
           ) : (
             <>
-              <div className="directory-import">
-                <button type="button" className="button soft" disabled={Boolean(reading)} onClick={() => images.current?.click()}>
-                  <ImageIcon /> {reading ? "Reading…" : "Screenshots"}
-                </button>
-                <button type="button" className="button soft" disabled={Boolean(reading)} onClick={() => pdf.current?.click()}>
-                  <FileText /> PDF
-                </button>
-                <button type="button" className="button soft" onClick={() => setEditing({ department: department ?? undefined })}>
-                  <Plus /> Add
-                </button>
+              <div hidden>
                 <input
                   ref={images}
                   type="file"
@@ -217,26 +231,32 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, onChange
                 />
               </div>
               {reading && <ReadingBar progress={reading} />}
-              {!entries.length && !notice && !reading && (
-                <p className="contacts-hint">
-                  Screenshot each page of the directory (LAST · FIRST · DEPARTMENT · TITLE · PHONE · EXT · CELL)
-                  and pick them all at once, or use the PDF if you have it. Everything is read on this phone.
-                </p>
+              {!everyone.length && !notice && !reading && (
+                <div className="sheet-empty">
+                  <p>No one here yet</p>
+                  <small>
+                    Tap <Plus aria-label="plus" /> to add screenshots of the directory (LAST · FIRST · DEPARTMENT ·
+                    TITLE · PHONE · EXT · CELL), its PDF, or people by hand.
+                  </small>
+                </div>
               )}
               {notice && <p className="contacts-notice" role="status">{notice}</p>}
 
               {everyone.length > 0 && (
                 <>
-                  <label className="contacts-search">
-                    <Search />
-                    <input
-                      type="search"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search names, titles, numbers"
-                      aria-label="Search the directory"
-                    />
-                  </label>
+                  {searching && (
+                    <label className="contacts-search">
+                      <Search />
+                      <input
+                        type="search"
+                        value={query}
+                        autoFocus
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Search names, titles, numbers"
+                        aria-label="Search the directory"
+                      />
+                    </label>
+                  )}
                   <div className="directory-tabs" role="tablist" aria-label="Departments">
                     {tabs.map((item) => (
                       <button

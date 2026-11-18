@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
 import { addPeopleToDirectory, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
+import { AddMenu, SearchToggle } from "./sheet-tools";
 import type { ReadProgress } from "./read-progress";
 import {
   contactKey,
@@ -48,6 +49,7 @@ export function ContactsSheet({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState(focus ?? "");
+  const [searching, setSearching] = useState(Boolean(focus));
   const [pasting, setPasting] = useState(false);
   const [pasted, setPasted] = useState("");
   const [unmatched, setUnmatched] = useState<ContactEntry[]>([]);
@@ -92,46 +94,63 @@ export function ContactsSheet({
   return (
     <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
       <section className="panel-sheet contacts-sheet" role="dialog" aria-modal="true" aria-label="Coworker contacts">
-        <header className="sheet-head">
-          <div>
-            <h2>Coworker contacts</h2>
-            <p>For quick swap emails and texts. Saved only on this phone.</p>
+        <header className="sheet-head sheet-head-tools">
+          <h2>
+            Coworker contacts
+            {workers.length > 0 && <small aria-label={`${saved} of ${workers.length} saved`}>{saved}/{workers.length}</small>}
+          </h2>
+          <div className="sheet-tools">
+            <SearchToggle
+              open={searching}
+              label="Search coworkers"
+              onToggle={() => {
+                if (searching) setQuery("");
+                setSearching(!searching);
+              }}
+            />
+            <AddMenu
+              label="Add emails and numbers"
+              busy={Boolean(reading)}
+              note="Member list screenshots (like an Outlook group) work: each name with its email below. Read and saved only on this phone."
+              items={[
+                ...(picker ? [{
+                  icon: ContactIcon,
+                  label: "Pick from contacts",
+                  onSelect: async () => {
+                    try {
+                      const picked = await picker.select(["name", "email", "tel"], { multiple: true });
+                      addEntries(picked.map((person) => ({
+                        name: person.name?.[0] ?? "",
+                        email: tidyEmail(person.email?.[0] ?? "") || undefined,
+                        phone: tidyPhone(person.tel?.[0] ?? "") || undefined,
+                      })).filter((entry) => entry.email || entry.phone));
+                    } catch {
+                      setNotice("Contacts couldn’t be opened. Paste a list instead.");
+                    }
+                  },
+                }] : []),
+                { icon: ImageIcon, label: "Screenshots", onSelect: () => screenshotInput.current?.click() },
+                { icon: ClipboardPaste, label: "Paste a list", onSelect: () => setPasting(true) },
+              ]}
+            />
+            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close coworker contacts"><X /></button>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close coworker contacts"><X /></button>
         </header>
         <div className="sheet-scroll">
-          <div className="contacts-quick">
-            {picker && (
-              <button
-                type="button"
-                className="button soft"
-                onClick={async () => {
-                  try {
-                    const picked = await picker.select(["name", "email", "tel"], { multiple: true });
-                    addEntries(picked.map((person) => ({
-                      name: person.name?.[0] ?? "",
-                      email: tidyEmail(person.email?.[0] ?? "") || undefined,
-                      phone: tidyPhone(person.tel?.[0] ?? "") || undefined,
-                    })).filter((entry) => entry.email || entry.phone));
-                  } catch {
-                    setNotice("Contacts couldn’t be opened. Paste a list instead.");
-                  }
-                }}
-              >
-                <ContactIcon /> Pick from contacts
-              </button>
-            )}
-            <button
-              type="button"
-              className="button soft"
-              disabled={Boolean(reading)}
-              onClick={() => screenshotInput.current?.click()}
-            >
-              <ImageIcon /> {reading ? "Reading…" : "Screenshots"}
-            </button>
-            <button type="button" className="button soft" onClick={() => setPasting((open) => !open)}>
-              <ClipboardPaste /> Paste a list
-            </button>
+          {searching && (
+            <label className="contacts-search">
+              <Search />
+              <input
+                type="search"
+                value={query}
+                autoFocus={!focus}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search coworkers"
+                aria-label="Search coworkers"
+              />
+            </label>
+          )}
+          <div hidden>
             <input
               ref={screenshotInput}
               type="file"
@@ -158,10 +177,6 @@ export function ContactsSheet({
               }}
             />
           </div>
-          <p className="contacts-hint">
-            Screenshots of a member list (like an Outlook group) work: each name with its email below.
-            They’re read on this phone.
-          </p>
           {pasting && (
             <div className="contacts-paste">
               <textarea
@@ -170,24 +185,28 @@ export function ContactsSheet({
                 rows={5}
                 placeholder={"One person per line, in any order:\nLandon Weber, landon@email.com, 610-555-1234\nNicole Watson 484-555-9876"}
                 aria-label="Pasted contacts"
+                autoFocus
               />
-              <button
-                type="button"
-                className="button primary"
-                disabled={!pasted.trim()}
-                onClick={() => {
-                  const entries = parseContactLines(pasted);
-                  if (!entries.length) {
-                    setNotice("No emails or phone numbers found in that text.");
-                    return;
-                  }
-                  addEntries(entries);
-                  setPasted("");
-                  setPasting(false);
-                }}
-              >
-                Add
-              </button>
+              <div className="contacts-paste-actions">
+                <button type="button" className="button soft" onClick={() => { setPasting(false); setPasted(""); }}>Cancel</button>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={!pasted.trim()}
+                  onClick={() => {
+                    const entries = parseContactLines(pasted);
+                    if (!entries.length) {
+                      setNotice("No emails or phone numbers found in that text.");
+                      return;
+                    }
+                    addEntries(entries);
+                    setPasted("");
+                    setPasting(false);
+                  }}
+                >
+                  Add
+                </button>
+              </div>
             </div>
           )}
           {reading && <ReadingBar progress={reading} />}
@@ -239,19 +258,7 @@ export function ContactsSheet({
             </div>
           )}
 
-          <div className="contacts-list-head">
-            <label className="contacts-search">
-              <Search />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search coworkers"
-                aria-label="Search coworkers"
-              />
-            </label>
-            <small>{saved} of {workers.length} saved</small>
-          </div>
+          {searching && query.trim() && !shown.length && <p className="contacts-notice">Nobody matches that search.</p>}
           <ul className="contacts-list">
             {shown.map((worker) => {
               const contact = contacts[contactKey(worker)] ?? {};

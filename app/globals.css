@@ -7199,3 +7199,136 @@ select:focus-visible {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+/* ---------- sheet header tools (contacts, directory) ---------- */
+
+.sheet-head-tools {
+  align-items: center;
+  padding-bottom: 10px;
+}
+
+.sheet-head-tools h2 {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-head-tools h2 small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sheet-head .sheet-tool.on {
+  color: white;
+  background: var(--blue);
+}
+
+.sheet-head .sheet-tool.busy svg {
+  color: var(--blue);
+  animation: spin 900ms linear infinite;
+}
+
+.sheet-add {
+  position: relative;
+}
+
+.sheet-head .sheet-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 236px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  animation: rise 160ms var(--ease-out) both;
+}
+
+.sheet-head .sheet-menu button {
+  width: 100%;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 10px;
+  color: var(--text);
+  background: transparent;
+  border-radius: 9px;
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+.sheet-head .sheet-menu button:hover,
+.sheet-head .sheet-menu button:focus-visible {
+  background: var(--surface-2);
+}
+
+.sheet-head .sheet-menu button svg {
+  width: 18px;
+  height: 18px;
+  color: var(--blue);
+}
+
+.sheet-menu p {
+  margin: 4px 0 0;
+  padding: 8px 10px 4px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.sheet-empty {
+  display: grid;
+  gap: 4px;
+  padding: 18px 4px;
+  text-align: center;
+}
+
+.sheet-empty p {
+  margin: 0;
+  font-weight: 750;
+}
+
+.sheet-empty small {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.sheet-empty small svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+
+.contacts-paste-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
