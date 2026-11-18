@@ -7270,8 +7270,8 @@ select:focus-visible {
 .view-tabs {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(var(--count), 1fr);
-  width: 212px;
+  flex: none;
+  grid-template-columns: repeat(var(--count), 32px);
   height: 34px;
   padding: 3px;
   background: var(--surface-2);
@@ -7315,9 +7315,10 @@ select:focus-visible {
   background: none;
   border: 0;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 750;
-  letter-spacing: -.1px;
+  letter-spacing: -.2px;
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
   transition: color 180ms ease;
 }
@@ -7334,4 +7335,15 @@ select:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
   border-radius: 8px;
+}
+
+.schedule-panel .panel-head h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-panel .schedule-tools {
+  flex: none;
 }

@@ -359,9 +359,9 @@ const rowLine = (days: string[], status: (date: string) => DayStatus, today: str
 /** Pixels before a sideways drag counts as a swipe to another window. */
 const VIEW_TABS: Array<{ value: ScheduleRange; label: string }> = [
   { value: "3d", label: "3D" },
-  { value: "week", label: "Week" },
+  { value: "week", label: "1W" },
   { value: "2week", label: "2W" },
-  { value: "month", label: "Month" },
+  { value: "month", label: "1M" },
 ];
 
 /**
