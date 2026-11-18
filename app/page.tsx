@@ -16,6 +16,7 @@ import {
   Moon,
   Plus,
   Settings,
+  Share2,
   Sun,
   Trash2,
   Upload,
@@ -95,6 +96,8 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
+import { ShareSheet, SharedImportSheet, type OpenedShare, type SharedImport } from "./share-sheet";
+import { openShareLink, shareInLocation, type ShareKey } from "./share-link";
 import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
 import { DirectorySheet } from "./directory";
@@ -695,6 +698,9 @@ export default function HomePage() {
   // The work phone directory, kept only on this device.
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  // A share link being opened: loading, then what it holds (or why it couldn't).
+  const [incoming, setIncoming] = useState<{ share: OpenedShare | null; error: string; link?: string } | null>(null);
   useEffect(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(DIRECTORY_KEY) ?? "[]");
@@ -1372,6 +1378,45 @@ export default function HomePage() {
     // updateSentSwaps only uses state setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLiveSwaps, todayDate]);
+
+  const openIncomingShare = (key: ShareKey, link?: string) => {
+    setIncoming({ share: null, error: "", link });
+    openShareLink(key, CALENDAR_SERVICE_ORIGIN)
+      .then((share) => setIncoming((current) => current && { ...current, share }))
+      .catch((problem: unknown) => setIncoming((current) => current && {
+        ...current,
+        error: problem instanceof Error ? problem.message : "The share couldn’t be opened.",
+      }));
+  };
+
+  // A share link opens the app with ?share=<id>#k=<key>; the key never leaves this phone.
+  useEffect(() => {
+    if (!hydrated) return;
+    const key = shareInLocation(window.location);
+    if (!key) return;
+    const link = window.location.href;
+    const url = new URL(link);
+    url.searchParams.delete("share");
+    url.hash = "";
+    window.history.replaceState(null, "", url.href);
+    const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    queueMicrotask(() => openIncomingShare(key, isAppleMobile && !isStandalone ? link : undefined));
+    // Runs once, when saved data is back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
+  const importShared = ({ directory: nextDirectory, contacts: nextContacts, files, summary }: SharedImport) => {
+    if (nextDirectory) saveDirectory(nextDirectory);
+    if (nextContacts) saveContacts(nextContacts);
+    setIncoming(null);
+    if (summary.length) setToast(summary.join(" · "));
+    if (files.length) {
+      openSheet("import");
+      void processFiles(files);
+    }
+  };
 
   // A swap-answer notification opens the app with ?notifications=1.
   useEffect(() => {
@@ -3559,6 +3604,17 @@ export default function HomePage() {
                         : "Add shifts for Waze"}
                 </b>
               </button>
+              <button
+                type="button"
+                className="settings-tile wide"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setShareOpen(true);
+                }}
+              >
+                <span><Share2 /> Share with coworkers</span>
+                <b>Send schedules, the directory & contacts</b>
+              </button>
             </div>
             {liveFlights.live?.status && (
               <LiveStatusSetting
@@ -3571,6 +3627,39 @@ export default function HomePage() {
             )}
           </section>
         </div>
+      )}
+
+      {shareOpen && (
+        <ShareSheet
+          schedules={scheduleDocuments}
+          today={todayDate}
+          directory={directory}
+          contacts={contacts}
+          person={prefs.person}
+          service={CALENDAR_SERVICE_ORIGIN}
+          appUrl={`${window.location.origin}${window.location.pathname}`}
+          loadFile={(id) => loadScheduleImage(id)}
+          onOpenLink={(key) => {
+            setShareOpen(false);
+            openIncomingShare(key);
+          }}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
+
+      {incoming && (
+        <SharedImportSheet
+          share={incoming.share}
+          error={incoming.error}
+          loading={!incoming.share && !incoming.error}
+          link={incoming.link}
+          haveWeek={(schedule) => scheduleDocuments.some((document) =>
+            document.hash === schedule.hash || isScheduleRevision(document.dates, schedule.dates))}
+          directory={directory}
+          contacts={contacts}
+          onImport={importShared}
+          onClose={() => setIncoming(null)}
+        />
       )}
 
       {directoryOpen && (

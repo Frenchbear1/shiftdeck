@@ -7347,3 +7347,322 @@ select:focus-visible {
 .schedule-panel .schedule-tools {
   flex: none;
 }
+
+/* ---------- share with coworkers ---------- */
+
+.settings-tile.wide {
+  grid-column: 1 / -1;
+}
+
+.share-section-title {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.share-weeks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.share-week {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 8px 0 11px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.share-week > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.share-week.on {
+  background: color-mix(in srgb, var(--blue) 12%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--blue) 55%, var(--line));
+}
+
+.share-check {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.share-check svg {
+  width: 14px;
+  height: 14px;
+  color: white;
+  stroke-width: 3;
+}
+
+.on > .share-check {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.share-choices {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.share-choice {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.share-choice.on {
+  background: color-mix(in srgb, var(--blue) 10%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--blue) 50%, var(--line));
+}
+
+.share-choice:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.share-choice-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  border-radius: 10px;
+}
+
+.share-choice-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.share-choice-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+
+.share-choice-copy b {
+  font-size: 14.5px;
+}
+
+.share-choice-copy small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.share-expiry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.share-expiry > div {
+  display: flex;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+.share-expiry button {
+  height: 30px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.share-expiry button.active {
+  color: white;
+  background: var(--blue);
+}
+
+.button.share-make {
+  width: 100%;
+  min-height: 46px;
+}
+
+.share-make .spin,
+.share-loading {
+  animation: spin 900ms linear infinite;
+}
+
+.share-loading {
+  justify-self: center;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 6px;
+  color: var(--blue);
+}
+
+.share-note {
+  margin: 10px 2px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.share-error {
+  margin-bottom: 10px;
+}
+
+.share-paste {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.share-paste input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.share-done {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px 0 6px;
+  text-align: center;
+}
+
+.share-done-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 4px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  border-radius: 15px;
+}
+
+.share-done-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.share-done > p {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.share-done > small {
+  max-width: 300px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.share-done code {
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  overflow: hidden;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-done-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.share-done-actions .button {
+  flex: 1;
+  min-height: 44px;
+}
+
+.share-again {
+  margin-top: 6px;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.share-iphone {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--amber) 12%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--line));
+  border-radius: 13px;
+}
+
+.share-iphone small {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.share-iphone .button {
+  justify-self: start;
+}
+
+.share-note + .share-note {
+  margin-top: -6px;
+}
