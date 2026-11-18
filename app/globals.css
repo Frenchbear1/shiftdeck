@@ -5686,17 +5686,34 @@ select:focus-visible {
   background: white;
 }
 
-/* Scanned: photo with highlights above a small details panel. */
-.schedule-file-viewer.is-scanned .schedule-file-content {
-  padding: calc(max(12px, env(safe-area-inset-top)) + 54px) max(10px, env(safe-area-inset-right))
-    max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
-}
-
+/* Scanned: the same full-screen photo as the Photo tab, with the highlights
+   on top and a small floating card for what was read. */
 .scan-highlights {
+  position: relative;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.schedule-file-viewer .scan-review-photo {
+  border-radius: 0;
+  background: transparent;
+}
+
+.schedule-file-viewer .scan-review-details {
+  position: absolute;
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: max(10px, env(safe-area-inset-left));
+  max-height: 30dvh;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 30%);
+}
+
+.schedule-file-viewer.is-scanned .schedule-file-content > p {
+  color: white;
 }
 
 .schedule-file-viewer .scan-review-details {
