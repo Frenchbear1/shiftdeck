@@ -1927,10 +1927,6 @@ select:focus-visible {
   gap: 6px;
 }
 
-.range-menu {
-  position: relative;
-}
-
 .tool-button {
   height: 34px;
   min-width: 34px;
@@ -1959,18 +1955,6 @@ select:focus-visible {
   flex: none;
 }
 
-.tool-button .tool-chevron {
-  width: 14px;
-  height: 14px;
-  margin-left: -2px;
-  color: var(--muted);
-  transition: transform 200ms var(--ease-out);
-}
-
-.tool-button.open .tool-chevron {
-  transform: rotate(180deg);
-}
-
 .tool-button.icon-only {
   width: 34px;
   padding: 0;
@@ -1981,52 +1965,6 @@ select:focus-visible {
   color: white;
   background: var(--blue);
   border-color: var(--blue);
-}
-
-.range-popup {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
-  right: 0;
-  width: 160px;
-  display: grid;
-  padding: 5px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: var(--shadow-lg);
-  transform-origin: top right;
-  animation: menu-in 180ms var(--ease-out) both;
-}
-
-.range-popup button {
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  border-radius: 9px;
-  font-size: 14px;
-  font-weight: 650;
-  text-align: left;
-  cursor: pointer;
-}
-
-.range-popup button:hover {
-  background: var(--surface-2);
-}
-
-.range-popup button.active {
-  color: var(--blue);
-  font-weight: 800;
-}
-
-.range-popup svg {
-  width: 16px;
-  height: 16px;
 }
 
 @keyframes menu-in {
@@ -7169,12 +7107,6 @@ select:focus-visible {
   transition: width 300ms linear;
 }
 
-.reading-bar small {
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
 .contacts-unmatched-actions {
   display: flex;
   align-items: center;
@@ -7331,4 +7263,75 @@ select:focus-visible {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ---------- schedule view switch ---------- */
+
+.view-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--count), 1fr);
+  width: 212px;
+  height: 34px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+}
+
+.view-tabs-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--count));
+  background: var(--blue);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--blue) 40%, transparent), inset 0 1px 0 rgba(255, 255, 255, .18);
+  transform: translateX(calc(var(--at) * 100%));
+  transition: transform 340ms cubic-bezier(.3, 1.35, .45, 1), scale 180ms var(--ease-out);
+}
+
+.view-tabs.is-dragging .view-tabs-thumb {
+  scale: 1.06 1.08;
+  transition: scale 180ms var(--ease-out);
+}
+
+.view-tabs:active:not(.is-dragging) .view-tabs-thumb {
+  scale: .96;
+}
+
+.view-tabs button {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  letter-spacing: -.1px;
+  pointer-events: none;
+  transition: color 180ms ease;
+}
+
+.view-tabs button.active {
+  color: white;
+}
+
+.view-tabs:focus-within {
+  outline: none;
+}
+
+.view-tabs button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 8px;
 }

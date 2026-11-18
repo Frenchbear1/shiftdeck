@@ -5,7 +5,6 @@ import {
   ArrowUpDown,
   ArrowUpRight,
   CalendarDays,
-  CalendarRange,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -358,6 +357,97 @@ const rowLine = (days: string[], status: (date: string) => DayStatus, today: str
 };
 
 /** Pixels before a sideways drag counts as a swipe to another window. */
+const VIEW_TABS: Array<{ value: ScheduleRange; label: string }> = [
+  { value: "3d", label: "3D" },
+  { value: "week", label: "Week" },
+  { value: "2week", label: "2W" },
+  { value: "month", label: "Month" },
+];
+
+/**
+ * The schedule view as a compact 4-way switch: tap a view, or press and
+ * slide the highlight across; the schedule follows as it crosses each one.
+ */
+function ViewTabs({ value, onChange }: { value: ScheduleRange; onChange: (range: ScheduleRange) => void }) {
+  const index = Math.max(0, VIEW_TABS.findIndex((tab) => tab.value === value));
+  const bar = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: number; x: number; moved: boolean; left: number; width: number } | null>(null);
+  const [position, setPosition] = useState<number | null>(null);
+  const shown = position ?? index;
+
+  const pick = (next: number) => {
+    const tab = VIEW_TABS[Math.max(0, Math.min(VIEW_TABS.length - 1, next))];
+    if (tab.value === value) return;
+    onChange(tab.value);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(6);
+  };
+  // Where a finger is, in tabs (0 = centred on the first).
+  const at = (clientX: number) => {
+    const current = drag.current!;
+    const cell = current.width / VIEW_TABS.length;
+    return Math.max(0, Math.min(VIEW_TABS.length - 1, (clientX - current.left) / cell - 0.5));
+  };
+
+  return (
+    <div
+      ref={bar}
+      className={`view-tabs${position !== null ? " is-dragging" : ""}`}
+      role="radiogroup"
+      aria-label="Schedule view"
+      style={{ ["--at" as string]: shown, ["--count" as string]: VIEW_TABS.length }}
+      onPointerDown={(event) => {
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        const rect = bar.current!.getBoundingClientRect();
+        drag.current = { id: event.pointerId, x: event.clientX, moved: false, left: rect.left + 3, width: rect.width - 6 };
+        bar.current!.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const current = drag.current;
+        if (!current || current.id !== event.pointerId) return;
+        if (!current.moved && Math.abs(event.clientX - current.x) < 6) return;
+        current.moved = true;
+        const next = at(event.clientX);
+        setPosition(next);
+        pick(Math.round(next));
+      }}
+      onPointerUp={(event) => {
+        const current = drag.current;
+        if (!current || current.id !== event.pointerId) return;
+        const landing = Math.round(at(event.clientX));
+        drag.current = null;
+        setPosition(null);
+        pick(landing);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+        setPosition(null);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowRight" || event.key === "ArrowDown") pick(index + 1);
+        else if (event.key === "ArrowLeft" || event.key === "ArrowUp") pick(index - 1);
+        else return;
+        event.preventDefault();
+      }}
+    >
+      <span className="view-tabs-thumb" aria-hidden="true" />
+      {VIEW_TABS.map((tab, tabIndex) => (
+        <button
+          key={tab.value}
+          type="button"
+          role="radio"
+          aria-checked={tab.value === value}
+          aria-label={SCHEDULE_RANGES.find((option) => option.value === tab.value)?.label}
+          tabIndex={tab.value === value ? 0 : -1}
+          className={Math.round(shown) === tabIndex ? "active" : ""}
+          onClick={() => pick(tabIndex)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const SWIPE_DISTANCE = 48;
 
 export function ScheduleViews({
@@ -392,27 +482,6 @@ export function ScheduleViews({
   const lastRange = useRef(range);
   const lastAnchor = useRef(anchor);
   const lastSelected = useRef(selectedDate);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Close the view menu on any tap outside it, or Escape.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (event: PointerEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent) {
-        if (event.key === "Escape") setMenuOpen(false);
-        return;
-      }
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [menuOpen]);
-
   // Keep the selected day in view when the range, today, or the selection
   // changes from outside (e.g. "Today" in the hero or a new import).
   useEffect(() => {
@@ -444,8 +513,6 @@ export function ScheduleViews({
   }, [anchor, range, selectedDate]);
 
   const view = useMemo(() => scheduleWindow(range, anchor, offset), [anchor, offset, range]);
-  const rangeLabel =
-    SCHEDULE_RANGES.find((option) => option.value === range)?.label ?? "Week";
   const page = (amount: number) =>
     setPosition((current) => ({
       offset: current.offset + amount,
@@ -483,40 +550,7 @@ export function ScheduleViews({
       <div className="panel-head">
         <h2>Schedule</h2>
         <div className="schedule-tools">
-          <div className="range-menu" ref={menuRef}>
-            <button
-              type="button"
-              className={`tool-button ${menuOpen ? "open" : ""}`}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              aria-label={`View: ${rangeLabel}`}
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <CalendarRange />
-              <span>{rangeLabel}</span>
-              <ChevronDown className="tool-chevron" />
-            </button>
-            {menuOpen && (
-              <div className="range-popup" role="menu">
-                {SCHEDULE_RANGES.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={range === option.value}
-                    className={range === option.value ? "active" : ""}
-                    onClick={() => {
-                      onRange(option.value);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <span>{option.label}</span>
-                    {range === option.value && <Check />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <ViewTabs value={range} onChange={onRange} />
           <button
             type="button"
             className={`tool-button icon-only ${showRanges ? "on" : ""}`}
