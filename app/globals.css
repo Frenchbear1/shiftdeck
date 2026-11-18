@@ -6726,6 +6726,29 @@ select:focus-visible {
   flex: none;
 }
 
+.match-swap-status > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.match-swap-cancel {
+  flex: none;
+  margin: -3px -4px -3px 0;
+  padding: 5px 10px;
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.match-swap-status.is-cancelled {
+  color: var(--muted);
+  text-decoration: none;
+}
+
 .match-swap-status.is-yes {
   color: var(--green);
   background: var(--green-soft);

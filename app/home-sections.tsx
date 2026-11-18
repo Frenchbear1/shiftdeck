@@ -1435,6 +1435,7 @@ export function SwapSheet({
   sentSwaps,
   swapServiceUrl,
   onSwapSent,
+  onCancelSwap,
   onClose,
 }: {
   shifts: Shift[];
@@ -1449,6 +1450,7 @@ export function SwapSheet({
   /** Server that hosts the answer page. */
   swapServiceUrl: string;
   onSwapSent: (swap: SentSwap) => void;
+  onCancelSwap: (swap: SentSwap) => void;
   onClose: () => void;
 }) {
   const apple = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent);
@@ -1660,23 +1662,30 @@ export function SwapSheet({
                         </div>
                         {(() => {
                           const contact = contacts[contactKey(match.worker)];
-                          const takeDay = match.swapDays.find((day) => day.date === swapDate) ?? match.swapDays[0];
+                          const asShift = (day: { date: string; start: string; end: string }) =>
+                            ({ date: day.date, start: day.start, end: day.end });
+                          const picked = swapDate ? match.swapDays.find((day) => day.date === swapDate) : undefined;
                           const give = myOffShift && { date: offDate, start: myOffShift.start, end: myOffShift.end };
-                          const take = takeDay && { date: takeDay.date, start: takeDay.start, end: takeDay.end };
-                          const message = give && swapMessage({ to: match.worker, from: person, give, take });
+                          // A day picked in step 2 is the trade. With "Any day off", every day
+                          // of theirs is offered and they choose on the answer page.
+                          const take = picked ? asShift(picked)
+                            : match.swapDays.length === 1 ? asShift(match.swapDays[0]) : undefined;
+                          const options = take ? undefined : match.swapDays.map(asShift)
+                            .sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`));
+                          const message = give && swapMessage({ to: match.worker, from: person, give, take, options });
                           // The answer link is made on tap, so each message gets its own,
                           // and the mail or messages app still opens right away.
                           const send = (how: "email" | "text") => (event: React.MouseEvent<HTMLAnchorElement>) => {
                             if (!give || !contact) return;
                             const keys = newSwapKeys();
                             const withLink = swapMessage({
-                              to: match.worker, from: person, give, take, link: swapLink(swapServiceUrl, keys.id),
+                              to: match.worker, from: person, give, take, options, link: swapLink(swapServiceUrl, keys.id),
                             });
                             event.currentTarget.href = how === "email"
                               ? emailLink(contact.email!, withLink)
                               : textLink(contact.phone!, `${withLink.subject}\n${withLink.body}`, apple);
                             onSwapSent({
-                              ...keys, worker: match.worker, give, take,
+                              ...keys, worker: match.worker, give, take, ...(options ? { options } : {}),
                               sentAt: new Date().toISOString(), status: "waiting", seen: true,
                             });
                           };
@@ -1686,12 +1695,22 @@ export function SwapSheet({
                           return (
                             <>
                             {latest && (
-                              <p className={`match-swap-status is-${latest.status}`}>
-                                {latest.status === "yes" ? <Check /> : latest.status === "no" ? <X /> : <Clock3 />}
-                                {latest.status === "yes"
-                                  ? `Said yes${latest.take ? ` · ${weekdayOf(latest.take.date)} ${dayOfMonth(latest.take.date)}` : ""}`
-                                  : latest.status === "no" ? "Can’t swap" : "Asked · waiting for an answer"}
-                              </p>
+                              <div className={`match-swap-status is-${latest.status}`}>
+                                {latest.status === "yes" ? <Check /> : latest.status === "no" || latest.status === "cancelled" ? <X /> : <Clock3 />}
+                                <span>
+                                  {latest.status === "yes"
+                                    ? `Said yes${latest.take ? ` · you take ${weekdayOf(latest.take.date)} ${dayOfMonth(latest.take.date)}` : ""}`
+                                    : latest.status === "no" ? "Can’t swap"
+                                      : latest.status === "cancelled" ? "Cancelled · their link says you changed your mind"
+                                        : latest.options?.length ? `Asked · ${latest.options.length} days offered · waiting`
+                                          : "Asked · waiting for an answer"}
+                                </span>
+                                {latest.status === "waiting" && (
+                                  <button type="button" className="match-swap-cancel" onClick={() => onCancelSwap(latest)}>
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
                             )}
                             <div className="match-contact">
                               {contact?.email && message && (

@@ -200,25 +200,38 @@ const timeLabel = (time: string) => {
 
 const range = ({ start, end }: SwapDay) => `${timeLabel(start)}–${timeLabel(end)}`;
 
-/** A short, friendly swap request ready to send. */
-export function swapMessage({ to, from, give, take, link }: {
+/**
+ * A short swap request ready to send, laid out in small sections. With
+ * several of their shifts offered, they pick one on the answer page.
+ */
+export function swapMessage({ to, from, give, take, options, link }: {
   to: string;
   from: string;
   give: SwapDay;
   take?: SwapDay;
-  /** Page where they tap Works for me / Can't. */
+  options?: SwapDay[];
+  /** Page where they answer. */
   link?: string;
 }) {
   const first = (name: string) => name.trim().split(/\s+/)[0] ?? "";
+  const line = (day: SwapDay) => `${dayLabel(day.date)} · ${range(day)}`;
+  const choices = !take && options && options.length > 1 ? options : null;
+  const theirs = take ?? (options?.length === 1 ? options[0] : undefined);
   const subject = `Shift swap? ${dayLabel(give.date)}`;
   const body = [
-    `Hi ${first(to)}, would you want to swap shifts?`,
-    take
-      ? `You'd take my ${dayLabel(give.date)} (${range(give)}) and I'd take your ${dayLabel(take.date)} (${range(take)}).`
-      : `Could you take my ${dayLabel(give.date)} (${range(give)})?`,
-    link ? `Tap to answer: ${link}` : "Let me know!",
-    from ? `– ${first(from)}` : "",
-  ].filter(Boolean).join("\n");
+    `Hi ${first(to)},`,
+    "Would you want to swap shifts?",
+    `My shift you'd take:\n${line(give)}`,
+    choices
+      ? `I could take any one of yours:\n${choices.map((day) => `• ${line(day)}`).join("\n")}`
+      : theirs
+        ? `Your shift I'd take:\n${line(theirs)}`
+        : "",
+    link
+      ? `${choices ? "Pick one or say no here" : "Tap to answer"}:\n${link}`
+      : "Let me know!",
+    from ? `Thanks,\n${first(from)}` : "Thanks!",
+  ].filter(Boolean).join("\n\n");
   return { subject, body };
 }
 

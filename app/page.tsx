@@ -96,6 +96,7 @@ import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
 import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
 import {
+  cancelSwap,
   fetchSwapStatuses,
   isLiveSwap,
   loadSentSwaps,
@@ -2869,11 +2870,11 @@ export default function HomePage() {
           <form method="dialog"><button type="submit" aria-label="Close notifications"><X /></button></form>
         </header>
         <div className="sheet-scroll">
-          {sentSwaps.some((swap) => isLiveSwap(swap, todayDate)) && (
+          {sentSwaps.some((swap) => swap.status !== "cancelled" && isLiveSwap(swap, todayDate)) && (
             <section className="notice-group" aria-label="Swap replies">
               <h3>Swap replies</h3>
               <ul className="swap-reply-list">
-                {[...sentSwaps].filter((swap) => isLiveSwap(swap, todayDate)).reverse().map((swap) => (
+                {[...sentSwaps].filter((swap) => swap.status !== "cancelled" && isLiveSwap(swap, todayDate)).reverse().map((swap) => (
                   <li key={swap.id} className={`is-${swap.status}${swap.status !== "waiting" && !swap.seen ? " is-new" : ""}`}>
                     <span className="swap-reply-icon">
                       {swap.status === "yes" ? <Check /> : swap.status === "no" ? <X /> : <ArrowLeftRight />}
@@ -2888,7 +2889,9 @@ export default function HomePage() {
                       </b>
                       <small>
                         Your {formatShortDay(swap.give.date)} {formatTimeRange(swap.give)}
-                        {swap.take && <> for their {formatShortDay(swap.take.date)} {formatTimeRange(swap.take)}</>}
+                        {swap.take
+                          ? <> for their {formatShortDay(swap.take.date)} {formatTimeRange(swap.take)}</>
+                          : swap.options?.length ? <> · {swap.options.length} of their days offered</> : null}
                       </small>
                     </div>
                     <button
@@ -2991,7 +2994,18 @@ export default function HomePage() {
             );
             updateSentSwaps((current) => [...current.filter((item) => isLiveSwap(item, todayDate)), swap].slice(-60));
           }}
-          onClose={closeSheet}
+          onCancelSwap={(swap) => {
+            void cancelSwap(calendarServiceUrl(""), swap);
+            updateSentSwaps((current) => current.map((item) =>
+              item.id === swap.id ? { ...item, status: "cancelled", seen: true } : item));
+          }}
+          onClose={() => {
+            // Cancelled requests clear once you leave Shift swap.
+            updateSentSwaps((current) => current.some((item) => item.status === "cancelled")
+              ? current.filter((item) => item.status !== "cancelled")
+              : current);
+            closeSheet();
+          }}
         />
       )}
 

@@ -11,9 +11,12 @@ export type SentSwap = {
   token: string;
   worker: string;
   give: SwapShift;
+  /** The shift of theirs you'd take (set once they pick, if you offered several). */
   take?: SwapShift;
+  /** Several of their shifts offered; they choose one. */
+  options?: SwapShift[];
   sentAt: string;
-  status: "waiting" | "yes" | "no";
+  status: "waiting" | "yes" | "no" | "cancelled";
   answeredAt?: string;
   /** False until you've seen the answer in Notifications. */
   seen: boolean;
@@ -49,7 +52,8 @@ export function saveSentSwaps(swaps: SentSwap[]) {
 
 /** Requests stop mattering two days after the later shift. */
 export const isLiveSwap = (swap: SentSwap, today: string) =>
-  [swap.give.date, swap.take?.date].filter(Boolean).sort().at(-1)! >= today;
+  [swap.give.date, swap.take?.date, ...(swap.options ?? []).map((option) => option.date)]
+    .filter(Boolean).sort().at(-1)! >= today;
 
 /**
  * Registers the request. Sent as plain text with keepalive so it needs no
@@ -63,15 +67,28 @@ export function registerSwap(serviceUrl: string, swap: SentSwap, from: string,
     headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({
       id: swap.id, token: swap.token, from, to: swap.worker, give: swap.give, take: swap.take,
+      options: swap.options,
       ...(profile ? { profileId: profile.id, profileToken: profile.writeToken } : {}),
     }),
   }).catch(() => undefined);
 }
 
+/** Tells the server you changed your mind; their link then says so. */
+export function cancelSwap(serviceUrl: string, swap: SentSwap) {
+  return fetch(`${serviceUrl}/api/swaps/cancel`, {
+    method: "POST",
+    keepalive: true,
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ id: swap.id, token: swap.token }),
+  }).catch(() => undefined);
+}
+
+type SwapStatus = { status: string; answeredAt?: string | null; take?: SwapShift };
+
 /** Latest answers for these requests, by id. */
 export async function fetchSwapStatuses(serviceUrl: string, swaps: SentSwap[]) {
   const asked = swaps.slice(-60);
-  const byId = new Map<string, { status: string; answeredAt?: string | null }>();
+  const byId = new Map<string, SwapStatus>();
   if (!asked.length) return byId;
   const response = await fetch(`${serviceUrl}/api/swaps/status`, {
     method: "POST",
@@ -80,28 +97,29 @@ export async function fetchSwapStatuses(serviceUrl: string, swaps: SentSwap[]) {
   });
   if (!response.ok) return byId;
   const { statuses } = (await response.json()) as {
-    statuses?: Array<{ id: string; status: string; answeredAt?: string | null }>;
+    statuses?: Array<SwapStatus & { id: string }>;
   };
   for (const item of statuses ?? []) byId.set(item.id, item);
   return byId;
 }
 
 /** Applies answers; a new or changed answer is marked unseen. */
-export function mergeSwapStatuses(
-  swaps: SentSwap[],
-  byId: Map<string, { status: string; answeredAt?: string | null }>,
-) {
+export function mergeSwapStatuses(swaps: SentSwap[], byId: Map<string, SwapStatus>) {
   let changed = false;
   const next = swaps.map((swap) => {
     const latest = byId.get(swap.id);
-    if (!latest || (latest.status !== "yes" && latest.status !== "no" && latest.status !== "waiting")) return swap;
-    if (latest.status === swap.status) return swap;
+    if (!latest || !["waiting", "yes", "no", "cancelled"].includes(latest.status)) return swap;
+    // A cancel made on this phone stays, even before the server has it.
+    if (swap.status === "cancelled") return swap;
+    const take = latest.take ?? (swap.options?.length ? undefined : swap.take);
+    if (latest.status === swap.status && take?.date === swap.take?.date) return swap;
     changed = true;
     return {
       ...swap,
       status: latest.status,
+      take,
       answeredAt: latest.answeredAt ?? undefined,
-      seen: latest.status === "waiting",
+      seen: latest.status === "waiting" || latest.status === "cancelled",
     } as SentSwap;
   });
   return changed ? next : swaps;

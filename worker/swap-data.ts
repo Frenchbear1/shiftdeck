@@ -9,6 +9,8 @@ export type SwapRequestInput = {
   to: string;
   give: SwapShift;
   take?: SwapShift;
+  /** Several of their shifts; they pick which one you'd take. */
+  options?: SwapShift[];
 };
 
 export type SwapRow = {
@@ -21,8 +23,20 @@ export type SwapRow = {
   take_date: string | null;
   take_start: string | null;
   take_end: string | null;
-  status: "waiting" | "yes" | "no";
+  status: "waiting" | "yes" | "no" | "cancelled";
   answered_at: string | null;
+  options_json?: string | null;
+};
+
+const MAX_OPTIONS = 12;
+
+export const rowOptions = (row: Pick<SwapRow, "options_json">): SwapShift[] => {
+  try {
+    const parsed: unknown = JSON.parse(row.options_json ?? "[]");
+    return Array.isArray(parsed) ? parsed.map(shift).filter((item): item is SwapShift => Boolean(item)) : [];
+  } catch {
+    return [];
+  }
 };
 
 const ID = /^[A-Za-z0-9_-]{16,40}$/;
@@ -49,11 +63,18 @@ export function readSwapRequest(body: unknown): SwapRequestInput | null {
   if (!raw || typeof raw.id !== "string" || !ID.test(raw.id) ||
     typeof raw.token !== "string" || !ID.test(raw.token)) return null;
   const give = shift(raw.give);
-  const take = raw.take === undefined || raw.take === null ? undefined : shift(raw.take);
+  let take = raw.take === undefined || raw.take === null ? undefined : shift(raw.take);
+  const options = Array.isArray(raw.options)
+    ? raw.options.slice(0, MAX_OPTIONS).map(shift).filter((item): item is SwapShift => Boolean(item))
+    : [];
   const from = firstName(raw.from);
   const to = firstName(raw.to);
   if (!give || take === null || !to) return null;
-  return { id: raw.id, token: raw.token, from: from || "Your coworker", to, give, take };
+  if (!take && options.length === 1) take = options[0];
+  return {
+    id: raw.id, token: raw.token, from: from || "Your coworker", to, give, take,
+    ...(!take && options.length > 1 ? { options } : {}),
+  };
 }
 
 const day = (date: string) =>
@@ -69,8 +90,9 @@ export const shiftLabel = (date: string, start: string, end: string) =>
   `${day(date)} · ${time(start)}–${time(end)}`;
 
 /** Requests stop working two days after the later of the two shifts. */
-export function swapExpiry(input: Pick<SwapRequestInput, "give" | "take">) {
-  const last = [input.give.date, input.take?.date].filter(Boolean).sort().at(-1)!;
+export function swapExpiry(input: Pick<SwapRequestInput, "give" | "take" | "options">) {
+  const last = [input.give.date, input.take?.date, ...(input.options ?? []).map((option) => option.date)]
+    .filter(Boolean).sort().at(-1)!;
   return new Date(Date.parse(`${last}T12:00:00Z`) + 2 * 86_400_000).toISOString();
 }
 
@@ -90,25 +112,53 @@ const escape = (value: string) =>
   value.replace(/[&<>"']/g, (character) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 
-/** The page a coworker sees from the link: the swap and two buttons. */
+/** The page a coworker sees from the link: the swap and the choices. */
 export function answerPage(row: SwapRow | null, justAnswered = false) {
-  const body = !row
-    ? `<h1>This swap request isn’t available</h1><p>It may have expired, or the link isn’t complete.</p>`
-    : `
+  const from = row ? escape(row.from_name) : "";
+  const options = row ? rowOptions(row) : [];
+  const chosen = row?.take_date && row.take_start && row.take_end
+    ? shiftLabel(row.take_date, row.take_start, row.take_end)
+    : null;
+  let body: string;
+  if (!row) {
+    body = `<h1>This swap request isn’t available</h1><p>It may have expired, or the link isn’t complete.</p>`;
+  } else if (row.status === "cancelled") {
+    body = `<p class="eyebrow">Shift swap</p>
+      <h1>${from} changed their mind</h1>
+      <p>This swap request was cancelled, so there’s nothing to answer. Thanks anyway!</p>`;
+  } else {
+    const giveLabel = escape(shiftLabel(row.give_date, row.give_start, row.give_end));
+    const choosing = options.length > 1;
+    const pick = choosing
+      ? `<p class="label">Pick the shift of yours ${from} would take:</p>
+         <form method="post" class="options">
+           ${options.map((option, index) => {
+             const label = shiftLabel(option.date, option.start, option.end);
+             const isChosen = row.status === "yes" && label === chosen;
+             return `<button name="answer" value="yes:${index}" class="option${isChosen ? " chosen" : ""}"${isChosen ? " disabled" : ""}>${escape(label)}</button>`;
+           }).join("")}
+           <button name="answer" value="no" class="no"${row.status === "no" ? " disabled" : ""}>Can’t do any</button>
+         </form>`
+      : `<form method="post">
+           <button name="answer" value="yes" class="yes"${row.status === "yes" ? " disabled" : ""}>Works for me</button>
+           <button name="answer" value="no" class="no"${row.status === "no" ? " disabled" : ""}>Can’t</button>
+         </form>`;
+    const answered = row.status === "waiting" ? "" : `<p class="answer ${row.status}">${justAnswered ? "Thanks! " : ""}${
+      row.status === "yes"
+        ? `You said yes${choosing && chosen ? ` — ${from} takes your ${escape(chosen)}` : ""}.`
+        : "You said you can’t."
+    } ${from} ${justAnswered ? "has been" : "was"} notified.</p>`;
+    body = `
       <p class="eyebrow">Shift swap</p>
-      <h1>${escape(row.from_name)} would like to swap shifts with you</h1>
+      <h1>${from} would like to swap shifts with you</h1>
       <dl>
-        <div><dt>You’d take</dt><dd>${escape(row.from_name)}’s ${escape(shiftLabel(row.give_date, row.give_start, row.give_end))}</dd></div>
-        ${row.take_date && row.take_start && row.take_end
-          ? `<div><dt>${escape(row.from_name)} would take</dt><dd>your ${escape(shiftLabel(row.take_date, row.take_start, row.take_end))}</dd></div>`
-          : ""}
+        <div><dt>You’d take ${from}’s</dt><dd>${giveLabel}</dd></div>
+        ${!choosing && chosen ? `<div><dt>${from} would take your</dt><dd>${escape(chosen)}</dd></div>` : ""}
       </dl>
-      ${row.status === "waiting" ? "" : `<p class="answer ${row.status}">${justAnswered ? "Thanks! " : ""}You answered <b>${row.status === "yes" ? "Works for me" : "Can’t"}</b>. ${escape(row.from_name)} ${justAnswered ? "has been" : "was"} notified.</p>`}
-      <form method="post">
-        <button name="answer" value="yes" class="yes"${row.status === "yes" ? " disabled" : ""}>Works for me</button>
-        <button name="answer" value="no" class="no"${row.status === "no" ? " disabled" : ""}>Can’t</button>
-      </form>
-      ${row.status === "waiting" ? "" : `<p class="small">Changed your mind? Tap the other answer.</p>`}`;
+      ${answered}
+      ${pick}
+      ${row.status === "waiting" ? "" : `<p class="small">Changed your mind? Tap a different answer.</p>`}`;
+  }
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -129,6 +179,10 @@ export function answerPage(row: SwapRow | null, justAnswered = false) {
   dt { color: #6f7682; font-size: 13px; font-weight: 600; }
   dd { margin: 2px 0 0; font-weight: 700; }
   form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  form.options { grid-template-columns: 1fr; }
+  .label { margin: 0 0 10px; font-weight: 700; }
+  button.option { color: #fff; background: var(--blue); }
+  button.option.chosen { opacity: 1; box-shadow: inset 0 0 0 3px #0f6b56; }
   button { min-height: 50px; border: 0; border-radius: 14px; font: inherit; font-weight: 750; cursor: pointer; }
   button.yes { color: #fff; background: var(--blue); }
   button.no { color: #16191f; background: #eef1f5; }

@@ -57,11 +57,13 @@ test("writes a short prefilled swap request", () => {
   });
   assert.equal(message.subject, "Shift swap? Wed, Nov 25");
   assert.equal(message.body, [
-    "Hi Landon, would you want to swap shifts?",
-    "You'd take my Wed, Nov 25 (5 PM–1 AM) and I'd take your Sat, Nov 21 (12 PM–8 PM).",
+    "Hi Landon,",
+    "Would you want to swap shifts?",
+    "My shift you'd take:\nWed, Nov 25 · 5 PM–1 AM",
+    "Your shift I'd take:\nSat, Nov 21 · 12 PM–8 PM",
     "Let me know!",
-    "– David",
-  ].join("\n"));
+    "Thanks,\nDavid",
+  ].join("\n\n"));
   assert.match(emailLink("l@x.com", message), /^mailto:l@x\.com\?subject=Shift%20swap/);
   assert.match(textLink("6105551234", "Hi", true), /^sms:6105551234&body=Hi$/);
   assert.match(textLink("6105551234", "Hi", false), /^sms:6105551234\?body=Hi$/);
