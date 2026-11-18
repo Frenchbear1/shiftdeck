@@ -279,7 +279,6 @@ test("reprocesses uploads and records the current schedule parser", async () => 
   assert.doesNotMatch(importHandler, /document\.hash === hash/);
   assert.match(page, /parserVersion: SCHEDULE_PARSER_VERSION/);
   assert.match(page, /accept=\{android \? "image\/\*" : "image\/\*,application\/pdf,\.pdf"\}/);
-  assert.match(page, /accept="application\/pdf,\.pdf"/);
   assert.match(page, /parseCharterPdf\(file, \(image\)/);
   assert.match(page, /flight\.source === "charter" && flight\.trackingId/);
   assert.match(page, /canonicalizeScheduleShifts\(document\.shifts\)/);

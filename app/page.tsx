@@ -741,9 +741,8 @@ export default function HomePage() {
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
   const airportAlertsButton = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const pdfInput = useRef<HTMLInputElement>(null);
   // Android's picker hides the gallery and camera when PDFs are also allowed,
-  // so photos and PDFs get separate pickers there.
+  // so it only offers photos there.
   const android = useSyncExternalStore(subscribeToNothing, isAndroid, () => false);
   const sheetRef = useRef<Sheet>(null);
 
@@ -2482,27 +2481,12 @@ export default function HomePage() {
           onChange={onFiles}
           aria-label={android ? "Upload schedule photos" : "Upload schedule files"}
         />
-        {android && (
-          <input
-            ref={pdfInput}
-            type="file"
-            accept="application/pdf,.pdf"
-            multiple
-            onChange={onFiles}
-            aria-label="Upload charter PDFs"
-          />
-        )}
         <button className="upload-inner" onClick={() => fileInput.current?.click()}>
           <span className="upload-icon"><Upload /></span>
           <h2>{dragActive ? "Drop to import" : android ? "Add schedule photos" : "Add schedule files"}</h2>
           <p>{android ? "Tap to choose from your gallery or camera" : "Tap to choose, or drop them here"}</p>
           <small>{android ? "JPG or PNG · several at once is fine" : "JPG, PNG, HEIC or PDF · several at once is fine"}</small>
         </button>
-        {android && (
-          <button type="button" className="upload-pdf-link" onClick={() => pdfInput.current?.click()}>
-            <FileText /> Import a charter PDF instead
-          </button>
-        )}
       </section>
 
       {(importState === "review" || importState === "error") && (

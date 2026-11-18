@@ -2943,26 +2943,6 @@ select:focus-visible {
   font-size: 12px;
 }
 
-.upload-pdf-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  padding: 8px 12px;
-  color: var(--blue);
-  background: transparent;
-  border: 0;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.upload-pdf-link svg {
-  width: 15px;
-  height: 15px;
-}
-
 .import-steps {
   width: 100%;
   display: grid;
@@ -3554,14 +3534,14 @@ select:focus-visible {
   list-style: none;
 }
 
-/* Names stacked on the left with the swap button centered between them;
-   Merge and Different people on the right. */
+/* Swap button on the left, the two names stacked beside it, and Merge /
+   Different people on the right. */
 .merge-suggestions li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 10px 10px 10px 12px;
+  gap: 8px;
+  padding: 8px 10px;
   background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--line));
   border-radius: 12px;
@@ -3571,30 +3551,34 @@ select:focus-visible {
 .merge-pair {
   min-width: 0;
   display: grid;
-  justify-items: center;
-  gap: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.merge-names {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
   font-size: 13.5px;
-  text-align: center;
+  line-height: 1.25;
 }
 
 .merge-drop {
-  max-width: 100%;
   overflow: hidden;
   color: var(--muted);
+  font-size: 12.5px;
   text-decoration: line-through;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .merge-keep {
-  max-width: 100%;
   min-width: 0;
   font-weight: 800;
-  text-align: center;
 }
 
 .merge-keep .person-name-with-tag {
-  justify-content: center;
   flex-wrap: wrap;
 }
 
@@ -3603,8 +3587,8 @@ select:focus-visible {
 }
 
 .merge-flip {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -3623,11 +3607,12 @@ select:focus-visible {
 .merge-actions {
   display: grid;
   justify-items: stretch;
-  gap: 2px;
+  gap: 0;
 }
 
 .merge-actions .button {
-  min-height: 36px;
+  min-height: 32px;
+  padding-block: 0;
   font-size: 13px;
 }
 
@@ -3639,18 +3624,18 @@ select:focus-visible {
 }
 
 .merge-actions .button svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .merge-dismiss {
-  padding: 5px 4px;
-  white-space: nowrap;
+  padding: 4px 4px 0;
   color: var(--muted);
   background: none;
   border: 0;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
 }
 

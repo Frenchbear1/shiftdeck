@@ -1609,7 +1609,6 @@ export function NameMergeSheet({
                 return (
                   <li key={pairKey}>
                     <div className="merge-pair">
-                      <span className="merge-drop">{drop}</span>
                       <button
                         type="button"
                         className="merge-flip"
@@ -1621,8 +1620,11 @@ export function NameMergeSheet({
                       >
                         <ArrowUpDown />
                       </button>
-                      <span className="merge-keep">
-                        <PersonName name={keep} />
+                      <span className="merge-names">
+                        <span className="merge-drop">{drop}</span>
+                        <span className="merge-keep">
+                          <PersonName name={keep} />
+                        </span>
                       </span>
                     </div>
                     <div className="merge-actions">
