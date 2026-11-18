@@ -1763,6 +1763,8 @@ export function NameMergeSheet({
   onMerge,
   onDismiss,
   onUndo,
+  different,
+  onUndoDifferent,
   onClose,
 }: {
   suggestions: Array<{ from: string; to: string }>;
@@ -1771,6 +1773,9 @@ export function NameMergeSheet({
   onMerge: (from: string, to: string) => void;
   onDismiss: (from: string, to: string) => void;
   onUndo: (from: string) => void;
+  /** Pairs marked "Different people", which can be undone. */
+  different: Array<{ key: string; a: string; b: string }>;
+  onUndoDifferent: (key: string) => void;
   onClose: () => void;
 }) {
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
@@ -1861,6 +1866,24 @@ export function NameMergeSheet({
                       <s>{merge.from}</s> → {merge.to}
                     </span>
                     <button type="button" onClick={() => onUndo(merge.from)}>
+                      <Undo2 /> Undo
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {different.length > 0 && (
+            <div className="merge-done-block">
+              <span className="merge-done-title">Different people</span>
+              <ul className="merge-done">
+                {different.map((pair) => (
+                  <li key={pair.key}>
+                    <span>
+                      {pair.a} <i className="merge-not-same">≠</i> {pair.b}
+                    </span>
+                    <button type="button" onClick={() => onUndoDifferent(pair.key)}>
                       <Undo2 /> Undo
                     </button>
                   </li>

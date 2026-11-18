@@ -3385,6 +3385,13 @@ export default function HomePage() {
           onMerge={mergeNames}
           onDismiss={dismissMergeSuggestion}
           onUndo={undoNameMerge}
+          different={dismissedMerges.map((key) => {
+            const shown = (part: string) =>
+              parsedShifts.find((shift) => nameKey(shift.worker) === part)?.worker ?? part;
+            const [a = "", b = ""] = key.split("|");
+            return { key, a: shown(a), b: shown(b) };
+          })}
+          onUndoDifferent={(key) => setDismissedMerges((current) => current.filter((item) => item !== key))}
           onClose={() => {
             setNameMergeOpen(false);
             setSettingsSnapshot(JSON.stringify(prefs));

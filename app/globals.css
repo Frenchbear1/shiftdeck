@@ -3782,6 +3782,13 @@ select:focus-visible {
   cursor: pointer;
 }
 
+.merge-not-same {
+  margin: 0 3px;
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 700;
+}
+
 .merge-done-block {
   display: grid;
   gap: 4px;
