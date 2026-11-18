@@ -111,22 +111,46 @@ test("coworkers fold into the directory without duplicates", async () => {
   assert.deepEqual(swap.landonweber, { email: "lweber@abe.com", phone: "4845551234" });
 });
 
-test("time left is measured from real progress", async () => {
+test("the reading bar moves with time, not Tesseract's jumpy percentages", async () => {
   const { progressClock, formatTimeLeft } = await import("../app/read-progress.ts");
   let time = 0;
   const reports = [];
-  const clock = progressClock((progress) => reports.push(progress), () => time);
-  clock.setTotal(4);
-  clock.startTiming();
-  time = 5000;
-  clock.at(1);
-  assert.equal(Math.round(reports.at(-1).secondsLeft), 15);
-  assert.equal(reports.at(-1).fraction, 0.25);
-  clock.startTiming();
-  time = 6000;
-  clock.step("Next");
-  assert.equal(Math.round(reports.at(-1).secondsLeft), 14, "keeps counting down while re-timing");
+  const clock = progressClock((progress) => reports.push({ time, ...progress }), { now: () => time, tick: false });
+  // Four screenshots that each take 4 s on this "phone": nothing reported for
+  // the first 0.8 s, recognizing climbs to 70%, then it's done all at once.
+  const SHOT = 4000;
+  clock.plan([{ step: "contact-shot", count: 4 }]);
+  clock.start("Starting the reader…", "load");
+  time += 600;
+  clock.end();
+  for (let shot = 0; shot < 4; shot += 1) {
+    clock.start(`Reading screenshot ${shot + 1} of 4`, "contact-shot", 1.5);
+    const began = time;
+    while (time - began < SHOT) {
+      time += 200;
+      const into = time - began;
+      if (into > 800) clock.recognizing(Math.min(0.7, ((into - 800) / (SHOT - 800)) * 0.7));
+      clock.refresh();
+    }
+    clock.end();
+  }
+  clock.finish();
+  const total = time;
+  const fractions = reports.map((report) => report.fraction);
+  for (let index = 1; index < fractions.length; index += 1) {
+    assert.ok(fractions[index] >= fractions[index - 1], "never goes backwards");
+  }
+  // After the first screenshot, the bar tracks the true share of time closely.
+  for (const report of reports.filter((item) => item.time > 600 + SHOT && item.time < total)) {
+    assert.ok(Math.abs(report.fraction - report.time / total) < 0.08, `at ${report.time} ms: ${report.fraction}`);
+    assert.ok(Math.abs(report.secondsLeft - (total - report.time) / 1000) < 1.5, `time left at ${report.time} ms`);
+  }
+  // No leap at the end of each screenshot.
+  const steps = reports.slice(1).map((report, index) => report.fraction - reports[index].fraction);
+  assert.ok(Math.max(...steps.slice(0, -1)) < 0.1, "no big jumps");
+  assert.equal(reports.at(-1).fraction, 1);
   assert.equal(formatTimeLeft(null), "Estimating time…");
-  assert.equal(formatTimeLeft(42), "About 45 sec left");
+  assert.equal(formatTimeLeft(42), "About 40 sec left");
+  assert.equal(formatTimeLeft(5), "About 5 sec left");
   assert.equal(formatTimeLeft(130), "About 2 min left");
 });

@@ -3,7 +3,7 @@
 import {
   ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus, X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
 import {
   callLink,
@@ -21,6 +21,7 @@ import {
 import type { Contacts } from "./contacts-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle } from "./sheet-tools";
+import { coolReader, warmReader } from "./ocr-reader";
 import type { ReadProgress } from "./read-progress";
 
 type Draft = Omit<DirectoryEntry, "id" | "check"> & { id?: string; coworker?: string; fromSchedule?: boolean };
@@ -97,6 +98,8 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, onChange
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [reading, setReading] = useState<ReadProgress | null>(null);
+  // A reader warmed by the + menu but never used is shut down with the sheet.
+  useEffect(() => coolReader, []);
   const [notice, setNotice] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const images = useRef<HTMLInputElement>(null);
@@ -178,6 +181,7 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, onChange
             {!editing && (
               <AddMenu
                 label="Add to the directory"
+                onOpen={() => void warmReader().catch(() => undefined)}
                 busy={Boolean(reading)}
                 note="Screenshot each page of the directory and pick them all at once. Read and saved only on this phone."
                 items={[

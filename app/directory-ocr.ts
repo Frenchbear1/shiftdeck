@@ -6,11 +6,8 @@ import {
   type DirectoryEntry,
   type PlacedText,
 } from "./directory-data";
-import { progressClock, type ReadProgress } from "./read-progress";
-
-/** A guess until it's measured: one number check vs. one whole screenshot. */
-const CHECK_COST = 0.05;
-const CHECKS_PER_SCREENSHOT = 20;
+import { takeReader } from "./ocr-reader";
+import { expectedChecksPerShot, progressClock, type ReadProgress } from "./read-progress";
 
 /**
  * Reads a phone directory on this phone: screenshots with the same OCR
@@ -78,114 +75,117 @@ export async function readDirectoryImages(
 ): Promise<DirectoryEntry[]> {
   const clock = progressClock(onProgress);
   const shots = files.length;
-  clock.setTotal(shots * (1 + CHECKS_PER_SCREENSHOT * CHECK_COST));
-  clock.step("Starting the reader…");
-  // Where the current read sits: progress maps to [from, from + size].
-  let from = 0;
-  let size = 1;
-  const { createWorker, PSM } = await import("tesseract.js");
-  const worker = await createWorker("eng", 1, {
-    logger: ({ status, progress }) => {
-      if (status === "recognizing text") clock.at(from + size * progress * 0.95);
-    },
-  });
-  clock.startTiming();
-  const canvases: HTMLCanvasElement[] = [];
+  clock.plan([
+    { step: "directory-shot", count: shots },
+    { step: "number-check", count: shots * expectedChecksPerShot() },
+  ]);
+  clock.start("Starting the reader…", "load");
   try {
-    const words: PlacedText[] = [];
-    for (let index = 0; index < files.length; index += 1) {
-      from = index;
-      size = 1;
-      clock.step(files.length > 1 ? `Reading screenshot ${index + 1} of ${files.length}` : "Reading the screenshot");
-      try {
-        const { image, canvas, bitmap } = await prepare(files[index]);
-        bitmap.close();
-        canvases[index] = canvas;
-        await worker.setParameters({
-          tessedit_pageseg_mode: PSM.SPARSE_TEXT as never,
-          tessedit_char_whitelist: "",
-          preserve_interword_spaces: "1",
-        });
-        const { data } = await worker.recognize(image, {}, { tsv: true });
-        words.push(...wordsFromTsv(data.tsv ?? "", index));
-      } catch {
-        // Keep what the other screenshots had.
-      }
-      clock.at(index + 1);
-    }
-    let entries = parseDirectory(words);
-
-    // Double-check every number digits-only; a wrong digit means a wrong call.
-    const jobs = entries.flatMap((entry, index) =>
-      (Object.entries(numberBoxes(entry)) as Array<["phone" | "ext" | "cell", NonNullable<ReturnType<typeof numberBoxes>["phone"]>]>)
-        .map(([field, box]) => ({ index, field, box })));
-    clock.setTotal(shots + jobs.length * CHECK_COST);
-    if (jobs.length) {
-      // Number checks run at their own pace; time them on their own.
-      clock.startTiming();
-      await worker.setParameters({
-        tessedit_pageseg_mode: PSM.SINGLE_LINE as never,
-        tessedit_char_whitelist: "0123456789-",
-      });
-      for (let job = 0; job < jobs.length; job += 1) {
-        clock.step(`Double-checking numbers ${job + 1} of ${jobs.length}`);
-        from = shots + job * CHECK_COST;
-        size = CHECK_COST;
-        clock.at(from);
-        const { index, field, box } = jobs[job];
-        const source = canvases[box.group];
-        if (!source) continue;
+    const { PSM } = await import("tesseract.js");
+    const reader = await takeReader(({ status, progress }) => {
+      if (status === "recognizing text") clock.recognizing(progress);
+    });
+    clock.end();
+    const { worker } = reader;
+    const canvases: HTMLCanvasElement[] = [];
+    try {
+      const words: PlacedText[] = [];
+      for (let index = 0; index < shots; index += 1) {
+        clock.start(shots > 1 ? `Reading screenshot ${index + 1} of ${shots}` : "Reading the screenshot", "directory-shot");
         try {
-          const crop = await numberCrop(source, box);
-          if (!crop) continue;
-          const { data } = await worker.recognize(crop);
-          entries[index] = applyNumberReread(entries[index], field, data.text ?? "");
+          const { image, canvas, bitmap } = await prepare(files[index]);
+          bitmap.close();
+          canvases[index] = canvas;
+          clock.size((canvas.width * canvas.height) / 1e6);
+          await worker.setParameters({
+            tessedit_pageseg_mode: PSM.SPARSE_TEXT as never,
+            tessedit_char_whitelist: "",
+            preserve_interword_spaces: "1",
+          });
+          const { data } = await worker.recognize(image, {}, { tsv: true });
+          words.push(...wordsFromTsv(data.tsv ?? "", index));
         } catch {
-          // The first read stands.
+          // Keep what the other screenshots had.
+        }
+        clock.end();
+      }
+      let entries = parseDirectory(words);
+
+      // Double-check every number digits-only; a wrong digit means a wrong call.
+      const jobs = entries.flatMap((entry, index) =>
+        (Object.entries(numberBoxes(entry)) as Array<["phone" | "ext" | "cell", NonNullable<ReturnType<typeof numberBoxes>["phone"]>]>)
+          .map(([field, box]) => ({ index, field, box })));
+      if (entries.length) clock.noteChecks(jobs.length / shots);
+      clock.plan([{ step: "number-check", count: jobs.length }]);
+      if (jobs.length) {
+        await worker.setParameters({
+          tessedit_pageseg_mode: PSM.SINGLE_LINE as never,
+          tessedit_char_whitelist: "0123456789-",
+        });
+        for (let job = 0; job < jobs.length; job += 1) {
+          clock.start(`Double-checking numbers ${job + 1} of ${jobs.length}`, "number-check");
+          const { index, field, box } = jobs[job];
+          const source = canvases[box.group];
+          try {
+            const crop = source ? await numberCrop(source, box) : null;
+            if (crop) {
+              const { data } = await worker.recognize(crop);
+              entries[index] = applyNumberReread(entries[index], field, data.text ?? "");
+            }
+          } catch {
+            // The first read stands.
+          }
+          clock.end();
         }
       }
+      clock.finish();
+      entries = entries.map((entry) => ({ ...entry }));
+      return entries;
+    } finally {
+      await reader.release();
     }
-    clock.finish();
-    entries = entries.map((entry) => ({ ...entry }));
-    return entries;
   } finally {
-    await worker.terminate().catch(() => undefined);
+    clock.stop();
   }
 }
 
 export async function readDirectoryPdf(file: File, onProgress: (progress: ReadProgress) => void): Promise<DirectoryEntry[]> {
   const clock = progressClock(onProgress);
-  clock.step("Opening the PDF…");
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  clock.start("Opening the PDF…", "pdf-page");
   const words: PlacedText[] = [];
-  clock.setTotal(pdf.numPages);
-  clock.startTiming();
   try {
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      clock.step(`Reading page ${pageNumber} of ${pdf.numPages}`);
-      const page = await pdf.getPage(pageNumber);
-      const { height } = page.getViewport({ scale: 1 });
-      const content = await page.getTextContent();
-      for (const item of content.items) {
-        if (!("str" in item) || !item.str.trim()) continue;
-        const size = Math.hypot(item.transform[2], item.transform[3]) || item.height || 10;
-        // PDF y runs bottom-up; flip it so rows read top to bottom.
-        words.push({
-          text: item.str.trim(),
-          x: item.transform[4],
-          y: height - item.transform[5] - size,
-          width: item.width,
-          height: size,
-          group: pageNumber,
-        });
+    const pdfjs = await import("pdfjs-dist");
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
+    const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    clock.end();
+    clock.plan([{ step: "pdf-page", count: pdf.numPages }]);
+    try {
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        clock.start(`Reading page ${pageNumber} of ${pdf.numPages}`, "pdf-page");
+        const page = await pdf.getPage(pageNumber);
+        const { height } = page.getViewport({ scale: 1 });
+        const content = await page.getTextContent();
+        for (const item of content.items) {
+          if (!("str" in item) || !item.str.trim()) continue;
+          const size = Math.hypot(item.transform[2], item.transform[3]) || item.height || 10;
+          // PDF y runs bottom-up; flip it so rows read top to bottom.
+          words.push({
+            text: item.str.trim(),
+            x: item.transform[4],
+            y: height - item.transform[5] - size,
+            width: item.width,
+            height: size,
+            group: pageNumber,
+          });
+        }
+        clock.end();
       }
-      clock.at(pageNumber);
+      clock.finish();
+    } finally {
+      await pdf.destroy().catch(() => undefined);
     }
   } finally {
-    await pdf.destroy().catch(() => undefined);
+    clock.stop();
   }
-  clock.finish();
   return parseDirectory(words).map((entry) => ({ ...entry }));
 }

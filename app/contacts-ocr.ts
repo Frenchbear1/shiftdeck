@@ -1,4 +1,5 @@
 import { parseListScreenshotText, type ContactEntry } from "./contacts-data";
+import { takeReader } from "./ocr-reader";
 import { progressClock, type ReadProgress } from "./read-progress";
 
 /**
@@ -6,8 +7,8 @@ import { progressClock, type ReadProgress } from "./read-progress";
  * phone (the same OCR engine as schedule imports). Dark-mode screenshots are
  * inverted first, since OCR reads dark text on light best.
  */
-async function prepare(file: Blob): Promise<Blob> {
-  if (typeof createImageBitmap !== "function") return file;
+async function prepare(file: Blob): Promise<{ image: Blob; megapixels: number }> {
+  if (typeof createImageBitmap !== "function") return { image: file, megapixels: 0 };
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(2, Math.max(1, 1600 / bitmap.width));
@@ -17,7 +18,7 @@ async function prepare(file: Blob): Promise<Blob> {
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) {
       bitmap.close();
-      return file;
+      return { image: file, megapixels: 0 };
     }
     context.imageSmoothingQuality = "high";
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
@@ -38,9 +39,10 @@ async function prepare(file: Blob): Promise<Blob> {
       data[offset + 2] = value;
     }
     context.putImageData(pixels, 0, 0);
-    return await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/png"));
+    const image = await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/png"));
+    return { image, megapixels: (canvas.width * canvas.height) / 1e6 };
   } catch {
-    return file;
+    return { image: file, megapixels: 0 };
   }
 }
 
@@ -49,38 +51,40 @@ export async function readContactScreenshots(
   onProgress: (progress: ReadProgress) => void,
 ): Promise<ContactEntry[]> {
   const clock = progressClock(onProgress);
-  clock.setTotal(files.length);
-  clock.step("Starting the reader…");
-  let current = 0;
-  const { createWorker, PSM } = await import("tesseract.js");
-  const worker = await createWorker("eng", 1, {
-    logger: ({ status, progress }) => {
-      if (status === "recognizing text") clock.at(current + progress * 0.95);
-    },
-  });
-  clock.startTiming();
+  clock.plan([{ step: "contact-shot", count: files.length }]);
+  clock.start("Starting the reader…", "load");
   try {
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO as never });
-    const entries: ContactEntry[] = [];
-    const seen = new Set<string>();
-    for (let index = 0; index < files.length; index += 1) {
-      current = index;
-      clock.step(files.length > 1 ? `Reading screenshot ${index + 1} of ${files.length}` : "Reading the screenshot");
-      try {
-        const { data } = await worker.recognize(await prepare(files[index]));
-        for (const entry of parseListScreenshotText(data.text ?? "")) {
-          if (entry.email && seen.has(entry.email)) continue;
-          if (entry.email) seen.add(entry.email);
-          entries.push(entry);
+    const { PSM } = await import("tesseract.js");
+    const reader = await takeReader(({ status, progress }) => {
+      if (status === "recognizing text") clock.recognizing(progress);
+    });
+    clock.end();
+    try {
+      await reader.worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO as never });
+      const entries: ContactEntry[] = [];
+      const seen = new Set<string>();
+      for (let index = 0; index < files.length; index += 1) {
+        clock.start(files.length > 1 ? `Reading screenshot ${index + 1} of ${files.length}` : "Reading the screenshot", "contact-shot");
+        try {
+          const { image, megapixels } = await prepare(files[index]);
+          clock.size(megapixels);
+          const { data } = await reader.worker.recognize(image);
+          for (const entry of parseListScreenshotText(data.text ?? "")) {
+            if (entry.email && seen.has(entry.email)) continue;
+            if (entry.email) seen.add(entry.email);
+            entries.push(entry);
+          }
+        } catch {
+          // Keep what the other screenshots had.
         }
-      } catch {
-        // Keep what the other screenshots had.
+        clock.end();
       }
-      clock.at(index + 1);
+      clock.finish();
+      return entries;
+    } finally {
+      await reader.release();
     }
-    clock.finish();
-    return entries;
   } finally {
-    await worker.terminate().catch(() => undefined);
+    clock.stop();
   }
 }

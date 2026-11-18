@@ -1,11 +1,12 @@
 "use client";
 
 import { BookUser, ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
 import { addPeopleToDirectory, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle } from "./sheet-tools";
+import { coolReader, warmReader } from "./ocr-reader";
 import type { ReadProgress } from "./read-progress";
 import {
   contactKey,
@@ -57,6 +58,8 @@ export function ContactsSheet({
   const picker = contactPicker();
   const screenshotInput = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState<ReadProgress | null>(null);
+  // A reader warmed by the + menu but never used is shut down with the sheet.
+  useEffect(() => coolReader, []);
   const toDirectory = useMemo(() => addPeopleToDirectory(directory, unmatched), [directory, unmatched]);
   const directoryCount = toDirectory.added + toDirectory.updated;
 
@@ -110,6 +113,7 @@ export function ContactsSheet({
             />
             <AddMenu
               label="Add emails and numbers"
+                onOpen={() => void warmReader().catch(() => undefined)}
               busy={Boolean(reading)}
               note="Member list screenshots (like an Outlook group) work: each name with its email below. Read and saved only on this phone."
               items={[
