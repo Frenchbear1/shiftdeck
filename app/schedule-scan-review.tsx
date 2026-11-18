@@ -1,22 +1,11 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { confidenceLabels, ScanOverlay } from "./schedule-import-preview";
 import { FullscreenPhoto } from "./schedule-file-viewer";
 import { recoverScheduleSource, type ScanPreviewPass } from "./schedule-import";
-import { scanConfidence, type ScanMark } from "./schedule-parser";
-import {
-  getScanDefinition,
-  getScanConfirmation,
-  formatScanMeaning,
-  isCompleteScanMeaning,
-  newScanMeaning,
-  scanMeaningLabels,
-  type ScanDefinitions,
-  type ScanMeaning,
-} from "./scan-annotations";
-import { recognizedScanMeanings } from "./scan-corrections";
+import { scanConfidence } from "./schedule-parser";
 import { loadScheduleScan } from "./upload-store";
 
 export type ScanReviewTarget = {
@@ -27,105 +16,22 @@ export type ScanReviewTarget = {
   original?: Blob;
 };
 
-function MeaningFields({ meaning, onChange }: {
-  meaning: ScanMeaning;
-  onChange: (meaning: ScanMeaning) => void;
-}) {
-  switch (meaning.kind) {
-    case "time":
-      return (
-        <label className="scan-definition-label">
-          <span>Time</span>
-          <input type="time" required value={meaning.time} onChange={(event) =>
-            onChange({ ...meaning, time: event.target.value })} />
-        </label>
-      );
-    case "range":
-      return (
-        <div className="scan-definition-fields">
-          <label className="scan-definition-label">
-            <span>Start time</span>
-            <input type="time" required value={meaning.start} onChange={(event) =>
-              onChange({ ...meaning, start: event.target.value })} />
-          </label>
-          <label className="scan-definition-label">
-            <span>End time</span>
-            <input type="time" required value={meaning.end} onChange={(event) =>
-              onChange({ ...meaning, end: event.target.value })} />
-          </label>
-        </div>
-      );
-    case "flight":
-      return (
-        <>
-          <label className="scan-definition-label">
-            <span>Flight number</span>
-            <input type="text" maxLength={16} value={meaning.identifier} onChange={(event) =>
-              onChange({ ...meaning, identifier: event.target.value })} />
-          </label>
-          <div className="scan-definition-fields">
-            {([["origin", "Origin airport"], ["destination", "Destination airport"]] as const).map(([field, label]) => (
-              <label className="scan-definition-label" key={field}>
-                <span>{label}</span>
-                <input type="text" maxLength={4} autoCapitalize="characters" value={meaning[field]} onChange={(event) =>
-                  onChange({ ...meaning, [field]: event.target.value.toUpperCase() })} />
-              </label>
-            ))}
-            {([["arrival", "Arrival time"], ["departure", "Departure time"]] as const).map(([field, label]) => (
-              <label className="scan-definition-label" key={field}>
-                <span>{label}</span>
-                <input type="time" value={meaning[field]} onChange={(event) =>
-                  onChange({ ...meaning, [field]: event.target.value })} />
-              </label>
-            ))}
-          </div>
-        </>
-      );
-    case "date":
-      return (
-        <label className="scan-definition-label">
-          <span>Date</span>
-          <input type="date" required value={meaning.date} onChange={(event) =>
-            onChange({ ...meaning, date: event.target.value })} />
-        </label>
-      );
-    case "person":
-    case "note":
-      return (
-        <label className="scan-definition-label">
-          <span>{meaning.kind === "person" ? "Worker name" : "Definition"}</span>
-          <input type="text" required maxLength={160} value={meaning.text} onChange={(event) =>
-            onChange({ ...meaning, text: event.target.value })} />
-        </label>
-      );
-    case "off":
-    case "pto": return null;
-  }
-}
-
+/**
+ * Read-only view of the highlighted scan: the photo with every read marked as
+ * clear, check, or unreadable. Tapping a highlight shows what was read.
+ */
 export function ScheduleScanReview({
-  target, definitions, matchesWorker, onReviewMark, onClose,
+  target, matchesWorker, onClose,
 }: {
   target: ScanReviewTarget;
-  definitions: ScanDefinitions;
   matchesWorker: (worker: string) => boolean;
-  onReviewMark: (
-    mark: ScanMark, meanings: ScanMeaning[], repeat: boolean, verify: boolean,
-    pass?: ScanPreviewPass,
-  ) => string | undefined;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<{ url: string; pass: ScanPreviewPass }>();
   const [unavailable, setUnavailable] = useState(false);
-  const [selected, setSelected] = useState<{
-    mark: ScanMark;
-    meanings: ScanMeaning[];
-    repeat: boolean;
-    saved?: boolean;
-    error?: string;
-  }>();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const matchWorkerAtOpen = useRef(matchesWorker);
 
   useEffect(() => {
@@ -160,17 +66,13 @@ export function ScheduleScanReview({
     };
   }, [target]);
 
-  const select = (id: string) => {
-    const mark = preview?.pass.marks.find((item) => item.id === id);
-    if (!mark) return;
-    const { meanings, repeat } = getScanDefinition(definitions, target.hash, mark);
-    setSelected({ mark, meanings: meanings.length ? meanings : [newScanMeaning("note")], repeat });
-  };
-  const originalConfidence = selected && scanConfidence(selected.mark);
-  const confirmation = selected && getScanConfirmation(definitions, target.hash, selected.mark);
-  const confidence = confirmation ? "confident" : originalConfidence;
-  const recognized = selected ? recognizedScanMeanings(selected.mark) : [];
-  const canSave = Boolean(selected?.meanings.length && selected.meanings.every(isCompleteScanMeaning));
+  const selected = selectedId ? preview?.pass.marks.find((mark) => mark.id === selectedId) : undefined;
+  const confidence = selected && scanConfidence(selected);
+  const counts = preview?.pass.marks.reduce((total, mark) => {
+    if (mark.kind !== "shift" || !mark.worker || !matchesWorker(mark.worker)) return total;
+    total[scanConfidence(mark)] += 1;
+    return total;
+  }, { confident: 0, check: 0, unreadable: 0 });
 
   return (
     <dialog
@@ -198,10 +100,8 @@ export function ScheduleScanReview({
                   pass={preview.pass}
                   ratio={ratio}
                   matchesWorker={matchesWorker}
-                  selected={selected?.mark.id ?? null}
-                  onSelect={select}
-                  definitionFor={(mark) => getScanDefinition(definitions, target.hash, mark).value}
-                  confirmationFor={(mark) => getScanConfirmation(definitions, target.hash, mark)}
+                  selected={selectedId}
+                  onSelect={(id) => setSelectedId((current) => current === id ? null : id)}
                 />
               )}
             />
@@ -209,86 +109,28 @@ export function ScheduleScanReview({
       </div>
       {!unavailable && preview && (
         <div className="scan-review-details">
-          {!selected ? (
-            <p>Pinch to zoom. Tap any highlight to define it.</p>
+          <ul className="scan-legend" aria-label="Scan confidence colors">
+            {Object.entries(confidenceLabels).map(([key, label]) => (
+              <li key={key} className={`scan-mark-${key}`}><i />{label}</li>
+            ))}
+          </ul>
+          {selected ? (
+            <p className={`scan-review-read scan-mark-${confidence}`} aria-live="polite">
+              <strong>{confidenceLabels[confidence!]}</strong>
+              <span>{selected.shift
+                ? `${selected.shift.start.replace(":", "")}–${selected.shift.end.replace(":", "")}`
+                : selected.text}</span>
+              {selected.note && <small>{selected.note}</small>}
+            </p>
           ) : (
-            <form onSubmit={(event) => {
-              event.preventDefault();
-              if (!canSave) return;
-              const error = onReviewMark(selected.mark, selected.meanings, selected.repeat, false, preview.pass);
-              setSelected({ ...selected, saved: !error, error });
-            }}>
-              <p className={`scan-review-read scan-mark-${confidence}`}>
-                <strong>{confirmation === "verified" ? "Verified" : confirmation === "corrected" ? "Corrected" : confidenceLabels[confidence!]}</strong>
-                <span>{selected.mark.text}</span>
-              </p>
-              {originalConfidence === "check" && !confirmation && (
-                <div className="scan-verify-action">
-                  {recognized.length > 0 && <span>{recognized.map(formatScanMeaning).join(" · ")}</span>}
-                  <button type="button" className="button primary" onClick={() => {
-                    const error = onReviewMark(selected.mark, recognized, false, true, preview.pass);
-                    setSelected({ ...selected, saved: false, error });
-                  }}>
-                    Verify as correct
-                  </button>
-                </div>
-              )}
-              {selected.meanings.map((meaning, index) => (
-                <fieldset className="scan-meaning" key={index}>
-                  <legend>{selected.meanings.length > 1 ? `Meaning ${index + 1}` : "Meaning"}</legend>
-                  <div className="scan-meaning-type">
-                    <label className="scan-definition-label">
-                      <select
-                        aria-label={`Meaning ${index + 1} type`}
-                        value={meaning.kind}
-                        onChange={(event) => {
-                          const next = newScanMeaning(event.target.value as ScanMeaning["kind"]);
-                          setSelected({
-                            ...selected, saved: false, error: undefined,
-                            meanings: selected.meanings.map((item, i) => i === index ? next : item),
-                          });
-                        }}
-                      >
-                        {Object.entries(scanMeaningLabels).map(([kind, label]) =>
-                          <option value={kind} key={kind}>{label}</option>)}
-                      </select>
-                    </label>
-                    {selected.meanings.length > 1 && (
-                      <button
-                        type="button"
-                        className="scan-meaning-remove"
-                        aria-label={`Remove meaning ${index + 1}`}
-                        onClick={() => setSelected({
-                          ...selected, saved: false, error: undefined,
-                          meanings: selected.meanings.filter((_, i) => i !== index),
-                        })}
-                      ><X size={16} /></button>
-                    )}
-                  </div>
-                  <MeaningFields meaning={meaning} onChange={(next) => setSelected({
-                    ...selected, saved: false, error: undefined,
-                    meanings: selected.meanings.map((item, i) => i === index ? next : item),
-                  })} />
-                </fieldset>
-              ))}
-              <button
-                type="button"
-                className="button soft scan-meaning-add"
-                onClick={() => setSelected({
-                  ...selected, saved: false, error: undefined,
-                  meanings: [...selected.meanings, newScanMeaning("note")],
-                })}
-              ><Plus size={15} />Add another meaning</button>
-              <label className="scan-definition-remember">
-                <input type="checkbox" checked={selected.repeat} onChange={(event) =>
-                  setSelected({ ...selected, repeat: event.target.checked, saved: false, error: undefined })} />
-                Remember matching text for future scans
-              </label>
-              <div className="scan-definition-actions">
-                <span role="status">{selected.error || (selected.saved ? "Definition saved" : confirmation === "verified" ? "Verified" : "")}</span>
-                <button type="submit" disabled={!canSave} className="button soft">Save definition</button>
-              </div>
-            </form>
+            <p aria-live="polite">
+              {counts && counts.confident + counts.check + counts.unreadable > 0
+                ? `Your row: ${counts.confident} clear` +
+                  (counts.check ? ` · ${counts.check} to check` : "") +
+                  (counts.unreadable ? ` · ${counts.unreadable} unreadable` : "") +
+                  ". Tap a highlight to see what was read."
+                : "Pinch to zoom. Tap a highlight to see what was read."}
+            </p>
           )}
         </div>
       )}

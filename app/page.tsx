@@ -9,8 +9,6 @@ import {
   ChevronDown,
   FileImage,
   FileText,
-  GripVertical,
-  LayoutGrid,
   MapPin,
   Moon,
   Plus,
@@ -28,6 +26,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   Flight,
@@ -49,6 +48,7 @@ import {
 } from "./schedule-parser";
 import {
   createImportProgress,
+  daysBetween,
   ImportSnapshot,
   applyNameMerges,
   isScheduleRange,
@@ -68,6 +68,7 @@ import {
 import {
   readScheduleImage,
   type ScanPreviewPass,
+  type ScheduleRead,
   recoverScheduleSource,
   releaseScheduleReader,
   warmScheduleReader,
@@ -90,24 +91,9 @@ import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { ScheduleScanReview, type ScanReviewTarget } from "./schedule-scan-review";
-import {
-  confirmScanMark,
-  emptyScanDefinitions,
-  getScanConfirmation,
-  getScanDefinition,
-  saveScanDefinition,
-  SCAN_DEFINITIONS_KEY,
-  type ScanDefinitions,
-  type ScanMeaning,
-} from "./scan-annotations";
-import {
-  applyScanChanges,
-  applyScanCorrection,
-  meaningsAffectSchedule,
-  recognizedScanMeanings,
-  type ScanEdits,
-} from "./scan-corrections";
 import { useLiveFlights } from "./live-flights";
+import { DEFAULT_HOME_ORDER, HOME_TILES, HomeOrderRow, type HomeTile } from "./home-order";
+import { isAndroid, isHeic } from "./platform";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
 import { LiveMapPanel } from "./live-map";
@@ -118,16 +104,6 @@ import {
   saveScheduleImage,
 } from "./upload-store";
 
-const HOME_TILES = {
-  today: "Today",
-  schedule: "Schedule",
-  flights: "Flights",
-  map: "Live map",
-  weather: "Weather",
-  crew: "Crew",
-} as const;
-type HomeTile = keyof typeof HOME_TILES;
-const DEFAULT_HOME_ORDER = Object.keys(HOME_TILES) as HomeTile[];
 const HOME_ORDER_KEY = "shiftdeck.homeOrder";
 
 type CalendarEvent = {
@@ -226,7 +202,6 @@ type ScheduleDocument = {
   revision: number;
   parserVersion?: number;
   mimeType?: string;
-  scanEdits?: ScanEdits;
   review?: { sourceLayout?: ScheduleSourceLayout; deskewed: boolean; uncertainShifts?: string[] };
 };
 
@@ -627,6 +602,8 @@ function photonSuggestion(feature: PhotonFeature, index: number): PlaceSuggestio
   };
 }
 
+const subscribeToNothing = () => () => {};
+
 export default function HomePage() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [scheduleRange, setScheduleRange] = useState<ScheduleRange>("week");
@@ -651,51 +628,29 @@ export default function HomePage() {
   const [viewedDocument, setViewedDocument] = useState<ScheduleDocument | null>(null);
   const [viewedScan, setViewedScan] = useState<ScanReviewTarget | null>(null);
   const [recentScans, setRecentScans] = useState<ScanReviewTarget[]>([]);
-  const [scanDefinitions, setScanDefinitions] = useState<ScanDefinitions>(() => {
-    if (typeof window === "undefined") return emptyScanDefinitions;
-    try {
-      const stored = JSON.parse(localStorage.getItem(SCAN_DEFINITIONS_KEY) ?? "{}");
-      return { spots: stored?.spots ?? {}, matching: stored?.matching ?? {}, confirmed: stored?.confirmed };
-    } catch {
-      return emptyScanDefinitions;
-    }
-  });
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [homeOrder, setHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
-  const [draftHomeOrder, setDraftHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
-  const [draggedTile, setDraggedTile] = useState<HomeTile | null>(null);
-  const rearrangeDialog = useRef<HTMLDialogElement>(null);
-  const rearrangeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     try {
+      // Scan definitions were removed; drop what older versions stored.
+      localStorage.removeItem("shiftdeck.scanDefinitions");
       const saved: unknown = JSON.parse(localStorage.getItem(HOME_ORDER_KEY) ?? "null");
       if (!Array.isArray(saved)) return;
       const known = saved.filter((tile): tile is HomeTile =>
         typeof tile === "string" && Object.hasOwn(HOME_TILES, tile),
       );
-      setHomeOrder([...new Set([...known, ...DEFAULT_HOME_ORDER])]);
+      queueMicrotask(() => setHomeOrder([...new Set([...known, ...DEFAULT_HOME_ORDER])]));
     } catch {
       // Use the default layout if storage is unavailable.
     }
   }, []);
-  const moveHomeTile = (tile: HomeTile, to: number) => {
-    setDraftHomeOrder((order) => {
-      const from = order.indexOf(tile);
-      if (to < 0 || to >= order.length || from === to) return order;
-      const next = [...order];
-      next.splice(from, 1);
-      next.splice(to, 0, tile);
-      return next;
-    });
-  };
-  const saveHomeOrder = () => {
-    setHomeOrder(draftHomeOrder);
+  const saveHomeOrder = (order: HomeTile[]) => {
+    setHomeOrder(order);
     try {
-      localStorage.setItem(HOME_ORDER_KEY, JSON.stringify(draftHomeOrder));
+      localStorage.setItem(HOME_ORDER_KEY, JSON.stringify(order));
     } catch {
       // Apply the order for the current visit.
     }
-    rearrangeDialog.current?.close();
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   // What Settings looked like when it opened, so the X can turn into Save after a change.
@@ -760,7 +715,10 @@ export default function HomePage() {
   useEffect(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem("shiftdeck.dismissedAirportAlerts") ?? "[]");
-      if (Array.isArray(saved)) setDismissedAirportAlerts(saved.filter((item): item is string => typeof item === "string"));
+      if (Array.isArray(saved)) {
+        const dismissed = saved.filter((item): item is string => typeof item === "string");
+        queueMicrotask(() => setDismissedAirportAlerts(dismissed));
+      }
     } catch {
       // Dismissal still works for the current visit.
     }
@@ -781,6 +739,10 @@ export default function HomePage() {
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
   const airportAlertsButton = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const pdfInput = useRef<HTMLInputElement>(null);
+  // Android's picker hides the gallery and camera when PDFs are also allowed,
+  // so photos and PDFs get separate pickers there.
+  const android = useSyncExternalStore(subscribeToNothing, isAndroid, () => false);
   const sheetRef = useRef<Sheet>(null);
 
   useEffect(() => {
@@ -1775,7 +1737,6 @@ export default function HomePage() {
     setImportSnapshot(progress.snapshot());
 
     const parsedSchedules: ParsedSchedule[] = [];
-    let nextScanDefinitions = scanDefinitions;
     const confirmedDaysOff = new Set<string>();
     const skippedFiles: string[] = [];
     const comparisons: ImportComparison[] = [];
@@ -1789,6 +1750,25 @@ export default function HomePage() {
         document.shifts.map((shift) => shift.worker),
       ),
     ];
+    // What each person worked on the same weekday in the other imported
+    // weeks (newest first), used to double-check freshly read times.
+    const pastShifts = canonicalizeScheduleShifts([
+      ...scheduleDocuments.filter((document) => !isSchedulePdf(document)).flatMap((document) => document.shifts),
+      ...parsedShifts,
+    ]).filter((shift) => shift.status === "working");
+    const shiftHistory = (name: string, date: string) => {
+      const person = nameKey(resolveMergedName(resolveSchedulePersonName(name, knownNames), nameMerges));
+      const weekday = new Date(`${date}T12:00:00`).getDay();
+      const seen = new Set<string>();
+      return pastShifts
+        .filter((shift) => shift.date !== date &&
+          Math.abs(daysBetween(shift.date, date)) <= 8 * 7 &&
+          new Date(`${shift.date}T12:00:00`).getDay() === weekday &&
+          nameKey(resolveMergedName(shift.worker, nameMerges)) === person)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .filter((shift) => !seen.has(shift.date) && Boolean(seen.add(shift.date)))
+        .map(({ start, end }) => ({ start, end }));
+    };
 
     const allowScanMotion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const finishScanPreview = async () => {
@@ -1806,6 +1786,10 @@ export default function HomePage() {
         );
 
         const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+        if (android && !isPdf && isHeic(file)) {
+          skippedFiles.push(`${file.name} (HEIC photos can’t be read in Android browsers — send it as a JPG or screenshot it)`);
+          continue;
+        }
         setScanFile({ index, name: file.name, pdf: isPdf, stage: isPdf ? 1 : 0, image: isPdf ? undefined : file });
         let lastPreviewFrame = performance.now();
         const updateScanFile = (patch: Partial<ImportPreviewFile>) => {
@@ -1838,9 +1822,12 @@ export default function HomePage() {
                     if (pass.marks.length && (pass.grid || !scan?.grid)) scan = pass;
                     updateScanFile({ pass });
                   },
+                  history: shiftHistory,
                 }),
           ]);
           progress.file(index, 1);
+          const finalScan = isPdf ? undefined : (read as ScheduleRead | null)?.scan;
+          if (finalScan) scan = finalScan;
           if (scan) scans.push({ hash, name: file.name, pass: scan, original: file });
           const scanDates = scan?.dates;
           let parsed: ParsedSchedule | null = read ?? (scanDates?.length ? {
@@ -1852,7 +1839,7 @@ export default function HomePage() {
             continue;
           }
 
-          let sourceLayout = parsed.sourceLayout && {
+          const sourceLayout = parsed.sourceLayout && {
             ...parsed.sourceLayout,
             rows: parsed.sourceLayout.rows.map((row) => ({
               ...row,
@@ -1876,44 +1863,10 @@ export default function HomePage() {
           };
           knownNames.push(...parsed.shifts.map((shift) => shift.worker));
           const resolvedWorker = (name: string) => resolveSchedulePersonName(name, knownNames);
-          let scanEdits: ScanEdits | undefined;
-          const confirmedShiftIds = new Set<string>();
-          let nextFileDefinitions = nextScanDefinitions;
-          for (const mark of scan?.marks ?? []) {
-            const confirmation = getScanConfirmation(nextScanDefinitions, hash, mark);
-            const { meanings } = getScanDefinition(nextScanDefinitions, hash, mark);
-            const activeMeanings = confirmation === "verified" && !meanings.length
-              ? recognizedScanMeanings(mark)
-              : meanings;
-            if (!meaningsAffectSchedule(mark, activeMeanings)) continue;
-            const correction = applyScanCorrection({ ...parsed, scanEdits }, mark, activeMeanings, resolvedWorker, scan, sourceLayout);
-            if (!correction.ok) continue;
-            parsed = { ...parsed, ...correction.schedule };
-            scanEdits = correction.schedule.scanEdits;
-            if (sourceLayout && correction.renamedWorker) {
-              const { from, to } = correction.renamedWorker;
-              sourceLayout = { ...sourceLayout, rows: sourceLayout.rows.map((row) =>
-                nameKey(row.name) === nameKey(from) ? { ...row, name: to } : row) };
-            }
-            for (const { before, after } of correction.shifts) {
-              if (mark.kind === "shift" && activeMeanings.some((meaning) => meaning.kind !== "note")) {
-                confirmedShiftIds.add(after.id);
-                if (after.status !== "working" &&
-                    isSameSchedulePerson(resolveMergedName(after.worker, nameMerges), prefs.person)) {
-                  confirmedDaysOff.add(after.date);
-                }
-              }
-              if (before && confirmedShiftIds.delete(before.id)) confirmedShiftIds.add(after.id);
-            }
-            if (activeMeanings.some((meaning) => meaning.kind !== "note")) {
-              nextFileDefinitions = confirmScanMark(nextFileDefinitions, hash, mark, confirmation ?? "corrected");
-            }
-          }
-          if (!read && !parsed.flights.length && !confirmedShiftIds.size) {
+          if (!read && !parsed.flights.length) {
             skippedFiles.push(file.name);
             continue;
           }
-          nextScanDefinitions = nextFileDefinitions;
           const hasWorkHours = parsed.shifts.some((shift) => shift.status === "working");
           const hasFlights = parsed.flights.length > 0;
           parsed = {
@@ -1934,16 +1887,16 @@ export default function HomePage() {
           const reviewImage = read && "reviewImage" in read && read.reviewImage instanceof Blob
             ? read.reviewImage
             : undefined;
+          // The final scan carries one combined verdict per cell; without it,
+          // a time counts as clear when any pass read it clearly.
+          const verdictMarks = finalScan?.marks ?? shiftReads;
           const shiftConfidence = new Map<string, boolean>();
-          for (const mark of shiftReads) {
+          for (const mark of verdictMarks) {
             if (!mark.shift || !mark.worker) continue;
-            const worker = scanEdits?.workers[nameKey(mark.worker)] ?? resolvedWorker(mark.worker);
-            const date = scanEdits?.dates[mark.shift.date] ?? mark.shift.date;
-            const key = `${date}|${worker}|${mark.shift.start}|${mark.shift.end}`;
+            const key = `${mark.shift.date}|${resolvedWorker(mark.worker)}|${mark.shift.start}|${mark.shift.end}`;
             shiftConfidence.set(key, Boolean(shiftConfidence.get(key)) || scanConfidence(mark) === "confident");
           }
           const uncertainShifts = parsed.shifts.filter((shift) =>
-            !confirmedShiftIds.has(shift.id) &&
             shiftConfidence.get(`${shift.date}|${shift.worker}|${shift.start}|${shift.end}`) === false,
           ).map((shift) => shift.id);
           const nextDocument: ScheduleDocument = {
@@ -1958,7 +1911,6 @@ export default function HomePage() {
             revision: (replacement?.revision ?? 0) + 1,
             parserVersion: SCHEDULE_PARSER_VERSION,
             mimeType: isPdf ? "application/pdf" : file.type,
-            scanEdits,
             review: isPdf ? undefined : { sourceLayout, deskewed: Boolean(reviewImage), uncertainShifts },
           };
           if (replacement) {
@@ -2006,14 +1958,6 @@ export default function HomePage() {
         b.updatedAt.localeCompare(a.updatedAt),
       );
       setScheduleDocuments(nextDocuments);
-      if (nextScanDefinitions !== scanDefinitions) {
-        setScanDefinitions(nextScanDefinitions);
-        try {
-          localStorage.setItem(SCAN_DEFINITIONS_KEY, JSON.stringify(nextScanDefinitions));
-        } catch {
-          // Imported shifts are already in memory even if scan annotations cannot persist.
-        }
-      }
       setPreparedReviews((current) => {
         const activeHashes = new Set(nextDocuments.map((document) => document.hash));
         const next = Object.fromEntries(Object.entries(current).filter(([key]) => activeHashes.has(key)));
@@ -2410,7 +2354,7 @@ export default function HomePage() {
 
   const subscribeToCalendar = async () => {
     if (!events.length) {
-      setToast("Add a shift before connecting Apple Calendar");
+      setToast(`Add a shift before connecting ${android ? "Google" : "Apple"} Calendar`);
       return;
     }
     setCalendarSyncState("syncing");
@@ -2444,151 +2388,21 @@ export default function HomePage() {
       );
       setCalendarSyncState("synced");
       setSettingsOpen(false);
+      const webcal = syncedSubscription.feedUrl.replace(/^https:/i, "webcal:");
+      if (android) {
+        // Android has no webcal: handler; Google Calendar subscribes by URL.
+        await navigator.clipboard?.writeText(syncedSubscription.feedUrl).catch(() => undefined);
+        setToast("Opening Google Calendar · feed link copied");
+        // A plain navigation isn't caught by the popup blocker after the network wait.
+        window.location.href = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
+        return;
+      }
       setToast("Opening Shiftdeck in Apple Calendar");
-      window.location.href = syncedSubscription.feedUrl.replace(
-        /^https:/i,
-        "webcal:",
-      );
+      window.location.href = webcal;
     } catch {
       setCalendarSyncState("error");
-      setToast("Apple Calendar couldn’t connect. Try again.");
+      setToast(`${android ? "Google" : "Apple"} Calendar couldn’t connect. Try again.`);
     }
-  };
-
-  const reviewScanMark = (
-    mark: ScanMark, meanings: ScanMeaning[], repeat: boolean, verify: boolean, pass?: ScanPreviewPass,
-  ): string | undefined => {
-    if (!viewedScan) return "Reopen the highlighted scan to make a correction.";
-    const { hash, original, name } = viewedScan;
-    const previous = scheduleDocuments.find((document) => document.hash === hash);
-    const dates = pass?.dates;
-    const affectsSchedule = meaningsAffectSchedule(mark, meanings);
-    const isSemantic = meanings.some((meaning) => meaning.kind !== "note");
-
-    let document = previous;
-    if (affectsSchedule && !document && isSemantic) {
-      if (!original || !dates?.length) return "A recognized schedule date is needed to add this item.";
-      if (scheduleDocuments.some((saved) => !isSchedulePdf(saved) && saved.dates.some((day) => dates.includes(day)))) {
-        return "Open the saved schedule for this week to apply the correction.";
-      }
-      const now = new Date().toISOString();
-      document = {
-        id: `schedule-${hash.slice(0, 20)}`, hash, name, dates, shifts: [], flights: [],
-        uploadedAt: now, updatedAt: now, revision: 1, mimeType: original.type,
-      };
-    }
-
-    const knownWorkers = [prefs.person, ...document?.shifts.map((shift) => shift.worker) ?? []];
-    const correction = document && affectsSchedule
-      ? applyScanCorrection(document, mark, meanings,
-        (worker) => resolveSchedulePersonName(worker, knownWorkers), pass, document.review?.sourceLayout)
-      : undefined;
-    if (correction && !correction.ok) return correction.message;
-    if (correction?.movedDate && scheduleDocuments.some((saved) =>
-      saved.hash !== hash && !isSchedulePdf(saved) && saved.dates.includes(correction.movedDate!.to))) {
-      return "Another imported schedule already covers the new date.";
-    }
-
-    if (correction?.shifts.some(({ before, after }) =>
-      !parsedShifts.some((shift) => shift.id === before?.id) &&
-      parsedShifts.some((shift) => shift.date === (before?.date ?? after.date) &&
-        nameKey(shift.worker) === nameKey(before?.worker ?? after.worker) && shift.id !== after.id))) {
-      return "A newer schedule already covers this shift. Open that scan to make the correction.";
-    }
-
-    const rename = correction?.renamedWorker;
-    const isMine = (worker: string) => {
-      const resolved = resolveMergedName(worker, nameMerges);
-      return nameKey(resolved) === nameKey(prefs.person) || isSameSchedulePerson(resolved, prefs.person);
-    };
-    const renameMe = rename && isMine(rename.from);
-    const person = renameMe ? rename.to : prefs.person;
-    const myShiftChanges = correction?.shifts.filter(({ before, after }) =>
-      Boolean(before && isMine(before.worker)) || isMine(after.worker) || (renameMe && after.worker === person)) ?? [];
-
-    // Only replace the event that came from this cell. Keep manually added
-    // shifts, and preserve titles, calendar IDs and notification behavior.
-    const eventIds = new Set<string>();
-    const revisedEvents: CalendarEvent[] = [];
-    for (const { before, after } of myShiftChanges) {
-      const oldEvent = before && events.find((event) => event.id === before.id);
-      const mineAfter = renameMe ? after.worker === person : isMine(after.worker);
-      if (oldEvent) eventIds.add(oldEvent.id);
-      if (mineAfter && after.status === "working") {
-        revisedEvents.push({
-          ...importedEventFor(after, person),
-          title: oldEvent?.title ?? DEFAULT_SHIFT_TITLE,
-          customTitle: oldEvent?.customTitle ?? false,
-        });
-      }
-    }
-    if (revisedEvents.some((event) => events.some((existing) =>
-      existing.date === event.date && !eventIds.has(existing.id)))) {
-      return "That date already has another shift. Edit it in Imported results.";
-    }
-
-    let definitions = verify ? scanDefinitions : saveScanDefinition(scanDefinitions, hash, mark, meanings, repeat);
-    if (verify || isSemantic) definitions = confirmScanMark(definitions, hash, mark, verify ? "verified" : "corrected");
-    try {
-      localStorage.setItem(SCAN_DEFINITIONS_KEY, JSON.stringify(definitions));
-    } catch {
-      return "Couldn’t save the correction on this device.";
-    }
-    setScanDefinitions(definitions);
-
-    if (document && correction) {
-      const oldReview = document.review;
-      const renamedLayout = oldReview?.sourceLayout && rename
-        ? { ...oldReview.sourceLayout, rows: oldReview.sourceLayout.rows.map((row) =>
-          nameKey(row.name) === nameKey(rename.from) ? { ...row, name: rename.to } : row) }
-        : oldReview?.sourceLayout;
-      const clearTimeCheck = mark.kind === "shift" && (isSemantic || verify);
-      const uncertainShifts = oldReview?.uncertainShifts?.flatMap((id) => {
-        const change = correction.shifts.find(({ before }) => before?.id === id);
-        return change ? clearTimeCheck ? [] : [change.after.id] : [id];
-      });
-      const corrected = {
-        ...document, ...correction.schedule,
-        review: { ...oldReview, deskewed: oldReview?.deskewed ?? false, sourceLayout: renamedLayout, uncertainShifts },
-      };
-      setScheduleDocuments((current) => previous
-        ? current.map((saved) => saved.hash === hash ? corrected : saved)
-        : [corrected, ...current]);
-      setParsedShifts((current) => applyScanChanges(current, correction.shifts));
-      setParsedFlights((current) => applyScanChanges(current, correction.flights));
-      setImportComparisons((current) => current.map((photo) => photo.hash === hash ? {
-        ...photo, dates: corrected.dates, shifts: corrected.shifts, sourceLayout: renamedLayout, uncertainShifts,
-      } : photo));
-      if (rename) {
-        setPreparedReviews((current) => current[hash]
-          ? { ...current, [hash]: { ...current[hash], sourceLayout: renamedLayout } }
-          : current);
-      }
-      const moved = correction.movedDate;
-      const keepOldDate = moved && (scheduleDocuments.some((saved) => saved.hash !== hash && saved.dates.includes(moved.from)) ||
-        events.some((event) => event.date === moved.from && !eventIds.has(event.id)));
-      setImportedDates((current) => [...new Set([
-        ...current.filter((day) => day !== moved?.from || keepOldDate),
-        ...corrected.dates,
-      ])].sort());
-      if (moved && selectedDate === moved.from) setSelectedDate(moved.to);
-      if (eventIds.size || revisedEvents.length || renameMe) {
-        setEvents((current) => [
-          ...current.filter((event) => !eventIds.has(event.id)).map((event) => renameMe
-            ? { ...event, calendarKey: calendarKeyFor(person, event.date) }
-            : event),
-          ...revisedEvents,
-        ].sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`)));
-      }
-      if (renameMe) {
-        setPrefs((current) => ({ ...current, person }));
-        setNameMerges((current) => ({ ...current, [nameKey(rename.from)]: person }));
-      }
-      if (!previous && original) {
-        void saveScheduleImage(corrected.id, original, undefined, pass).catch(() => undefined);
-      }
-    }
-    return undefined;
   };
 
   const matchesScanWorker = (name: string) => nameKey(resolveMergedName(
@@ -2649,17 +2463,32 @@ export default function HomePage() {
         <input
           ref={fileInput}
           type="file"
-          accept="image/*,application/pdf,.pdf"
+          accept={android ? "image/*" : "image/*,application/pdf,.pdf"}
           multiple
           onChange={onFiles}
-          aria-label="Upload schedule files"
+          aria-label={android ? "Upload schedule photos" : "Upload schedule files"}
         />
+        {android && (
+          <input
+            ref={pdfInput}
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            onChange={onFiles}
+            aria-label="Upload charter PDFs"
+          />
+        )}
         <button className="upload-inner" onClick={() => fileInput.current?.click()}>
           <span className="upload-icon"><Upload /></span>
-          <h2>{dragActive ? "Drop to import" : "Add schedule files"}</h2>
-          <p>Tap to choose, or drop them here</p>
-          <small>JPG, PNG, HEIC or PDF · several at once is fine</small>
+          <h2>{dragActive ? "Drop to import" : android ? "Add schedule photos" : "Add schedule files"}</h2>
+          <p>{android ? "Tap to choose from your gallery or camera" : "Tap to choose, or drop them here"}</p>
+          <small>{android ? "JPG or PNG · several at once is fine" : "JPG, PNG, HEIC or PDF · several at once is fine"}</small>
         </button>
+        {android && (
+          <button type="button" className="upload-pdf-link" onClick={() => pdfInput.current?.click()}>
+            <FileText /> Import a charter PDF instead
+          </button>
+        )}
       </section>
 
       {(importState === "review" || importState === "error") && (
@@ -3002,55 +2831,6 @@ export default function HomePage() {
         </div>
       </main>
 
-      <dialog
-        ref={rearrangeDialog}
-        className="panel-sheet airport-alerts-sheet"
-        aria-labelledby="home-order-title"
-        onClose={() => {
-          setDraggedTile(null);
-          rearrangeButton.current?.focus();
-        }}
-      >
-        <header className="sheet-head">
-          <div>
-            <h2 id="home-order-title">Rearrange Home Screen</h2>
-            <p>Drag the handles or use the arrows to move sections.</p>
-          </div>
-          <form method="dialog"><button aria-label="Close rearrange popup"><X /></button></form>
-        </header>
-        <div className="sheet-scroll">
-          <ol className="home-order-list">
-            {draftHomeOrder.map((tile, index) => (
-              <li key={tile} data-home-tile={tile} className={draggedTile === tile ? "dragging" : ""}>
-                <span
-                  className="home-order-handle"
-                  aria-hidden="true"
-                  onPointerDown={(event) => {
-                    if (event.button !== 0 || !event.isPrimary) return;
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    setDraggedTile(tile);
-                  }}
-                  onPointerMove={(event) => {
-                    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                    const target = document.elementFromPoint(event.clientX, event.clientY)
-                      ?.closest<HTMLElement>("[data-home-tile]")?.dataset.homeTile;
-                    if (target && target !== tile) moveHomeTile(tile, draftHomeOrder.indexOf(target as HomeTile));
-                  }}
-                  onLostPointerCapture={() => setDraggedTile(null)}
-                ><GripVertical /></span>
-                <strong>{HOME_TILES[tile]}</strong>
-                <button type="button" aria-label={`Move ${HOME_TILES[tile]} up`} disabled={!index} onClick={() => moveHomeTile(tile, index - 1)}>↑</button>
-                <button type="button" aria-label={`Move ${HOME_TILES[tile]} down`} disabled={index === draftHomeOrder.length - 1} onClick={() => moveHomeTile(tile, index + 1)}>↓</button>
-              </li>
-            ))}
-          </ol>
-          <div className="home-order-actions">
-            <button type="button" className="button soft" onClick={() => setDraftHomeOrder(DEFAULT_HOME_ORDER)}>Reset</button>
-            <button type="button" className="button primary" onClick={saveHomeOrder}>Save order</button>
-          </div>
-        </div>
-      </dialog>
-
       {sheet === "import" && (importState === "reading" ? (
         <ScheduleImportPreview
           file={scanFile}
@@ -3058,15 +2838,12 @@ export default function HomePage() {
           snapshot={importSnapshot}
           onClose={closeSheet}
           matchesWorker={matchesScanWorker}
-          definitionFor={(mark) => getScanDefinition(scanDefinitions, "", mark).value}
         />
       ) : renderImportSheet())}
       {viewedScan && (
         <ScheduleScanReview
           target={viewedScan}
-          definitions={scanDefinitions}
           matchesWorker={matchesScanWorker}
-          onReviewMark={reviewScanMark}
           onClose={() => setViewedScan(null)}
         />
       )}
@@ -3133,7 +2910,9 @@ export default function HomePage() {
                 <small>
                   {notificationPermission === "granted" && notificationProfile
                     ? `${prefs.alerts.length} alert${prefs.alerts.length === 1 ? "" : "s"} per shift · updates automatically`
-                    : "On iPhone, open Shiftdeck from its Home Screen icon, then turn them on below."}
+                    : android
+                      ? "Turn them on below. Chrome will ask to allow notifications."
+                      : "On iPhone, open Shiftdeck from its Home Screen icon, then turn them on below."}
                 </small>
               </div>
               {notificationProfile && (
@@ -3507,18 +3286,8 @@ export default function HomePage() {
                 <button className={prefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightradar24" })}>Flightradar24</button>
               </div>
             </div>
+            <HomeOrderRow order={homeOrder} onChange={saveHomeOrder} />
             <div className="settings-tiles">
-              <button
-                ref={rearrangeButton}
-                type="button"
-                className="settings-tile"
-                onClick={() => {
-                  setDraftHomeOrder(homeOrder);
-                  rearrangeDialog.current?.showModal();
-                }}
-              >
-                <span><LayoutGrid /> Rearrange Home Screen</span>
-              </button>
               <button
                 type="button"
                 className="settings-tile"
@@ -3548,7 +3317,7 @@ export default function HomePage() {
                 onClick={() => void subscribeToCalendar()}
                 disabled={calendarSyncState === "syncing"}
               >
-                <span><CalendarDays /> Apple Calendar</span>
+                <span><CalendarDays /> {android ? "Google Calendar" : "Apple Calendar"}</span>
                 <b>
                   {calendarSyncState === "syncing"
                     ? "Updating…"

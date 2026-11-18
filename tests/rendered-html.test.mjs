@@ -162,7 +162,7 @@ test("caches the PWA shell and restores Today before background data", async () 
   ]);
 
   assert.match(serviceWorker, /shiftdeck-shell/);
-  assert.match(serviceWorker, /shiftdeck-shell.*v7|CACHE_PREFIX.*v7/s);
+  assert.match(serviceWorker, /shiftdeck-shell.*v8|CACHE_PREFIX.*v8/s);
   assert.match(serviceWorker, /request\.mode === "navigate"/);
   assert.match(serviceWorker, /warmDocumentAssets/);
   assert.match(serviceWorker, /cache\.match\(scopeRoot\)/);
@@ -278,7 +278,8 @@ test("reprocesses uploads and records the current schedule parser", async () => 
   const importHandler = page.slice(page.indexOf("  const processFiles ="), page.indexOf("  const onFiles ="));
   assert.doesNotMatch(importHandler, /document\.hash === hash/);
   assert.match(page, /parserVersion: SCHEDULE_PARSER_VERSION/);
-  assert.match(page, /accept="image\/\*,application\/pdf,\.pdf"/);
+  assert.match(page, /accept=\{android \? "image\/\*" : "image\/\*,application\/pdf,\.pdf"\}/);
+  assert.match(page, /accept="application\/pdf,\.pdf"/);
   assert.match(page, /parseCharterPdf\(file, \(image\)/);
   assert.match(page, /flight\.source === "charter" && flight\.trackingId/);
   assert.match(page, /canonicalizeScheduleShifts\(document\.shifts\)/);
@@ -413,7 +414,7 @@ test("restores a subtle Apple Calendar subscription with a work address", async 
   assert.match(page, /createCalendarFeed/);
   assert.match(page, /syncCalendarFeed/);
   assert.match(page, /shiftdeck\.calendarSubscription/);
-  assert.match(page, /<span>(?:<CalendarDays \/> )?Apple Calendar<\/span>/);
+  assert.match(page, /<span><CalendarDays \/> \{android \? "Google Calendar" : "Apple Calendar"\}<\/span>/);
   assert.match(page, /Add shifts for Waze/);
   assert.match(page, /onClick=\{\(\) => void subscribeToCalendar\(\)\}/);
   assert.doesNotMatch(page, /aria-label="Apple Calendar settings"/);

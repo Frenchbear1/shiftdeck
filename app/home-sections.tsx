@@ -20,7 +20,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Flight, Shift } from "./sample-data";
 import { addAbeBoardFlights, LiveFlights, LiveMatch, matchLiveFlight, RefreshResult } from "./live-flights";
 import {
@@ -37,6 +37,9 @@ import {
   minutesOnDay,
   minutesOnDayForInstant,
   minutesToClock,
+  normalizedInterval,
+  addDays,
+  daysBetween,
   offsetContaining,
   SCHEDULE_RANGES,
   ScheduleRange,
@@ -302,6 +305,56 @@ export function TodayHero({
 
 /* ---------- schedule views ---------- */
 
+const WORKDAY_START = 5 * 60;
+
+type LinePiece = {
+  /** Start and end in days from the row's first midnight. */
+  from: number;
+  to: number;
+  night: boolean;
+  past: boolean;
+  /** Rounded where the shift really starts / ends (not where the row cuts it). */
+  head: boolean;
+  tail: boolean;
+};
+
+/**
+ * One continuous line under a row of days. Each day runs midnight to midnight
+ * and lines up under its card, with midnight in the gap between cards, so an
+ * overnight shift visibly crosses into the next day; that part is highlighted.
+ */
+const rowLine = (days: string[], status: (date: string) => DayStatus, today: string): LinePiece[] => {
+  const total = days.length * 1440;
+  const first = days[0];
+  const pieces: LinePiece[] = [];
+  // The day before the row can spill into its first morning.
+  for (const date of [addDays(first, -1), ...days]) {
+    const info = status(date);
+    if (info.status !== "working" || !info.start || !info.end) continue;
+    const [from, to] = normalizedInterval(info.start, info.end);
+    // Shifts that start before 5 AM belong to the previous workday.
+    const start = daysBetween(first, date) * 1440 + from + (from < WORKDAY_START ? 1440 : 0);
+    const end = start + (to - from);
+    const midnight = Math.floor(start / 1440 + 1) * 1440;
+    const past = date < today;
+    const add = (a: number, b: number, night: boolean) => {
+      const left = Math.max(0, a);
+      const right = Math.min(total, b);
+      if (right <= left) return;
+      pieces.push({
+        from: left / 1440, to: right / 1440, night, past,
+        head: left === start, tail: right === end,
+      });
+    };
+    add(start, Math.min(end, midnight), from < WORKDAY_START);
+    add(midnight, end, true);
+  }
+  return pieces;
+};
+
+/** Pixels before a sideways drag counts as a swipe to another window. */
+const SWIPE_DISTANCE = 48;
+
 export function ScheduleViews({
   range,
   onRange,
@@ -394,6 +447,31 @@ export function ScheduleViews({
       direction: amount > 0 ? "next" : "prev",
     }));
   const showsWeekdays = range !== "3d";
+  const rows = useMemo(() => Array.from(
+    { length: Math.ceil(view.days.length / view.columns) },
+    (_, index) => view.days.slice(index * view.columns, (index + 1) * view.columns),
+  ), [view]);
+
+  // Swipe sideways across the grid to move to the previous or next window.
+  const gesture = useRef<{
+    id: number; x: number; y: number; at: number; axis: "x" | "y" | null;
+  } | null>(null);
+  const swiped = useRef(false);
+  const [drag, setDrag] = useState(0);
+  const endGesture = (event: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
+    const current = gesture.current;
+    if (!current || current.id !== event.pointerId) return;
+    gesture.current = null;
+    if (current.axis !== "x") return;
+    const distance = event.clientX - current.x;
+    const speed = Math.abs(distance) / Math.max(1, event.timeStamp - current.at);
+    setDrag(0);
+    if (cancelled) return;
+    swiped.current = true;
+    if (Math.abs(distance) >= SWIPE_DISTANCE || (Math.abs(distance) > 20 && speed > 0.45)) {
+      page(distance < 0 ? 1 : -1);
+    }
+  };
 
   return (
     <section className="panel schedule-panel">
@@ -464,9 +542,38 @@ export function ScheduleViews({
       )}
 
       <div
-        className={`schedule-grid range-${range} ${showRanges ? "with-ranges" : ""} slide-${direction}`}
+        className={`schedule-grid range-${range} ${showRanges ? "with-ranges" : ""} slide-${direction}${drag ? " is-dragging" : ""}`}
         key={`${range}-${offset}`}
-        style={{ ["--columns" as string]: view.columns }}
+        style={{
+          ["--columns" as string]: view.columns,
+          ["--drag" as string]: `${Math.sign(drag) * Math.min(56, Math.abs(drag) * 0.45)}px`,
+        }}
+        onPointerDown={(event) => {
+          if (event.pointerType === "mouse" && event.button !== 0) return;
+          swiped.current = false;
+          gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY, at: event.timeStamp, axis: null };
+        }}
+        onPointerMove={(event) => {
+          const current = gesture.current;
+          if (!current || current.id !== event.pointerId) return;
+          const dx = event.clientX - current.x;
+          const dy = event.clientY - current.y;
+          if (!current.axis) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) < 10) return;
+            current.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? "x" : "y";
+            if (current.axis === "x") event.currentTarget.setPointerCapture?.(event.pointerId);
+          }
+          if (current.axis === "x") setDrag(dx);
+        }}
+        onPointerUp={(event) => endGesture(event)}
+        onPointerCancel={(event) => endGesture(event, true)}
+        onClickCapture={(event) => {
+          // A swipe that ends on a day shouldn't also select it.
+          if (!swiped.current) return;
+          swiped.current = false;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
       >
         {showsWeekdays &&
           view.days.slice(0, 7).map((day) => (
@@ -474,65 +581,94 @@ export function ScheduleViews({
               {weekdayOf(day.date).slice(0, range === "month" ? 1 : 3)}
             </span>
           ))}
-        {view.days.map((day) => {
-          const info = dayStatus(day.date);
-          const isToday = day.date === anchor;
-          const isPast = day.date < anchor;
-          const classes = [
-            "day-cell",
-            `is-${info.status}`,
-            day.date === selectedDate ? "selected" : "",
-            isToday ? "today" : "",
-            isPast ? "past" : "",
-            day.inMonth ? "" : "outside",
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return (
-            <button
-              type="button"
-              key={day.date}
-              className={classes}
-              onClick={() => onSelect(day.date)}
-              aria-pressed={day.date === selectedDate}
-              aria-label={`${formatDate(day.date, "long")}: ${
-                info.status === "working"
-                  ? `${formatTime(info.start!)} to ${formatTime(info.end!)}`
-                  : info.status === "pto"
-                    ? "PTO"
-                    : info.status === "off"
-                      ? "off"
-                      : "no schedule"
-              }`}
-            >
-              <span className="day-top">
-                {range === "3d" && <small>{isToday ? "Today" : weekdayOf(day.date)}</small>}
-                <b>{dayOfMonth(day.date)}</b>
-              </span>
-              <span className="day-time">
-                {info.status === "working" ? (
-                  showRanges ? (
-                    <>
+        {rows.map((row) => (
+          <Fragment key={row[0].date}>
+          {row.map((day) => {
+            const info = dayStatus(day.date);
+            const nextDay = info.status === "working" && showRanges &&
+              normalizedInterval(info.start!, info.end!)[1] > 1440;
+            const isToday = day.date === anchor;
+            const isPast = day.date < anchor;
+            const classes = [
+              "day-cell",
+              `is-${info.status}`,
+              day.date === selectedDate ? "selected" : "",
+              isToday ? "today" : "",
+              isPast ? "past" : "",
+              day.inMonth ? "" : "outside",
+            ]
+              .filter(Boolean)
+              .join(" ");
+            return (
+              <button
+                type="button"
+                key={day.date}
+                className={classes}
+                onClick={() => onSelect(day.date)}
+                aria-pressed={day.date === selectedDate}
+                aria-label={`${formatDate(day.date, "long")}: ${
+                  info.status === "working"
+                    ? `${formatTime(info.start!)} to ${formatTime(info.end!)}${
+                      nextDay ? " the next day" : ""}`
+                    : info.status === "pto"
+                      ? "PTO"
+                      : info.status === "off"
+                        ? "off"
+                        : "no schedule"
+                }`}
+              >
+                <span className="day-top">
+                  {range === "3d" && <small>{isToday ? "Today" : weekdayOf(day.date)}</small>}
+                  <b>{dayOfMonth(day.date)}</b>
+                </span>
+                <span className="day-time">
+                  {info.status === "working" ? (
+                    showRanges ? (
+                      <>
+                        <span>{compactTime(info.start!)}</span>
+                        <span className={`day-end${nextDay ? " next-day" : ""}`}>
+                          {compactTime(info.end!)}
+                        </span>
+                      </>
+                    ) : (
                       <span>{compactTime(info.start!)}</span>
-                      <span className="day-end">{compactTime(info.end!)}</span>
-                    </>
+                    )
+                  ) : info.status === "pto" ? (
+                    <span>PTO</span>
+                  ) : info.status === "off" ? (
+                    <span>Off</span>
                   ) : (
-                    <span>{compactTime(info.start!)}</span>
-                  )
-                ) : info.status === "pto" ? (
-                  <span>PTO</span>
-                ) : info.status === "off" ? (
-                  <span>Off</span>
-                ) : (
-                  <span aria-hidden="true">·</span>
+                    <span aria-hidden="true">·</span>
+                  )}
+                </span>
+                {range === "3d" && info.status === "working" && showRanges && (
+                  <small className="day-length">{durationLabel(info.start!, info.end!)}</small>
                 )}
+              </button>
+            );
+          })}
+          {showRanges && (() => {
+            const pieces = rowLine(row.map((day) => day.date), dayStatus, anchor);
+            return pieces.length > 0 && (
+              <span className="day-line" aria-hidden="true">
+                {row.slice(1).map((day, index) => (
+                  <b key={day.date} style={{ ["--at" as string]: index + 1 }} />
+                ))}
+                {pieces.map((piece, index) => (
+                  <i
+                    key={index}
+                    className={[
+                      piece.night ? "night" : "", piece.past ? "past" : "",
+                      piece.head ? "head" : "", piece.tail ? "tail" : "",
+                    ].filter(Boolean).join(" ")}
+                    style={{ ["--from" as string]: piece.from, ["--to" as string]: piece.to }}
+                  />
+                ))}
               </span>
-              {range === "3d" && info.status === "working" && showRanges && (
-                <small className="day-length">{durationLabel(info.start!, info.end!)}</small>
-              )}
-            </button>
-          );
-        })}
+            );
+          })()}
+          </Fragment>
+        ))}
       </div>
     </section>
   );

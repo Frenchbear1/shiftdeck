@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "shiftdeck-shell";
-const CACHE_NAME = `${CACHE_PREFIX}-v7`;
+const CACHE_NAME = `${CACHE_PREFIX}-v8`;
 const scopeRoot = new URL("./", self.registration.scope);
 
 async function cacheResponse(cache, request, response) {
@@ -37,6 +37,7 @@ async function precacheShell() {
       "apple-touch-icon.png",
       "icon-192.png",
       "icon-512.png",
+      "badge-96.png",
       "favicon.svg",
     ].map(async (path) => {
       const url = new URL(path, scopeRoot);
@@ -159,7 +160,8 @@ self.addEventListener("push", (event) => {
         {
           body: notification.body || "",
           icon: notification.icon || new URL("icon-192.png", scopeRoot).href,
-          badge: notification.badge || new URL("icon-192.png", scopeRoot).href,
+          // Android draws the badge as a white mask, so it needs a transparent glyph.
+          badge: notification.badge || new URL("badge-96.png", scopeRoot).href,
           tag: notification.tag,
           silent: notification.silent === true,
           data: { navigate },

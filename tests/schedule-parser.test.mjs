@@ -15,18 +15,7 @@ import {
   parseCharterTextItems,
 } from "../app/charter-parser.ts";
 
-import {
-  confirmScanMark,
-  emptyScanDefinitions,
-  getScanConfirmation,
-  getScanDefinition,
-  isCompleteScanMeaning,
-  newScanMeaning,
-  saveScanDefinition,
-  scanSweepDelays,
-} from "../app/scan-annotations.ts";
-
-import { applyScanChanges, applyScanCorrection, recognizedScanMeanings } from "../app/scan-corrections.ts";
+import { scanSweepDelays } from "../app/scan-annotations.ts";
 
 const word = (text, x, y, width = Math.max(8, text.length * 6), height = 10) =>
   [5, 1, 1, 1, 1, 1, x, y, width, height, 90, text].join("\t");
@@ -360,102 +349,4 @@ test("reveals OCR marks from the top left through the last row", () => {
   assert.ok(ordered.get("bottom-right") > ordered.get("top-right"));
   const many = Array.from({ length: 700 }, (_, index) => ({ id: index, x: index, y: index, height: 10 }));
   assert.ok(Math.max(...scanSweepDelays(many).values()) <= 730);
-});
-
-test("keeps single-cell definitions local and reuses matching text only in the same field type", () => {
-  const mark = { id: "shift:1", kind: "shift", text: "  XYZ   2  " };
-  const nextShift = { ...mark, id: "shift:2", text: "xyz 2" };
-  const sameTextInFlight = { ...nextShift, kind: "flight" };
-  const spot = saveScanDefinition(emptyScanDefinitions, "file-a", mark, [{ kind: "note", text: "Local note" }], false);
-  assert.equal(getScanDefinition(spot, "file-a", mark).value, "Local note");
-  assert.equal(getScanDefinition(spot, "file-b", mark).value, "");
-  assert.equal(getScanDefinition(spot, "file-a", nextShift).value, "");
-  const repeat = saveScanDefinition(spot, "file-a", mark, [{ kind: "note", text: "Training" }], true);
-  assert.deepEqual(getScanDefinition(repeat, "file-a", mark), { meanings: [{ kind: "note", text: "Training" }], value: "Training", repeat: true });
-  assert.deepEqual(getScanDefinition(repeat, "file-b", nextShift), { meanings: [{ kind: "note", text: "Training" }], value: "Training", repeat: true });
-  assert.equal(getScanDefinition(repeat, "file-b", sameTextInFlight).value, "");
-});
-
-test("keeps previous definition notes and saves several typed meanings together", () => {
-  const mark = { id: "shift:1", kind: "shift", text: "XYZ" };
-  const legacy = { spots: { '["file-a","shift:1","xyz"]': "Call before shift" }, matching: {} };
-  const old = getScanDefinition(legacy, "file-a", mark);
-  assert.deepEqual(old.meanings, [{ kind: "note", text: "Call before shift" }]);
-
-  const draft = [
-    ...old.meanings,
-    { kind: "range", start: "23:30", end: "01:00" },
-    { kind: "flight", identifier: " g499 ", origin: " abe ", destination: "rsw", arrival: "", departure: "01:15" },
-  ];
-  const stored = saveScanDefinition(legacy, "file-a", mark, draft, true);
-  const next = getScanDefinition(stored, "file-b", { ...mark, id: "shift:2" });
-  assert.equal(next.value, "Call before shift · 23:30–01:00 · Flight G499 · ABE → RSW · Departs 01:15");
-  assert.equal(next.repeat, true);
-  assert.deepEqual(next.meanings[1], { kind: "range", start: "23:30", end: "01:00" });
-});
-
-test("validates type-specific data and accepts off and PTO without extra text", () => {
-  assert.ok(isCompleteScanMeaning(newScanMeaning("off")));
-  assert.ok(isCompleteScanMeaning(newScanMeaning("pto")));
-  assert.ok(isCompleteScanMeaning({ kind: "time", time: "00:00" }));
-  assert.ok(!isCompleteScanMeaning({ kind: "time", time: "24:01" }));
-  assert.ok(!isCompleteScanMeaning(newScanMeaning("flight")));
-  assert.ok(!isCompleteScanMeaning({ kind: "date", date: "2026-02-30" }));
-  const mark = { id: "shift:1", kind: "shift", text: "X" };
-  const result = saveScanDefinition(emptyScanDefinitions, "file-a", mark, [newScanMeaning("off")], true);
-  assert.equal(getScanDefinition(result, "file-b", mark).value, "No scheduled time (X)");
-  assert.equal(saveScanDefinition(result, "file-a", mark, [newScanMeaning("range")], true), result);
-});
-
-test("verifying the displayed range updates just that shift and marks the source read as verified", () => {
-  const date = "2026-11-15";
-  const worker = "David LaBarre";
-  const shift = { id: date + "-" + worker + "-08:00", worker, date, start: "08:00", end: "15:00", status: "working" };
-  const other = { ...shift, id: "other", worker: "Nicole Watson" };
-  const mark = { kind: "shift", id: `shift:${worker}:${date}`, date, worker, text: "0800–1700",
-    shift: { date, start: "08:00", end: "17:00" }, confidence: 68 };
-  const original = { dates: [date], flights: [], shifts: [shift, other] };
-  const patch = applyScanCorrection(original, mark, recognizedScanMeanings(mark), (name) => name);
-  assert.ok(patch.ok);
-  assert.deepEqual(patch.shifts, [{ before: shift, after: { ...shift, end: "17:00", note: undefined } }]);
-  assert.deepEqual(applyScanChanges([other, shift], patch.shifts), [other, patch.shifts[0].after]);
-  const confirmed = confirmScanMark(emptyScanDefinitions, "photo", mark, "verified");
-  assert.equal(getScanConfirmation(confirmed, "photo", mark), "verified");
-  assert.equal(getScanConfirmation(confirmed, "another photo", mark), undefined);
-  const modified = saveScanDefinition(confirmed, "photo", mark, [{ kind: "range", start: "08:00", end: "18:00" }], true);
-  assert.equal(getScanConfirmation(modified, "photo", mark), "verified");
-});
-
-test("defines unreadable shifts, turns shifts off, and follows later name/date corrections", () => {
-  const date = "2026-11-15";
-  const mark = { kind: "shift", id: "shift:David LaBarre:" + date, worker: "David LaBarre", text: "**" };
-  const source = { dates: [date], shifts: [], flights: [] };
-  const corrected = applyScanCorrection(source, mark, [{ kind: "range", start: "22:00", end: "04:00" }], (name) => name);
-  assert.ok(corrected.ok);
-  assert.equal(corrected.schedule.shifts[0].end, "04:00");
-  const renamed = applyScanCorrection(corrected.schedule, { kind: "name", id: "name:David LaBarre", worker: mark.worker }, [{ kind: "person", text: "David Smith" }], (name) => name);
-  assert.ok(renamed.ok);
-  const moved = applyScanCorrection(renamed.schedule, { kind: "date", id: "date:" + date }, [{ kind: "date", date: "2026-11-16" }], (name) => name);
-  assert.ok(moved.ok);
-  const off = applyScanCorrection(moved.schedule, mark, [{ kind: "off" }], (name) => name);
-  assert.ok(off.ok);
-  assert.deepEqual(off.schedule.shifts.map(({ worker, date, status, end }) => ({ worker, date, status, end })),
-    [{ worker: "David Smith", date: "2026-11-16", status: "off", end: "" }]);
-  assert.equal(applyScanCorrection(source, mark, [{ kind: "time", time: "08:00" }], (name) => name).ok, false);
-});
-
-test("uses a defined flight in the correct date column without adding duplicates", () => {
-  const date = "2026-11-15";
-  const source = { dates: [date], shifts: [], flights: [] };
-  const mark = { kind: "flight", id: "flight:2:0", date, text: "??", period: "Morning" };
-  const meaning = { kind: "flight", identifier: "G499", origin: "RSW", destination: "", arrival: "09:20", departure: "" };
-  const corrected = applyScanCorrection(source, mark, [meaning], (name) => name);
-  assert.ok(corrected.ok);
-  assert.equal(corrected.schedule.flights[0].inboundAirport, "RSW");
-  assert.equal(corrected.schedule.flights[0].start, "09:20");
-  const edit = applyScanCorrection(corrected.schedule, mark, [{ ...meaning, arrival: "09:45" }], (name) => name);
-  assert.ok(edit.ok);
-  assert.equal(edit.schedule.flights.length, 1);
-  assert.equal(edit.schedule.flights[0].start, "09:45");
-  assert.equal(applyScanCorrection(source, { ...mark, date: "2026-11-14" }, [meaning], (name) => name).ok, false);
 });

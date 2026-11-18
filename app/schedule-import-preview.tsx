@@ -33,7 +33,7 @@ export const confidenceLabels = {
 };
 
 export function ScanOverlay({
-  pass, ratio, matchesWorker, selected, onSelect, sweep = false, definitionFor, confirmationFor,
+  pass, ratio, matchesWorker, selected, onSelect, sweep = false,
 }: {
   pass: ScanPreviewPass;
   ratio: number;
@@ -41,8 +41,6 @@ export function ScanOverlay({
   selected: string | null;
   onSelect: (id: string) => void;
   sweep?: boolean;
-  definitionFor?: (mark: ScanMark) => string;
-  confirmationFor?: (mark: ScanMark) => "verified" | "corrected" | undefined;
 }) {
   const delays = useMemo(() => sweep ? scanSweepDelays(pass.marks) : null, [pass.marks, sweep]);
   if (Math.abs((pass.width / pass.height) / ratio - 1) > 0.04) return null;
@@ -65,21 +63,19 @@ export function ScanOverlay({
         />
       ))}
       {pass.marks.map((mark) => {
-        const confirmation = confirmationFor?.(mark);
-        const score = confirmation ? "confident" : scanConfidence(mark);
-        const label = confirmation === "verified" ? "Verified" : confirmation === "corrected" ? "Corrected" : confidenceLabels[score];
+        const score = scanConfidence(mark);
+        const label = confidenceLabels[score];
         const padX = Math.max(3, mark.height * 0.36);
         const padY = Math.max(1.5, mark.height * 0.24);
-        const defined = definitionFor?.(mark);
         const delay = delays?.get(mark.id) ?? 0;
         return (
           <g
             key={mark.id}
             tabIndex={sweep && score === "confident" ? undefined : 0}
             role="button"
-            aria-label={`${label}: ${mark.text}${defined ? " · " + defined : ""}`}
+            aria-label={`${label}: ${mark.text}${mark.note ? " · " + mark.note : ""}`}
             aria-pressed={selected === mark.id}
-            className={`scan-mark scan-mark-${mark.kind} scan-mark-${score}${defined ? " is-defined" : ""}`}
+            className={`scan-mark scan-mark-${mark.kind} scan-mark-${score}`}
             style={{ "--scan-delay": `${delay}ms` } as CSSProperties}
             onClick={() => onSelect(mark.id)}
             onKeyDown={(event) => {
@@ -114,14 +110,13 @@ export function ScanOverlay({
 }
 
 export function ScheduleImportPreview({
-  file, count, snapshot, matchesWorker, onClose, definitionFor,
+  file, count, snapshot, matchesWorker, onClose,
 }: {
   file: ImportPreviewFile | null;
   count: number;
   snapshot: ImportSnapshot;
   matchesWorker: (name: string) => boolean;
   onClose: () => void;
-  definitionFor?: (mark: ScanMark) => string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const stageElement = useRef<HTMLDivElement>(null);
@@ -237,7 +232,6 @@ export function ScheduleImportPreview({
                   matchesWorker={matchesWorker}
                   selected={mark?.id ?? null}
                   sweep
-                  definitionFor={definitionFor}
                   onSelect={(id) => setSelected((current) =>
                     current?.index === frame.index && current.id === id ? undefined : { index: frame.index, id })}
                 />
@@ -253,7 +247,7 @@ export function ScheduleImportPreview({
           ))}
         </ul>
         <p className={`scan-observation${mark ? " scan-mark-" + scanConfidence(mark) : ""}`} aria-live="polite">
-          {mark ? `${definitionFor?.(mark) || confidenceLabels[scanConfidence(mark)]} · ${mark.text}` : pass?.marks.length ? "Tap a highlight to see what was read" : "\u00a0"}
+          {mark ? `${confidenceLabels[scanConfidence(mark)]} · ${mark.note ? mark.note + " · " : ""}${mark.text}` : pass?.marks.length ? "Tap a highlight to see what was read" : "\u00a0"}
         </p>
         <div className="scan-my-shifts" aria-label="Your shifts detected so far">
           {ownShifts.map((item) => {

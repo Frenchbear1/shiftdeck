@@ -33,6 +33,10 @@ export type ScanMark = {
   flight?: Flight;
   period?: Flight["period"];
   shift?: Pick<Shift, "date" | "start" | "end">;
+  /** The whole grid cell in image pixels, used to re-read just that cell. */
+  cell?: { x: number; y: number; width: number; height: number };
+  /** Why a read was flagged or trusted (e.g. "Read the same 3 ways"). */
+  note?: string;
 };
 
 export type ScanGeometry = {
@@ -577,6 +581,39 @@ const normalizedTimeRange = (raw: string) => {
     : null;
 };
 
+/** Reads "1700-0100" style ranges, tolerating common OCR letter swaps. */
+export const readTimeRange = (raw: string) => {
+  const range = normalizedTimeRange(raw);
+  return range ? { start: range.start, end: range.end } : null;
+};
+
+/**
+ * A cell can pick up text from the row above or below when rows are tight.
+ * Use the line of words closest to the worker's row that holds a time range.
+ */
+const closestCellLine = (words: OcrWord[], rowY: number, typicalHeight: number) => {
+  if (words.length < 2) return words;
+  const lines: OcrWord[][] = [];
+  [...words].sort((a, b) => a.rowY - b.rowY).forEach((word) => {
+    const last = lines.at(-1);
+    if (last && Math.abs(word.rowY - average(last.map((item) => item.rowY))) <= typicalHeight * 0.55) {
+      last.push(word);
+    } else {
+      lines.push([word]);
+    }
+  });
+  if (lines.length < 2) return words;
+  const ranked = lines
+    .map((line) => ({
+      line: line.sort((a, b) => a.x - b.x),
+      distance: Math.abs(average(line.map((item) => item.rowY)) - rowY),
+    }))
+    .sort((a, b) => a.distance - b.distance);
+  return ranked.find(({ line }) =>
+    normalizedTimeRange(normalizedCellText(line.map((word) => word.text).join(" "))),
+  )?.line ?? words;
+};
+
 const nearestColumn = (x: number, centers: number[], spacing: number) => {
   let index = 0;
   let distance = Number.POSITIVE_INFINITY;
@@ -673,6 +710,7 @@ const parseShifts = (
     const band = sourceBand([...row.words, ...cells], week.slope);
     return {
       name: row.name,
+      y: row.y,
       cells,
       left: Math.min(...row.words.map((word) => word.x)),
       top: Math.max(band.top, index ? (namedRows[index - 1].y + row.y) / 2 : -Infinity),
@@ -682,16 +720,21 @@ const parseShifts = (
   });
 
   const shifts = rows.flatMap<Shift>((row) => {
+    const rowY = row.y;
     return week.dates.map((date, columnIndex) => {
-      const words = row.cells
+      const cellWords = row.cells
         .filter(
           (word) =>
             nearestColumn(word.centerX, week.columnCenters, week.spacing) === columnIndex,
         )
         .sort((a, b) => a.x - b.x);
+      const words = closestCellLine(cellWords, rowY, typicalHeight);
       const normalized = normalizedCellText(words.map((word) => word.text).join(" "));
       const range = normalizedTimeRange(normalized);
       if (words.length) {
+        const center = week.columnCenters[columnIndex];
+        const top = Number.isFinite(row.top) ? row.top : rowY - rowSpacing / 2;
+        const bottom = Number.isFinite(row.bottom) ? row.bottom : rowY + rowSpacing / 2;
         collect?.({
           id: `shift:${row.name}:${date}`,
           kind: "shift",
@@ -699,6 +742,12 @@ const parseShifts = (
           date,
           unreadable: !range && !/^(?:OFF|PTO|X|[-–—]+)(?:\s|$)/.test(normalized),
           shift: range ? { date, start: range.start, end: range.end } : undefined,
+          cell: {
+            x: center - week.spacing / 2,
+            y: top + week.slope * center,
+            width: week.spacing,
+            height: bottom - top,
+          },
         }, words);
       }
       if (range) {
