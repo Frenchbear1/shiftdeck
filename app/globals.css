@@ -6758,3 +6758,291 @@ select:focus-visible {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 10%, var(--surface));
 }
+
+/* ---------- directory ---------- */
+
+.directory-sheet .sheet-scroll {
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 10px;
+}
+
+.directory-import {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 8px;
+}
+
+.directory-import .button {
+  min-height: 42px;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.directory-tabs {
+  min-height: 40px;
+  display: flex;
+  gap: 6px;
+  margin: 0 -20px;
+  padding: 2px 20px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.directory-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.directory-tabs button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.directory-tabs button small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.directory-tabs button.active {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.directory-tabs button.active small {
+  color: rgba(255, 255, 255, .8);
+}
+
+.directory-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.directory-heading {
+  margin: 8px 2px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.directory-list li:first-child .directory-heading {
+  margin-top: 0;
+}
+
+.directory-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.directory-list li.open .directory-row {
+  border-color: color-mix(in srgb, var(--blue) 40%, var(--line));
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.directory-list li.is-line .directory-row {
+  background: var(--blue-soft);
+}
+
+.directory-name {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  padding: 4px 0;
+  color: var(--text);
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.directory-name b,
+.directory-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-name b {
+  font-size: 14px;
+}
+
+.directory-name small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.directory-check {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 1px 6px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.directory-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.directory-actions a {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.directory-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+.directory-chevron {
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.directory-list li.open .directory-chevron {
+  transform: rotate(180deg);
+}
+
+.directory-details {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--blue) 40%, var(--line));
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+.directory-details dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.directory-details dl div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.directory-details dt {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.directory-details dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.directory-details a {
+  color: var(--blue);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.directory-detail-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.directory-detail-actions .button {
+  min-height: 36px;
+  justify-content: center;
+}
+
+.danger-text {
+  color: var(--danger) !important;
+}
+
+.directory-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.directory-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.directory-field.field-line,
+.directory-field.field-department,
+.directory-field.field-title,
+.directory-field.field-email {
+  grid-column: 1 / -1;
+}
+
+.directory-field input {
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 16px;
+}
+
+.directory-field input:focus {
+  border-color: var(--blue);
+  outline: none;
+}
+
+.directory-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Bell,
+  BookUser,
   CalendarDays,
   Check,
   ChevronDown,
@@ -94,6 +95,8 @@ import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
+import { DirectorySheet } from "./directory";
+import { DIRECTORY_KEY, type DirectoryEntry } from "./directory-data";
 import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
 import {
   cancelSwap,
@@ -687,6 +690,25 @@ export default function HomePage() {
       // Start with no contacts.
     }
   }, []);
+  // The work phone directory, kept only on this device.
+  const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(DIRECTORY_KEY) ?? "[]");
+      if (Array.isArray(saved)) queueMicrotask(() => setDirectory(saved as DirectoryEntry[]));
+    } catch {
+      // Start empty.
+    }
+  }, []);
+  const saveDirectory = (next: DirectoryEntry[]) => {
+    setDirectory(next);
+    try {
+      localStorage.setItem(DIRECTORY_KEY, JSON.stringify(next));
+    } catch {
+      // Kept for this visit.
+    }
+  };
   // Swap requests sent by email or text, and their answers.
   const [sentSwaps, setSentSwaps] = useState<SentSwap[]>([]);
   useEffect(() => {
@@ -3435,7 +3457,7 @@ export default function HomePage() {
             <div className="settings-tiles">
               <button
                 type="button"
-                className="settings-tile wide"
+                className="settings-tile"
                 onClick={() => {
                   setSettingsOpen(false);
                   setContactsOpen({});
@@ -3448,9 +3470,20 @@ export default function HomePage() {
                       const contact = contacts[contactKey(worker)];
                       return Boolean(contact?.email || contact?.phone);
                     }).length;
-                    return count ? `${count} saved · for swap emails and texts` : "Add emails or numbers for swaps";
+                    return count ? `${count} saved for swaps` : "For swap emails";
                   })()}
                 </b>
+              </button>
+              <button
+                type="button"
+                className="settings-tile"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setDirectoryOpen(true);
+                }}
+              >
+                <span><BookUser /> Directory</span>
+                <b>{directory.length ? `${directory.length} people & lines` : "Import the phone list"}</b>
               </button>
               <button
                 type="button"
@@ -3504,6 +3537,15 @@ export default function HomePage() {
             )}
           </section>
         </div>
+      )}
+
+      {directoryOpen && (
+        <DirectorySheet
+          entries={directory}
+          workers={[prefs.person, ...contactWorkers].filter(Boolean)}
+          onChange={saveDirectory}
+          onClose={() => setDirectoryOpen(false)}
+        />
       )}
 
       {contactsOpen && (
