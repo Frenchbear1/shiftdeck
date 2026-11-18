@@ -9,11 +9,16 @@
  * phones are looking or panning, and hands each phone only the planes in its
  * view. That keeps us far under the networks' rate limits.
  *
- * - adsb.lol (free, open data under ODbL), adsb.fi and airplanes.live
- *   (personal, non-commercial use, credited in the app) are all asked at
- *   once and their planes combined, so one network being down or missing
- *   a plane doesn't empty the map. Each allows 1 request a second; we make
- *   at most one every 10 seconds.
+ * - adsb.lol (free, open data under ODbL), ADSB One, adsb.fi and
+ *   airplanes.live (personal, non-commercial use, credited in the app) are
+ *   asked at once and their planes combined, so one network being down or
+ *   missing a plane doesn't empty the map. Each allows about 1 request a
+ *   second; we make at most one every 10 seconds.
+ * - adsb.fi and airplanes.live refuse (403) requests from cloud servers like
+ *   this one, so a 403 rests a network for 30 minutes before trying again.
+ * - OpenSky is the last resort: only asked when every other network failed,
+ *   at most once a minute, because anonymous use is limited to 400 credits a
+ *   day (our area costs 2).
  * - None send CORS headers, so phones can't ask them directly.
  * - A network that says "slow down" (429) is skipped for a minute; one that
  *   errors or times out is skipped for 20 seconds.
@@ -21,7 +26,7 @@
  *   for up to 3 minutes instead of an empty map.
  */
 import { corsHeaders, json } from "./calendar-service";
-import { mergeAircraft, Plane, planesInView, RawAircraft, toPlanes } from "./planes-data";
+import { fromOpenSky, mergeAircraft, Plane, planesInView, RawAircraft, toPlanes } from "./planes-data";
 
 const ABE = { lat: 40.652363, lon: -75.440406 };
 const SNAPSHOT_NM = 250;
@@ -29,6 +34,8 @@ const DEFAULT_RADIUS_NM = 35;
 const SNAPSHOT_MS = 10_000;
 const BACKOFF_MS = 60_000;
 const ERROR_BACKOFF_MS = 20_000;
+const BLOCKED_BACKOFF_MS = 30 * 60_000;
+const LAST_RESORT_MS = 60_000;
 const FETCH_TIMEOUT_MS = 6_000;
 /** How long the last good snapshot may stand in when every network fails. */
 const STALE_LIMIT_MS = 180_000;
@@ -47,7 +54,20 @@ const SOURCES = [
     name: "airplanes.live",
     url: `https://api.airplanes.live/v2/point/${ABE.lat}/${ABE.lon}/${SNAPSHOT_NM}`,
   },
+  {
+    name: "adsb.one",
+    url: `https://api.adsb.one/v2/point/${ABE.lat}/${ABE.lon}/${SNAPSHOT_NM}`,
+  },
 ];
+
+// 250 nm around ABE as a box (1° latitude = 60 nm).
+const BOX_LAT = SNAPSHOT_NM / 60;
+const BOX_LON = SNAPSHOT_NM / (60 * Math.cos((ABE.lat * Math.PI) / 180));
+const OPENSKY = {
+  name: "opensky-network.org",
+  url: `https://opensky-network.org/api/states/all?lamin=${(ABE.lat - BOX_LAT).toFixed(3)}&lomin=${(ABE.lon - BOX_LON).toFixed(3)}&lamax=${(ABE.lat + BOX_LAT).toFixed(3)}&lomax=${(ABE.lon + BOX_LON).toFixed(3)}`,
+};
+let lastResortAt = 0;
 
 export type Snapshot = { at: number; source: string; planes: Plane[] };
 
@@ -57,7 +77,7 @@ const backoffUntil = new Map<string, number>();
 /** Last result per network ("ok", an HTTP status, or an error), for checking reliability. */
 const lastResult = new Map<string, { at: number; result: string }>();
 
-async function fetchSource(source: (typeof SOURCES)[number], now: number) {
+async function fetchSource(source: { name: string; url: string }, now: number) {
   try {
     const response = await fetch(source.url, {
       headers: { Accept: "application/json", "User-Agent": "Shiftdeck (personal ramp app)" },
@@ -67,9 +87,17 @@ async function fetchSource(source: (typeof SOURCES)[number], now: number) {
       backoffUntil.set(source.name, now + BACKOFF_MS);
       throw new Error("429");
     }
+    if (response.status === 403) {
+      backoffUntil.set(source.name, now + BLOCKED_BACKOFF_MS);
+      throw new Error("403");
+    }
     if (!response.ok) throw new Error(String(response.status));
-    const data = (await response.json()) as { ac?: RawAircraft[]; aircraft?: RawAircraft[] };
-    const aircraft = data.ac ?? data.aircraft;
+    const data = (await response.json()) as {
+      ac?: RawAircraft[]; aircraft?: RawAircraft[]; states?: unknown[][] | null;
+    };
+    const aircraft = source === OPENSKY
+      ? fromOpenSky(data.states ?? [], Math.floor(now / 1000))
+      : data.ac ?? data.aircraft;
     if (!Array.isArray(aircraft)) throw new Error("no aircraft list");
     lastResult.set(source.name, { at: now, result: "ok" });
     return aircraft;
@@ -86,10 +114,16 @@ async function fetchSource(source: (typeof SOURCES)[number], now: number) {
 
 async function fetchSnapshot(now: number): Promise<Snapshot | null> {
   const ready = SOURCES.filter((source) => (backoffUntil.get(source.name) ?? 0) <= now);
-  // If every network is resting, try them all anyway rather than show nothing.
-  const asked = ready.length ? ready : SOURCES;
+  // If every network is resting, still try adsb.lol rather than show nothing.
+  const asked = ready.length ? ready : [SOURCES[0]];
   const results = await Promise.all(asked.map((source) => fetchSource(source, now)));
   const answered = asked.filter((_, index) => results[index]);
+  if (!answered.length && now - lastResortAt >= LAST_RESORT_MS &&
+    (backoffUntil.get(OPENSKY.name) ?? 0) <= now) {
+    lastResortAt = now;
+    const backup = await fetchSource(OPENSKY, now);
+    if (backup) return { at: now, source: OPENSKY.name, planes: toPlanes(backup) };
+  }
   if (!answered.length) return null;
   return {
     at: now,
@@ -168,7 +202,7 @@ export async function handlePlanesRequest(request: Request) {
       updatedAt: new Date(snapshot.at).toISOString(),
       radius,
       stale,
-      networks: Object.fromEntries(SOURCES.map(({ name }) => {
+      networks: Object.fromEntries([...SOURCES, OPENSKY].map(({ name }) => {
         const last = lastResult.get(name);
         return [name, last ? `${last.result} ${Math.round((now - last.at) / 1000)}s ago` : "not asked here yet"];
       })),

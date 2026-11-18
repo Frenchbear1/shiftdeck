@@ -59,6 +59,33 @@ export function toPlanes(aircraft: RawAircraft[]): Plane[] {
 }
 
 /**
+ * OpenSky's state vectors (arrays, metric units) in the same shape as the
+ * other networks' aircraft: [icao24, callsign, country, time_position,
+ * last_contact, lon, lat, baro_altitude m, on_ground, velocity m/s,
+ * true_track, vertical_rate m/s, ...].
+ */
+export function fromOpenSky(states: unknown[][], nowSeconds: number): RawAircraft[] {
+  return states.flatMap((state) => {
+    const [hex, callsign, , timePosition, , lon, lat, altitude, onGround, velocity, track, rate] = state as [
+      string, string | null, string, number | null, number, number | null, number | null,
+      number | null, boolean, number | null, number | null, number | null,
+    ];
+    if (typeof lat !== "number" || typeof lon !== "number") return [];
+    return [{
+      hex,
+      flight: callsign ?? undefined,
+      lat,
+      lon,
+      alt_baro: onGround ? "ground" as const : typeof altitude === "number" ? Math.round(altitude * 3.28084) : undefined,
+      gs: typeof velocity === "number" ? velocity * 1.943844 : undefined,
+      track: typeof track === "number" ? track : undefined,
+      baro_rate: typeof rate === "number" ? Math.round(rate * 196.8504) : undefined,
+      seen_pos: typeof timePosition === "number" ? Math.max(0, nowSeconds - timePosition) : undefined,
+    }];
+  });
+}
+
+/**
  * Combines the aircraft lists from several networks. Each network has its own
  * receivers, so together they see more; a plane seen by more than one keeps
  * the freshest position.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeAircraft, toPlanes } from "../worker/planes-data.ts";
+import { fromOpenSky, mergeAircraft, toPlanes } from "../worker/planes-data.ts";
 
 test("keeps planes with a fresh position and tidies their fields", () => {
   const planes = toPlanes([
@@ -38,4 +38,16 @@ test("combines networks and keeps each plane's freshest position", () => {
   const a1 = merged.find((plane) => plane.hex.toLowerCase() === "a1");
   assert.equal(a1.lat, 40.1);
   assert.equal(a1.flight, "AAY1");
+});
+
+test("reads OpenSky's metric state vectors like the other networks", () => {
+  const [plane] = toPlanes(fromOpenSky([
+    ["a1b2c3", "AAY854  ", "United States", 1000, 1001, -75.4, 40.6, 1000, false, 100, 270, -5, null, 1050, "1200", false, 0],
+    ["ffffff", null, "United States", null, 1001, null, null, null, true, null, null, null, null, null, null, false, 0],
+  ], 1004));
+  assert.equal(plane.callsign, "AAY854");
+  assert.equal(plane.altitude, 3281);
+  assert.equal(plane.speed, 194);
+  assert.equal(plane.track, 270);
+  assert.equal(plane.climb, -984);
 });
