@@ -1330,8 +1330,9 @@ const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const monthTitle = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
 
 /**
- * Month calendars covering the pickable days, so weekdays and every date are
- * visible. Days that can't be picked are shown dimmed.
+ * One month calendar at a time, with weekdays and every date visible; swipe
+ * or use the arrows to move between months that have days to pick. Days that
+ * can't be picked are shown dimmed.
  */
 function SwapMonths({ dates, selected, note, onSelect }: {
   dates: string[];
@@ -1341,39 +1342,82 @@ function SwapMonths({ dates, selected, note, onSelect }: {
 }) {
   const pickable = new Set(dates);
   const months = [...new Set(dates.map((date) => date.slice(0, 7)))].sort();
+  const [index, setIndex] = useState(() =>
+    Math.max(0, months.indexOf((selected ?? dates[0] ?? "").slice(0, 7))));
+  const [direction, setDirection] = useState<"next" | "prev" | "none">("none");
+  const gesture = useRef<{ id: number; x: number; y: number } | null>(null);
+  const swiped = useRef(false);
+  const current = Math.min(index, months.length - 1);
+  const month = months[current];
+  if (!month) return null;
+  const go = (step: number) => {
+    const next = current + step;
+    if (next < 0 || next >= months.length) return;
+    setDirection(step > 0 ? "next" : "prev");
+    setIndex(next);
+  };
+  const first = `${month}-01`;
+  const title = monthTitle.format(new Date(`${first}T12:00:00`));
+  const lead = new Date(`${first}T12:00:00`).getDay();
+  const days: string[] = [];
+  for (let day = first; day.startsWith(month); day = addDays(day, 1)) days.push(day);
   return (
-    <div className="swap-months">
-      {months.map((month) => {
-        const first = `${month}-01`;
-        const lead = new Date(`${first}T12:00:00`).getDay();
-        const days: string[] = [];
-        for (let day = first; day.startsWith(month); day = addDays(day, 1)) days.push(day);
-        return (
-          <section key={month} className="swap-month" aria-label={monthTitle.format(new Date(`${first}T12:00:00`))}>
-            <h4>{monthTitle.format(new Date(`${first}T12:00:00`))}</h4>
-            <div className="swap-month-grid">
-              {WEEKDAY_LETTERS.map((letter, index) => <small key={index}>{letter}</small>)}
-              {Array.from({ length: lead }, (_, index) => <span key={`lead-${index}`} />)}
-              {days.map((date) => pickable.has(date) ? (
-                <button
-                  type="button"
-                  key={date}
-                  className={selected === date ? "active" : ""}
-                  aria-pressed={selected === date}
-                  aria-label={`${formatDate(date, "long")} · ${note(date)}`}
-                  onClick={() => onSelect(date)}
-                >
-                  <b>{dayOfMonth(date)}</b>
-                  <span>{note(date)}</span>
-                </button>
-              ) : (
-                <span key={date} className="swap-month-day">{dayOfMonth(date)}</span>
-              ))}
-            </div>
-          </section>
-        );
-      })}
-    </div>
+    <section className="swap-month" aria-label={title}>
+      <div className="swap-month-head">
+        <button type="button" onClick={() => go(-1)} disabled={current === 0} aria-label="Previous month">
+          <ChevronLeft />
+        </button>
+        <h4>{title}</h4>
+        <button type="button" onClick={() => go(1)} disabled={current === months.length - 1} aria-label="Next month">
+          <ChevronRight />
+        </button>
+      </div>
+      <div
+        className={`swap-month-grid slide-${direction}`}
+        key={month}
+        onPointerDown={(event) => {
+          swiped.current = false;
+          gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+        }}
+        onPointerUp={(event) => {
+          const start = gesture.current;
+          gesture.current = null;
+          if (!start || start.id !== event.pointerId) return;
+          const dx = event.clientX - start.x;
+          const dy = event.clientY - start.y;
+          if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+          swiped.current = true;
+          go(dx < 0 ? 1 : -1);
+        }}
+        onPointerCancel={() => {
+          gesture.current = null;
+        }}
+        onClickCapture={(event) => {
+          if (!swiped.current) return;
+          swiped.current = false;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        {WEEKDAY_LETTERS.map((letter, column) => <small key={column}>{letter}</small>)}
+        {Array.from({ length: lead }, (_, blank) => <span key={`lead-${blank}`} />)}
+        {days.map((date) => pickable.has(date) ? (
+          <button
+            type="button"
+            key={date}
+            className={selected === date ? "active" : ""}
+            aria-pressed={selected === date}
+            aria-label={`${formatDate(date, "long")} · ${note(date)}`}
+            onClick={() => onSelect(date)}
+          >
+            <b>{dayOfMonth(date)}</b>
+            <span>{note(date)}</span>
+          </button>
+        ) : (
+          <span key={date} className="swap-month-day">{dayOfMonth(date)}</span>
+        ))}
+      </div>
+    </section>
   );
 }
 

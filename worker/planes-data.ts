@@ -58,6 +58,30 @@ export function toPlanes(aircraft: RawAircraft[]): Plane[] {
     }));
 }
 
+/**
+ * Combines the aircraft lists from several networks. Each network has its own
+ * receivers, so together they see more; a plane seen by more than one keeps
+ * the freshest position.
+ */
+export function mergeAircraft(lists: RawAircraft[][]): RawAircraft[] {
+  const byHex = new Map<string, RawAircraft>();
+  const unnamed: RawAircraft[] = [];
+  for (const list of lists) {
+    for (const plane of list) {
+      if (!plane.hex) {
+        unnamed.push(plane);
+        continue;
+      }
+      const key = plane.hex.toLowerCase();
+      const current = byHex.get(key);
+      if (!current || (plane.seen_pos ?? Infinity) < (current.seen_pos ?? Infinity)) {
+        byHex.set(key, current ? { ...current, ...plane } : plane);
+      }
+    }
+  }
+  return [...byHex.values(), ...unnamed];
+}
+
 /** Great-circle distance in nautical miles. */
 export function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const rad = Math.PI / 180;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toPlanes } from "../worker/planes-data.ts";
+import { mergeAircraft, toPlanes } from "../worker/planes-data.ts";
 
 test("keeps planes with a fresh position and tidies their fields", () => {
   const planes = toPlanes([
@@ -27,4 +27,15 @@ test("hands each phone only the planes in its view", async () => {
   assert.deepEqual(planesInView(planes, 40.65, -75.44, 35).map((p) => p.hex), ["near"]);
   assert.deepEqual(planesInView(planes, 40.65, -75.44, 60).map((p) => p.hex), ["near", "philly"]);
   assert.equal(planesInView(planes, 40.65, -75.44, 250).length, 3);
+});
+
+test("combines networks and keeps each plane's freshest position", () => {
+  const merged = mergeAircraft([
+    [{ hex: "A1", lat: 40, lon: -75, seen_pos: 5, flight: "AAY1" }, { hex: "B2", lat: 41, lon: -75, seen_pos: 1 }],
+    [{ hex: "a1", lat: 40.1, lon: -75.1, seen_pos: 1 }, { hex: "C3", lat: 42, lon: -75, seen_pos: 2 }],
+  ]);
+  assert.equal(merged.length, 3);
+  const a1 = merged.find((plane) => plane.hex.toLowerCase() === "a1");
+  assert.equal(a1.lat, 40.1);
+  assert.equal(a1.flight, "AAY1");
 });

@@ -3,7 +3,7 @@
 import type { Map as LeafletMap, Marker } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { LocateFixed, Radar } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { LiveFlight } from "./live-flights";
 
 /** Mirrors worker/planes.ts. */
@@ -413,13 +413,12 @@ export function LiveMapPanel({
         </span>
         <span>
           Data:{" "}
-          <a
-            href={source === "adsb.fi" ? "https://adsb.fi" : "https://adsb.lol"}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {source}
-          </a>
+          {source.split(" + ").map((name, index) => (
+            <Fragment key={name}>
+              {index > 0 && ", "}
+              <a href={`https://${name}`} target="_blank" rel="noreferrer">{name}</a>
+            </Fragment>
+          ))}
         </span>
       </p>
     </section>

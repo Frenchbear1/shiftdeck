@@ -329,11 +329,13 @@ export async function collectFlightLearning(db: CalendarDatabase | undefined, no
       return !live?.cancelled && !row.landed_ts && now >= expected - WINDOW_BEFORE && now <= expected + WINDOW_AFTER;
     });
     if (due.length) {
-      const [{ snapshot }, wind, history] = await Promise.all([
+      const [{ snapshot: latest, stale }, wind, history] = await Promise.all([
         getSnapshot(now),
         currentWind(db, now),
         loadHistory(db),
       ]);
+      // An old snapshot kept up during an outage isn't a current position.
+      const snapshot = stale ? null : latest;
       const windRunway = runwayFromWind(wind?.from ?? null, wind?.kt ?? null);
       const obsWrites = [];
       for (const row of due) {
