@@ -114,6 +114,68 @@ function matchTokens(wanted: string[], workers: string[]): string | null | undef
   return scored[0].worker;
 }
 
+/**
+ * Text read from screenshots of a member list (Outlook and similar), where
+ * each person's name sits on the line above their email. OCR often turns
+ * "@" into "©" or "®", which is fixed first.
+ */
+export function parseListScreenshotText(text: string): ContactEntry[] {
+  const ROLE = /\b(?:owner|member|guest|admin(?:istrator)?|external)\b/gi;
+  const lines = text
+    .replace(/[©®]/g, "@")
+    .replace(/\s*@\s*/g, "@")
+    .split(/\r?\n/)
+    .map((line) => line.replace(ROLE, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const entries: ContactEntry[] = [];
+  const seen = new Set<string>();
+  lines.forEach((line, index) => {
+    const email = tidyEmail(line);
+    if (!email || seen.has(email)) return;
+    seen.add(email);
+    const sameLine = line.replace(EMAIL, " ").replace(/[<>()"'|;:,]+/g, " ").replace(/\s+/g, " ").trim();
+    let name = /[a-z]{2,}\s+[a-z]/i.test(sameLine) ? sameLine : "";
+    for (let back = index - 1; !name && back >= 0 && back >= index - 2; back -= 1) {
+      const candidate = lines[back];
+      if (tidyEmail(candidate)) break;
+      if (/[a-z]{2,}/i.test(candidate) && candidate.length <= 48) {
+        name = candidate.replace(/[^A-Za-z' ,.-]+/g, " ").replace(/\s+/g, " ").trim();
+      }
+    }
+    entries.push({ name, email });
+  });
+  return entries;
+}
+
+/**
+ * Work emails nearly always contain the last name ("lweber@", "landon.weber@",
+ * "weberl@"), so that alone usually finds the person; the first name or
+ * initial settles ties between people who share a last name.
+ */
+export function matchWorkerByEmail(email: string, workers: string[]): string | null {
+  const local = email.split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+  if (!local) return null;
+  const candidates = workers.filter((worker) => {
+    const last = tokens(worker).at(-1) ?? "";
+    return last.length >= 3 && local.includes(last);
+  });
+  if (candidates.length === 1) return candidates[0];
+  const byFirst = candidates.filter((worker) => {
+    const [first = "", last = ""] = [tokens(worker)[0], tokens(worker).at(-1)];
+    const rest = local.replace(last, " ");
+    return rest.includes(first) || rest.trim().startsWith(first[0]) || rest.trim().endsWith(first[0]);
+  });
+  return byFirst.length === 1 ? byFirst[0] : null;
+}
+
+/** Name first; the email settles it when the name is unclear or misread. */
+export function matchContact(entry: ContactEntry, workers: string[]): string | null {
+  const byName = entry.name ? matchWorker(entry.name, workers) : null;
+  const byEmail = entry.email ? matchWorkerByEmail(entry.email, workers) : null;
+  if (byName && byEmail && byName !== byEmail) return null;
+  return byName ?? byEmail;
+}
+
 /** Adds entries to the saved contacts; a new value replaces the old one. */
 export function mergeContacts(contacts: Contacts, entries: Array<{ worker: string; email?: string; phone?: string }>) {
   const next = { ...contacts };

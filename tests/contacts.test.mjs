@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   emailLink,
   formatPhone,
+  matchContact,
   matchWorker,
+  matchWorkerByEmail,
+  parseListScreenshotText,
   mergeContacts,
   parseContactLines,
   swapMessage,
@@ -62,4 +65,35 @@ test("writes a short prefilled swap request", () => {
   assert.match(emailLink("l@x.com", message), /^mailto:l@x\.com\?subject=Shift%20swap/);
   assert.match(textLink("6105551234", "Hi", true), /^sms:6105551234&body=Hi$/);
   assert.match(textLink("6105551234", "Hi", false), /^sms:6105551234\?body=Hi$/);
+});
+
+test("reads a member-list screenshot where each email sits under the name", () => {
+  const text = [
+    "Members (4)",
+    "Landon Weber",
+    "lweber©abeairport.com",
+    "Weber, Landon",
+    "Nicole Watson Owner",
+    "nwatson@abeairport.com",
+    "Krystal Smith",
+    "csmith-ramp ® abeairport.com",
+    "Unrelated header",
+  ].join("\n");
+  const entries = parseListScreenshotText(text);
+  assert.deepEqual(entries, [
+    { name: "Landon Weber", email: "lweber@abeairport.com" },
+    { name: "Nicole Watson", email: "nwatson@abeairport.com" },
+    { name: "Krystal Smith", email: "csmith-ramp@abeairport.com" },
+  ]);
+});
+
+test("uses the last name in the email when the name is misread", () => {
+  const workers = ["Landon Weber", "Nicole Watson", "Crystal Smith", "Jacob Smith"];
+  assert.equal(matchWorkerByEmail("lweber@abe.com", workers), "Landon Weber");
+  assert.equal(matchWorkerByEmail("landon.weber@abe.com", workers), "Landon Weber");
+  assert.equal(matchWorkerByEmail("csmith@abe.com", workers), "Crystal Smith");
+  assert.equal(matchWorkerByEmail("smithj@abe.com", workers), "Jacob Smith");
+  assert.equal(matchWorkerByEmail("smith@abe.com", workers), null);
+  assert.equal(matchContact({ name: "Nlcole Wats0n", email: "nwatson@abe.com" }, workers), "Nicole Watson");
+  assert.equal(matchContact({ name: "Krystal Smith", email: "csmith-ramp@abe.com" }, workers), "Crystal Smith");
 });

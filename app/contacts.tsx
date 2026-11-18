@@ -1,12 +1,12 @@
 "use client";
 
-import { ClipboardPaste, Contact as ContactIcon, Mail, MessageSquare, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
 import {
   contactKey,
   formatPhone,
-  matchWorker,
+  matchContact,
   mergeContacts,
   parseContactLines,
   tidyEmail,
@@ -47,6 +47,8 @@ export function ContactsSheet({
   const [unmatched, setUnmatched] = useState<ContactEntry[]>([]);
   const [notice, setNotice] = useState("");
   const picker = contactPicker();
+  const screenshotInput = useRef<HTMLInputElement>(null);
+  const [reading, setReading] = useState("");
 
   const sorted = useMemo(() => [...workers].sort((a, b) => a.localeCompare(b)), [workers]);
   const shown = sorted.filter((worker) =>
@@ -60,7 +62,7 @@ export function ContactsSheet({
     const matched: Array<{ worker: string; email?: string; phone?: string }> = [];
     const leftover: ContactEntry[] = [];
     for (const entry of entries) {
-      const worker = matchWorker(entry.name, workers);
+      const worker = matchContact(entry, workers);
       if (worker) matched.push({ worker, email: entry.email, phone: entry.phone });
       else leftover.push(entry);
     }
@@ -111,10 +113,48 @@ export function ContactsSheet({
                 <ContactIcon /> Pick from contacts
               </button>
             )}
+            <button
+              type="button"
+              className="button soft"
+              disabled={Boolean(reading)}
+              onClick={() => screenshotInput.current?.click()}
+            >
+              <ImageIcon /> {reading || "Screenshots"}
+            </button>
             <button type="button" className="button soft" onClick={() => setPasting((open) => !open)}>
               <ClipboardPaste /> Paste a list
             </button>
+            <input
+              ref={screenshotInput}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              aria-label="Member list screenshots"
+              onChange={async (event) => {
+                const files = Array.from(event.target.files ?? []);
+                event.target.value = "";
+                if (!files.length) return;
+                setNotice("");
+                setReading("Reading…");
+                try {
+                  const { readContactScreenshots } = await import("./contacts-ocr");
+                  const entries = await readContactScreenshots(files, (done, total) =>
+                    setReading(total > 1 ? `Reading ${Math.min(done + 1, total)} of ${total}…` : "Reading…"));
+                  if (entries.length) addEntries(entries);
+                  else setNotice("No emails found in those screenshots. Try zooming in so the text is larger.");
+                } catch {
+                  setNotice("The screenshots couldn’t be read. Paste a list instead.");
+                } finally {
+                  setReading("");
+                }
+              }}
+            />
           </div>
+          <p className="contacts-hint">
+            Screenshots of a member list (like an Outlook group) work: each name with its email below.
+            They’re read on this phone.
+          </p>
           {pasting && (
             <div className="contacts-paste">
               <textarea

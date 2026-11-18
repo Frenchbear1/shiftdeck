@@ -6344,6 +6344,13 @@ select:focus-visible {
   gap: 8px;
 }
 
+.contacts-hint {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .contacts-paste textarea {
   width: 100%;
   min-height: 110px;
