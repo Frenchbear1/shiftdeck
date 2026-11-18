@@ -79,9 +79,9 @@ test("puts today, schedule views, flights, and crew on one screen", async () => 
   assert.match(page, /<CrewPanel/);
   assert.match(page, /aria-label="Import schedule"/);
   assert.match(page, /aria-label="Shift swap"/);
-  assert.match(sections, /SCHEDULE_RANGES\.map/);
+  assert.match(sections, /VIEW_TABS\.map/);
   assert.match(sections, /aria-label="Show end times"/);
-  assert.match(sections, /role="menuitemradio"/);
+  assert.match(sections, /role="radiogroup"/);
   assert.doesNotMatch(sections, /hero-facts/);
   assert.match(sections, /flightTag\(flight\)/);
   assert.match(sections, /buildCrewTimeline\(shifts, person, myShift\)/);
