@@ -670,6 +670,55 @@ async function sendTest(
   );
 }
 
+/** True when the request carries the write token of this notification profile. */
+export async function ownsNotificationProfile(request: Request, db: CalendarDatabase, profileId: string) {
+  await ensureSchema(db);
+  return Boolean(await authorizeProfile(request, db, profileId));
+}
+
+/** Sends one notification to every device on a profile; returns how many got it. */
+export async function sendProfilePush(
+  db: CalendarDatabase,
+  env: PushEnvironment,
+  profileId: string,
+  notification: { title: string; body: string; tag: string; path?: string },
+) {
+  await ensureSchema(db);
+  configureWebPush(env);
+  const subscriptions = await db
+    .prepare("SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE profile_id = ?1")
+    .bind(profileId)
+    .all<{ id: string; endpoint: string; p256dh: string; auth: string }>();
+  const base = appUrl(env);
+  let delivered = 0;
+  for (const subscription of subscriptions.results ?? []) {
+    try {
+      await webpush.sendNotification(
+        { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
+        JSON.stringify({
+          web_push: 8030,
+          notification: {
+            title: notification.title,
+            body: notification.body,
+            navigate: `${base}${notification.path ?? ""}`,
+            icon: `${base}icon-192.png`,
+            badge: `${base}badge-96.png`,
+            tag: notification.tag,
+            silent: false,
+          },
+        }),
+        { TTL: 6 * 3600, urgency: "high" },
+      );
+      delivered += 1;
+    } catch (error) {
+      if ([404, 410].includes(pushStatus(error))) {
+        await db.prepare("DELETE FROM push_subscriptions WHERE id = ?1").bind(subscription.id).run();
+      }
+    }
+  }
+  return delivered;
+}
+
 async function revokeProfile(
   request: Request,
   db: CalendarDatabase,

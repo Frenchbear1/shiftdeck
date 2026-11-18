@@ -201,11 +201,13 @@ const timeLabel = (time: string) => {
 const range = ({ start, end }: SwapDay) => `${timeLabel(start)}–${timeLabel(end)}`;
 
 /** A short, friendly swap request ready to send. */
-export function swapMessage({ to, from, give, take }: {
+export function swapMessage({ to, from, give, take, link }: {
   to: string;
   from: string;
   give: SwapDay;
   take?: SwapDay;
+  /** Page where they tap Works for me / Can't. */
+  link?: string;
 }) {
   const first = (name: string) => name.trim().split(/\s+/)[0] ?? "";
   const subject = `Shift swap? ${dayLabel(give.date)}`;
@@ -214,7 +216,7 @@ export function swapMessage({ to, from, give, take }: {
     take
       ? `You'd take my ${dayLabel(give.date)} (${range(give)}) and I'd take your ${dayLabel(take.date)} (${range(take)}).`
       : `Could you take my ${dayLabel(give.date)} (${range(give)})?`,
-    "Let me know!",
+    link ? `Tap to answer: ${link}` : "Let me know!",
     from ? `– ${first(from)}` : "",
   ].filter(Boolean).join("\n");
   return { subject, body };

@@ -6605,3 +6605,133 @@ select:focus-visible {
   width: 15px;
   height: 15px;
 }
+
+/* ---------- swap replies (Notifications popup + Shift swap) ---------- */
+
+.notice-group {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.notice-group h3,
+.notice-group-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.notice-group-title {
+  margin-bottom: 6px;
+}
+
+.notice-checked {
+  padding-top: 0;
+  font-size: 12px;
+}
+
+.swap-reply-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.swap-reply-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.swap-reply-list li.is-yes {
+  background: var(--green-soft);
+  border-color: color-mix(in srgb, var(--green) 30%, var(--line));
+}
+
+.swap-reply-list li.is-no {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 25%, var(--line));
+}
+
+.swap-reply-list li.is-new {
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+
+.swap-reply-list li > div {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.swap-reply-list b {
+  font-size: 14px;
+}
+
+.swap-reply-list small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.swap-reply-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 50%;
+}
+
+.is-yes .swap-reply-icon {
+  color: white;
+  background: var(--green);
+}
+
+.is-no .swap-reply-icon {
+  color: white;
+  background: var(--danger);
+}
+
+.swap-reply-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.match-swap-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 7px 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.match-swap-status svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.match-swap-status.is-yes {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.match-swap-status.is-no {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}

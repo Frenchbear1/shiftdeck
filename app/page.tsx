@@ -48,6 +48,7 @@ import {
   type ScheduleSourceLayout,
 } from "./schedule-parser";
 import {
+  compactTime,
   createImportProgress,
   daysBetween,
   ImportSnapshot,
@@ -94,6 +95,15 @@ import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import
 import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
 import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
+import {
+  fetchSwapStatuses,
+  isLiveSwap,
+  loadSentSwaps,
+  mergeSwapStatuses,
+  registerSwap,
+  saveSentSwaps,
+  type SentSwap,
+} from "./swap-requests";
 import { DEFAULT_HOME_ORDER, HOME_TILES, HomeOrderRow, type HomeTile } from "./home-order";
 import { isAndroid, isHeic } from "./platform";
 import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
@@ -607,6 +617,13 @@ function photonSuggestion(feature: PhotonFeature, index: number): PlaceSuggestio
 
 const subscribeToNothing = () => () => {};
 
+const formatShortDay = (date: string) =>
+  new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" })
+    .format(new Date(`${date}T12:00:00`));
+
+const formatTimeRange = ({ start, end }: { start: string; end: string }) =>
+  `${compactTime(start)}–${compactTime(end)}`;
+
 export default function HomePage() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [scheduleRange, setScheduleRange] = useState<ScheduleRange>("week");
@@ -669,6 +686,19 @@ export default function HomePage() {
       // Start with no contacts.
     }
   }, []);
+  // Swap requests sent by email or text, and their answers.
+  const [sentSwaps, setSentSwaps] = useState<SentSwap[]>([]);
+  useEffect(() => {
+    const saved = loadSentSwaps();
+    queueMicrotask(() => setSentSwaps(saved));
+  }, []);
+  const updateSentSwaps = (update: (current: SentSwap[]) => SentSwap[]) => {
+    setSentSwaps((current) => {
+      const next = update(current);
+      if (next !== current) saveSentSwaps(next);
+      return next;
+    });
+  };
   const saveContacts = (next: Contacts) => {
     setContacts(next);
     try {
@@ -750,7 +780,10 @@ export default function HomePage() {
   const visibleAirportAlerts = (airportAlerts?.notices ?? []).filter(
     ({ text }) => !dismissedAirportAlerts.includes(text),
   );
+  const unseenSwapAnswers = sentSwaps.filter((swap) => swap.status !== "waiting" && !swap.seen).length;
   const airportNoticeCount = visibleAirportAlerts.length;
+  const notificationCount = airportNoticeCount + unseenSwapAnswers;
+  const openNotifications = () => airportAlertsDialog.current?.showModal();
   const dismissAirportAlert = (text: string) => {
     const next = [...dismissedAirportAlerts, text];
     setDismissedAirportAlerts(next);
@@ -1278,6 +1311,48 @@ export default function HomePage() {
   );
 
   const todayDate = workdayAt(clockNow);
+
+  // Check for swap answers while any request is still live: on open, when the
+  // app comes back to the foreground, and once a minute.
+  const hasLiveSwaps = sentSwaps.some((swap) => isLiveSwap(swap, todayDate));
+  const sentSwapsRef = useRef(sentSwaps);
+  useEffect(() => {
+    sentSwapsRef.current = sentSwaps;
+  }, [sentSwaps]);
+  useEffect(() => {
+    if (!hasLiveSwaps) return;
+    let cancelled = false;
+    const check = async () => {
+      if (document.visibilityState !== "visible") return;
+      const live = sentSwapsRef.current.filter((swap) => isLiveSwap(swap, todayDate));
+      try {
+        const statuses = await fetchSwapStatuses(calendarServiceUrl(""), live);
+        if (!cancelled && statuses.size) updateSentSwaps((current) => mergeSwapStatuses(current, statuses));
+      } catch {
+        // Try again next time.
+      }
+    };
+    void check();
+    const timer = window.setInterval(check, 60_000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+    // updateSentSwaps only uses state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLiveSwaps, todayDate]);
+
+  // A swap-answer notification opens the app with ?notifications=1.
+  useEffect(() => {
+    if (!hydrated) return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("notifications")) return;
+    url.searchParams.delete("notifications");
+    window.history.replaceState(null, "", url.href);
+    airportAlertsDialog.current?.showModal();
+  }, [hydrated]);
 
   // Follow the 5 AM rollover and land on today once saved data is restored.
   useEffect(() => {
@@ -2752,13 +2827,13 @@ export default function HomePage() {
           <button
             ref={airportAlertsButton}
             type="button"
-            className={`airport-alert-button${airportNoticeCount ? " has-alerts" : ""}`}
-            aria-label={`ABE airport alerts${airportNoticeCount ? ` (${airportNoticeCount} active)` : ""}`}
+            className={`airport-alert-button${notificationCount ? " has-alerts" : ""}`}
+            aria-label={`Notifications${notificationCount ? ` (${notificationCount} new)` : ""}`}
             aria-haspopup="dialog"
-            onClick={() => airportAlertsDialog.current?.showModal()}
+            onClick={openNotifications}
           >
             <Bell aria-hidden="true" />
-            {airportNoticeCount > 0 && <i aria-hidden="true">{airportNoticeCount}</i>}
+            {notificationCount > 0 && <i aria-hidden="true">{notificationCount}</i>}
           </button>
           <button type="button" onClick={() => openSheet("import")} aria-label="Import schedule">
             <Upload />
@@ -2778,16 +2853,58 @@ export default function HomePage() {
         ref={airportAlertsDialog}
         className="panel-sheet airport-alerts-sheet"
         aria-labelledby="airport-alerts-title"
-        onClose={() => airportAlertsButton.current?.focus()}
+        onClose={() => {
+          // Answers shown while the popup was open count as seen.
+          updateSentSwaps((current) => current.some((swap) => swap.status !== "waiting" && !swap.seen)
+            ? current.map((swap) => swap.status !== "waiting" ? { ...swap, seen: true } : swap)
+            : current);
+          airportAlertsButton.current?.focus();
+        }}
       >
         <header className="sheet-head">
           <div>
-            <h2 id="airport-alerts-title">ABE airport alerts</h2>
-            {airportAlerts && <p>Last checked {formatUpdatedAt(airportAlerts.updatedAt)}</p>}
+            <h2 id="airport-alerts-title">Notifications</h2>
+            <p>Swap replies and ABE airport alerts</p>
           </div>
-          <form method="dialog"><button type="submit" aria-label="Close airport alerts"><X /></button></form>
+          <form method="dialog"><button type="submit" aria-label="Close notifications"><X /></button></form>
         </header>
         <div className="sheet-scroll">
+          {sentSwaps.some((swap) => isLiveSwap(swap, todayDate)) && (
+            <section className="notice-group" aria-label="Swap replies">
+              <h3>Swap replies</h3>
+              <ul className="swap-reply-list">
+                {[...sentSwaps].filter((swap) => isLiveSwap(swap, todayDate)).reverse().map((swap) => (
+                  <li key={swap.id} className={`is-${swap.status}${swap.status !== "waiting" && !swap.seen ? " is-new" : ""}`}>
+                    <span className="swap-reply-icon">
+                      {swap.status === "yes" ? <Check /> : swap.status === "no" ? <X /> : <ArrowLeftRight />}
+                    </span>
+                    <div>
+                      <b>
+                        {swap.status === "yes"
+                          ? `${swap.worker} said yes`
+                          : swap.status === "no"
+                            ? `${swap.worker} can’t swap`
+                            : `Waiting on ${swap.worker}`}
+                      </b>
+                      <small>
+                        Your {formatShortDay(swap.give.date)} {formatTimeRange(swap.give)}
+                        {swap.take && <> for their {formatShortDay(swap.take.date)} {formatTimeRange(swap.take)}</>}
+                      </small>
+                    </div>
+                    <button
+                      type="button"
+                      className="airport-alert-dismiss"
+                      onClick={() => updateSentSwaps((current) => current.filter((item) => item.id !== swap.id))}
+                    >
+                      Clear
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          <h3 className="notice-group-title">ABE airport alerts</h3>
+          {airportAlerts && <p className="quiet-line notice-checked">Last checked {formatUpdatedAt(airportAlerts.updatedAt)}</p>}
           {airportNoticeCount ? (
             <ul className="airport-alert-list">
               {visibleAirportAlerts.map(({ text, url }, index) => (
@@ -2863,6 +2980,17 @@ export default function HomePage() {
           initialOffDate={selectedDate}
           contacts={contacts}
           onEditContact={(worker) => setContactsOpen({ focus: worker })}
+          sentSwaps={sentSwaps}
+          swapServiceUrl={CALENDAR_SERVICE_ORIGIN}
+          onSwapSent={(swap) => {
+            void registerSwap(
+              calendarServiceUrl(""),
+              swap,
+              prefs.person,
+              notificationPermission === "granted" ? notificationProfile : null,
+            );
+            updateSentSwaps((current) => [...current.filter((item) => isLiveSwap(item, todayDate)), swap].slice(-60));
+          }}
           onClose={closeSheet}
         />
       )}

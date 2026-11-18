@@ -8,6 +8,7 @@ import {
 } from "./flight-status";
 import { collectFlightLearning, handleLearningRequest } from "./flight-learning";
 import { handlePlanesRequest } from "./planes";
+import { handleSwapRequest } from "./swap-requests";
 import { ABE_BOARD_CRON, refreshAbeAlerts, refreshAbeBoard } from "./abe-flight-board";
 import {
   handlePushRequest,
@@ -29,6 +30,8 @@ const worker = {
     if (learningResponse) return learningResponse;
     const planesResponse = await handlePlanesRequest(request);
     if (planesResponse) return planesResponse;
+    const swapResponse = await handleSwapRequest(request, env.DB, env);
+    if (swapResponse) return swapResponse;
     const response = await handleCalendarRequest(request, env.DB);
     if (response) return response;
     return Response.json(
