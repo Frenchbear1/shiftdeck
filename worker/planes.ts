@@ -54,6 +54,8 @@ export type Snapshot = { at: number; source: string; planes: Plane[] };
 let memory: Snapshot | null = null;
 let refreshing: Promise<Snapshot | null> | null = null;
 const backoffUntil = new Map<string, number>();
+/** Last result per network ("ok", an HTTP status, or an error), for checking reliability. */
+const lastResult = new Map<string, { at: number; result: string }>();
 
 async function fetchSource(source: (typeof SOURCES)[number], now: number) {
   try {
@@ -69,12 +71,15 @@ async function fetchSource(source: (typeof SOURCES)[number], now: number) {
     const data = (await response.json()) as { ac?: RawAircraft[]; aircraft?: RawAircraft[] };
     const aircraft = data.ac ?? data.aircraft;
     if (!Array.isArray(aircraft)) throw new Error("no aircraft list");
+    lastResult.set(source.name, { at: now, result: "ok" });
     return aircraft;
   } catch (error) {
     if ((backoffUntil.get(source.name) ?? 0) <= now) {
       backoffUntil.set(source.name, now + ERROR_BACKOFF_MS);
     }
-    console.error(`Live planes from ${source.name} failed:`, error instanceof Error ? error.message : error);
+    const reason = error instanceof Error ? error.message : String(error);
+    lastResult.set(source.name, { at: now, result: reason });
+    console.error(`Live planes from ${source.name} failed:`, reason);
     return null;
   }
 }
@@ -163,6 +168,10 @@ export async function handlePlanesRequest(request: Request) {
       updatedAt: new Date(snapshot.at).toISOString(),
       radius,
       stale,
+      networks: Object.fromEntries(SOURCES.map(({ name }) => {
+        const last = lastResult.get(name);
+        return [name, last ? `${last.result} ${Math.round((now - last.at) / 1000)}s ago` : "not asked here yet"];
+      })),
       planes: planesInView(snapshot.planes, lat, lon, radius),
     },
     200,
