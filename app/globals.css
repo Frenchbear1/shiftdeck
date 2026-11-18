@@ -3145,6 +3145,116 @@ select:focus-visible {
   font-size: 12px;
 }
 
+.swap-view-toggle {
+  justify-self: start;
+}
+
+/* Month view: calendars with weekdays; pickable days are tappable. */
+.swap-months {
+  display: grid;
+  gap: 12px;
+}
+
+.swap-month {
+  display: grid;
+  gap: 6px;
+}
+
+.swap-month h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.swap-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.swap-month-grid > small {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.swap-month-grid > button,
+.swap-month-day {
+  min-width: 0;
+  min-height: 26px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.swap-month-day {
+  color: color-mix(in srgb, var(--muted) 60%, transparent);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+/* Weeks with nothing to pick stay short; weeks with choices get room. */
+.swap-month-grid > button {
+  min-height: 44px;
+  padding: 0;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 120ms ease;
+}
+
+.swap-month-grid > button:active {
+  transform: scale(.94);
+}
+
+.swap-month-grid > button b {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.swap-month-grid > button span {
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.swap-month-grid > button.active {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.swap-month-grid > button.active span {
+  color: rgba(255,255,255,.85);
+}
+
+.swap-any {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.swap-any.active {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
 /* Extra padding (offset by negative margins) leaves room for the selected
    chip's shadow, since a scrolling row clips anything outside its box. */
 .chip-rail {

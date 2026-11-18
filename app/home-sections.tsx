@@ -1325,6 +1325,58 @@ export function CrewPanel({
 
 /* ---------- swap sheet ---------- */
 
+const SWAP_VIEW_KEY = "shiftdeck.swapView";
+const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+const monthTitle = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
+
+/**
+ * Month calendars covering the pickable days, so weekdays and every date are
+ * visible. Days that can't be picked are shown dimmed.
+ */
+function SwapMonths({ dates, selected, note, onSelect }: {
+  dates: string[];
+  selected: string | null;
+  note: (date: string) => string;
+  onSelect: (date: string) => void;
+}) {
+  const pickable = new Set(dates);
+  const months = [...new Set(dates.map((date) => date.slice(0, 7)))].sort();
+  return (
+    <div className="swap-months">
+      {months.map((month) => {
+        const first = `${month}-01`;
+        const lead = new Date(`${first}T12:00:00`).getDay();
+        const days: string[] = [];
+        for (let day = first; day.startsWith(month); day = addDays(day, 1)) days.push(day);
+        return (
+          <section key={month} className="swap-month" aria-label={monthTitle.format(new Date(`${first}T12:00:00`))}>
+            <h4>{monthTitle.format(new Date(`${first}T12:00:00`))}</h4>
+            <div className="swap-month-grid">
+              {WEEKDAY_LETTERS.map((letter, index) => <small key={index}>{letter}</small>)}
+              {Array.from({ length: lead }, (_, index) => <span key={`lead-${index}`} />)}
+              {days.map((date) => pickable.has(date) ? (
+                <button
+                  type="button"
+                  key={date}
+                  className={selected === date ? "active" : ""}
+                  aria-pressed={selected === date}
+                  aria-label={`${formatDate(date, "long")} · ${note(date)}`}
+                  onClick={() => onSelect(date)}
+                >
+                  <b>{dayOfMonth(date)}</b>
+                  <span>{note(date)}</span>
+                </button>
+              ) : (
+                <span key={date} className="swap-month-day">{dayOfMonth(date)}</span>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SwapSheet({
   shifts,
   person,
@@ -1357,6 +1409,26 @@ export function SwapSheet({
     workDays.includes(initialOffDate) ? initialOffDate : workDays[0] ?? "",
   );
   const [swapDate, setSwapDate] = useState<string | null>(null);
+  // A continuous row of days, or month calendars with weekdays and all dates.
+  const [view, setView] = useState<"row" | "month">(() => {
+    try {
+      return localStorage.getItem(SWAP_VIEW_KEY) === "month" ? "month" : "row";
+    } catch {
+      return "row";
+    }
+  });
+  const chooseView = (next: "row" | "month") => {
+    setView(next);
+    try {
+      localStorage.setItem(SWAP_VIEW_KEY, next);
+    } catch {
+      // Keep the choice for this visit.
+    }
+  };
+  const pickOff = (date: string) => {
+    setOffDate(date);
+    if (swapDate === date) setSwapDate(null);
+  };
 
   const analysis = useMemo(
     () =>
@@ -1397,10 +1469,31 @@ export function SwapSheet({
           />
         ) : (
           <div className="sheet-scroll">
+            <div className="pill-toggle swap-view-toggle" role="group" aria-label="Show days as">
+              {([["row", "Row"], ["month", "Month"]] as const).map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={view === value ? "active" : ""}
+                  aria-pressed={view === value}
+                  onClick={() => chooseView(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="swap-step">
               <span className="step-label">
                 <b>1</b> Day you want off
               </span>
+              {view === "month" ? (
+                <SwapMonths
+                  dates={workDays}
+                  selected={offDate}
+                  note={(date) => compactTime(myDays.get(date)!.start)}
+                  onSelect={pickOff}
+                />
+              ) : (
               <div className="chip-rail">
                 {workDays.map((date) => {
                   const mine = myDays.get(date)!;
@@ -1409,10 +1502,7 @@ export function SwapSheet({
                       type="button"
                       key={date}
                       className={`date-chip ${offDate === date ? "active" : ""}`}
-                      onClick={() => {
-                        setOffDate(date);
-                        if (swapDate === date) setSwapDate(null);
-                      }}
+                      onClick={() => pickOff(date)}
                     >
                       <small>{weekdayOf(date)}</small>
                       <b>{dayOfMonth(date)}</b>
@@ -1421,12 +1511,31 @@ export function SwapSheet({
                   );
                 })}
               </div>
+              )}
             </div>
 
             <div className="swap-step">
               <span className="step-label">
                 <b>2</b> Day you’ll work instead
               </span>
+              {view === "month" ? (
+                <>
+                  <button
+                    type="button"
+                    className={`swap-any ${swapDate === null ? "active" : ""}`}
+                    aria-pressed={swapDate === null}
+                    onClick={() => setSwapDate(null)}
+                  >
+                    Any day off
+                  </button>
+                  <SwapMonths
+                    dates={freeDays}
+                    selected={swapDate}
+                    note={() => "Off"}
+                    onSelect={setSwapDate}
+                  />
+                </>
+              ) : (
               <div className="chip-rail">
                 <button
                   type="button"
@@ -1449,6 +1558,7 @@ export function SwapSheet({
                   </button>
                 ))}
               </div>
+              )}
             </div>
 
             {analysis && myOffShift && (
