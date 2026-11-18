@@ -133,7 +133,10 @@ export function ScheduleComparison({
       {source && (!image || failedSource === source) && (
         <p className="schedule-source-note">The source crop couldn’t be displayed.</p>
       )}
-      {sourceLayout && !source && (
+      {!person && (
+        <p className="schedule-source-note">Choose your name in Settings to see your row here.</p>
+      )}
+      {person && sourceLayout && !source && (
         <p className="schedule-source-note">The scanner couldn’t locate the source row for {person}.</p>
       )}
       {sourceLoading && (
@@ -186,7 +189,7 @@ export function ScheduleComparison({
           )}
         </div>
       </div>
-      {!days.length && <p className="schedule-source-note">No work shifts were read for {person}.</p>}
+      {person && !days.length && <p className="schedule-source-note">No work shifts were read for {person}.</p>}
     </div>
   );
 }

@@ -2610,7 +2610,7 @@ export default function HomePage() {
                         title={isSchedulePdf(document) ? "Charter PDFs import flights" : undefined}
                         onClick={() => setOpenReviewHash(document.hash)}
                       >
-                        Compare to photo
+                        Verify to photo
                       </button>
                       <button
                         type="button"
