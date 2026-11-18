@@ -2375,11 +2375,11 @@ select:focus-visible {
 
 /* week + 2 week */
 .range-week .day-cell {
-  min-height: 60px;
+  min-height: 52px;
 }
 
 .range-week.with-ranges .day-cell {
-  min-height: 72px;
+  min-height: 62px;
 }
 
 .range-2week .day-cell {
@@ -5654,6 +5654,55 @@ select:focus-visible {
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
 }
 
+/* Photo | Scanned switch at the top of View schedule. */
+.schedule-view-tabs {
+  position: absolute;
+  z-index: 1;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  display: flex;
+  padding: 3px;
+  background: rgb(23 25 29 / 78%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 999px;
+  transform: translateX(-50%);
+}
+
+.schedule-view-tabs button {
+  min-width: 84px;
+  min-height: 36px;
+  padding: 0 14px;
+  color: rgb(255 255 255 / 72%);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.schedule-view-tabs button.active {
+  color: #17191d;
+  background: white;
+}
+
+/* Scanned: photo with highlights above a small details panel. */
+.schedule-file-viewer.is-scanned .schedule-file-content {
+  padding: calc(max(12px, env(safe-area-inset-top)) + 54px) max(10px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+}
+
+.scan-highlights {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.schedule-file-viewer .scan-review-details {
+  color: var(--text);
+}
+
 .schedule-file-content:focus {
   outline: none;
 }
@@ -5666,8 +5715,7 @@ select:focus-visible {
 
 /* ---------- live schedule scan ---------- */
 
-.schedule-scan-dialog,
-.schedule-scan-review {
+.schedule-scan-dialog {
   position: fixed;
   inset: 0;
   width: 100%;
@@ -5684,8 +5732,7 @@ select:focus-visible {
   color: var(--text);
 }
 
-.schedule-scan-dialog[open],
-.schedule-scan-review[open] {
+.schedule-scan-dialog[open] {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: clamp(4px, 1.2dvh, 12px);
@@ -5693,10 +5740,6 @@ select:focus-visible {
 
 .schedule-scan-dialog[open] {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-}
-
-.schedule-scan-review[open] {
-  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .scan-dialog-heading {
@@ -5964,28 +6007,67 @@ select:focus-visible {
   height: 100%;
 }
 
-.scan-recent {
+/* New device: pick your name from the rows read off the photo. */
+.scan-person-picker {
+  min-height: 0;
+  max-height: 42dvh;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 6px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--blue);
+  border-radius: 14px;
+  animation: scan-photo-in 200ms ease-out both;
 }
 
-.scan-recent .button {
-  min-width: 0;
-  justify-content: space-between;
+.scan-person-picker h3 {
+  margin: 0;
+  font-size: 16px;
 }
 
-.scan-recent span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-left: 4px;
+.scan-person-picker p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
-.scan-history-link {
-  margin: 0 10px 10px;
-  width: calc(100% - 20px);
-  justify-content: center;
+.scan-person-names {
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: auto;
+  padding: 2px 0;
+}
+
+.scan-person-names button {
+  min-height: 38px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.scan-person-names button:active {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.scan-person-skip {
+  justify-self: start;
+  padding: 4px 0;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .scan-review-photo {

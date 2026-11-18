@@ -90,7 +90,6 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
-import { ScheduleScanReview, type ScanReviewTarget } from "./schedule-scan-review";
 import { useLiveFlights } from "./live-flights";
 import { DEFAULT_HOME_ORDER, HOME_TILES, HomeOrderRow, type HomeTile } from "./home-order";
 import { isAndroid, isHeic } from "./platform";
@@ -225,7 +224,8 @@ const NAME_MERGE_DISMISSED_KEY = "shiftdeck.nameMergeDismissed";
 type Sheet = "import" | "swap" | null;
 
 const DEFAULT_PREFS: Preferences = {
-  person: "David LaBarre",
+  // A new device asks whose schedule it is during the first import.
+  person: "",
   title: DEFAULT_SHIFT_TITLE,
   alerts: [DEFAULT_ALERT_MINUTES],
   location: DEFAULT_WORK_LOCATION,
@@ -626,8 +626,6 @@ export default function HomePage() {
   }>>({});
   const preparingReview = useRef(false);
   const [viewedDocument, setViewedDocument] = useState<ScheduleDocument | null>(null);
-  const [viewedScan, setViewedScan] = useState<ScanReviewTarget | null>(null);
-  const [recentScans, setRecentScans] = useState<ScanReviewTarget[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [homeOrder, setHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
   useEffect(() => {
@@ -668,6 +666,10 @@ export default function HomePage() {
     end: "17:00",
     title: "Work",
   });
+  const [personPrompt, setPersonPrompt] = useState<{
+    names: string[];
+    resolve: (name: string | null) => void;
+  } | null>(null);
   const [importState, setImportState] = useState<
     "idle" | "reading" | "review" | "error"
   >("idle");
@@ -1283,7 +1285,7 @@ export default function HomePage() {
 
   const availableWorkers = useMemo(() => {
     const names = Array.from(new Set(importedShifts.map((shift) => shift.worker)));
-    return names.length ? names : [prefs.person];
+    return names.length ? names : prefs.person ? [prefs.person] : [];
   }, [importedShifts, prefs.person]);
 
   const scheduleDates = useMemo(() => [...new Set([
@@ -1488,7 +1490,6 @@ export default function HomePage() {
   const openSheet = (next: Exclude<Sheet, null>) => {
     if (next === "import") {
       setImportComparisons([]);
-      setRecentScans([]);
       void warmScheduleReader().catch(() => undefined);
     }
     setSheet(next);
@@ -1497,7 +1498,6 @@ export default function HomePage() {
   const closeSheet = () => {
     if (sheet === "import") {
       setImportComparisons([]);
-      setRecentScans([]);
       setExpandedDocument(null);
       setOpenReviewHash(null);
       if (importState !== "reading") void releaseScheduleReader();
@@ -1663,7 +1663,9 @@ export default function HomePage() {
       .join("");
   };
 
-  const loadParsedSchedules = (schedules: ParsedSchedule[], confirmedDaysOff: Set<string>) => {
+  const loadParsedSchedules = (
+    schedules: ParsedSchedule[], confirmedDaysOff: Set<string>, person = prefs.person,
+  ) => {
     const detectedDates = Array.from(
       new Set(schedules.flatMap((schedule) => schedule.dates)),
     ).sort();
@@ -1682,12 +1684,13 @@ export default function HomePage() {
     const matching = nextParsedShifts
       .filter(
         (shift) =>
-          (nameKey(resolveMergedName(shift.worker, nameMerges)) === nameKey(prefs.person) ||
-            isSameSchedulePerson(shift.worker, prefs.person)) &&
+          person &&
+          (nameKey(resolveMergedName(shift.worker, nameMerges)) === nameKey(person) ||
+            isSameSchedulePerson(shift.worker, person)) &&
           shift.status === "working" &&
           detectedDates.includes(shift.date),
       )
-      .map((shift) => importedEventFor(shift, prefs.person));
+      .map((shift) => importedEventFor(shift, person));
     if (matching.length || confirmedDaysOff.size) {
       setEvents((current) => {
         const untouched = current.filter((event) => matching.length
@@ -1731,7 +1734,6 @@ export default function HomePage() {
     setDuplicateNotice("");
     setLoadedFiles(files.map((file) => file.name));
     setImportComparisons([]);
-    setRecentScans([]);
     setOpenReviewHash(null);
     const progress = createImportProgress(files.length, setImportSnapshot);
     setImportSnapshot(progress.snapshot());
@@ -1740,9 +1742,11 @@ export default function HomePage() {
     const confirmedDaysOff = new Set<string>();
     const skippedFiles: string[] = [];
     const comparisons: ImportComparison[] = [];
-    const scans: ScanReviewTarget[] = [];
     let nextDocuments = [...scheduleDocuments];
     let updatedDocuments = 0;
+    // Whose schedule this is. A new device asks once, during the first photo.
+    let person = prefs.person;
+    let personSkipped = false;
     const knownNames = [
       prefs.person,
       ...parsedShifts.map((shift) => shift.worker),
@@ -1804,10 +1808,22 @@ export default function HomePage() {
             isPdf
               ? (progress.stage(1), parseCharterPdf(file, (image) => updateScanFile({ image })))
               : readScheduleImage(file, {
-                  matchesSourceRow: (name) => nameKey(resolveMergedName(
+                  matchesSourceRow: (name) => Boolean(person) && nameKey(resolveMergedName(
                     resolveSchedulePersonName(name, knownNames),
                     nameMerges,
-                  )) === nameKey(prefs.person),
+                  )) === nameKey(person),
+                  choosePerson: person || personSkipped ? undefined : async (names) => {
+                    const chosen = await new Promise<string | null>((resolve) =>
+                      setPersonPrompt({ names, resolve }));
+                    setPersonPrompt(null);
+                    if (!chosen) {
+                      personSkipped = true;
+                      return;
+                    }
+                    person = canonicalSchedulePersonName(chosen);
+                    knownNames.push(person);
+                    setPrefs((current) => ({ ...current, person }));
+                  },
                   onFraction: (fraction) => progress.file(index, fraction),
                   onReading: () => {
                     progress.stage(1);
@@ -1828,7 +1844,6 @@ export default function HomePage() {
           progress.file(index, 1);
           const finalScan = isPdf ? undefined : (read as ScheduleRead | null)?.scan;
           if (finalScan) scan = finalScan;
-          if (scan) scans.push({ hash, name: file.name, pass: scan, original: file });
           const scanDates = scan?.dates;
           let parsed: ParsedSchedule | null = read ?? (scanDates?.length ? {
             dates: scanDates, shifts: [], flights: [], confidence: 0, warnings: [],
@@ -1943,7 +1958,6 @@ export default function HomePage() {
       }
 
       progress.stage(3);
-      if (sheetRef.current === "import") setRecentScans(scans);
       if (!parsedSchedules.length) {
         await finishScanPreview();
         setImportMessage(
@@ -1953,7 +1967,7 @@ export default function HomePage() {
         return;
       }
 
-      const count = loadParsedSchedules(parsedSchedules, confirmedDaysOff);
+      const count = loadParsedSchedules(parsedSchedules, confirmedDaysOff, person);
       nextDocuments = nextDocuments.sort((a, b) =>
         b.updatedAt.localeCompare(a.updatedAt),
       );
@@ -2522,25 +2536,9 @@ export default function HomePage() {
         </section>
       )}
 
-      {recentScans.length > 0 && (
-        <section className="scan-recent" aria-label="Recent scans">
-          {recentScans.map((target, index) => (
-            <button
-              className="button soft"
-              key={`${target.hash}-${index}`}
-              type="button"
-              onClick={() => setViewedScan(target)}
-              aria-label={`View highlighted scan for ${target.name}`}
-            >
-              View highlighted scan{recentScans.length > 1 && <span>{target.name}</span>}
-            </button>
-          ))}
-        </section>
-      )}
-
       {importState === "review" && importComparisons.length > 0 && (
         <section className="schedule-comparisons">
-          <h3>My imported shifts</h3>
+          <h3>Your shifts vs. the photo</h3>
           {importComparisons.map((photo, index) => (
             <article key={`${photo.hash}-${index}`} className="schedule-comparison-file">
               <div className="schedule-comparison-heading">
@@ -2612,7 +2610,7 @@ export default function HomePage() {
                         title={isSchedulePdf(document) ? "Charter PDFs import flights" : undefined}
                         onClick={() => setOpenReviewHash(document.hash)}
                       >
-                        Imported results
+                        Compare to photo
                       </button>
                       <button
                         type="button"
@@ -2623,15 +2621,6 @@ export default function HomePage() {
                         View schedule
                       </button>
                     </div>
-                  )}
-                  {isExpanded && !isSchedulePdf(document) && (
-                    <button
-                      className="button soft scan-history-link"
-                      type="button"
-                      onClick={() => setViewedScan({ id: document.id, hash: document.hash, name: document.name })}
-                    >
-                      View highlighted scan
-                    </button>
                   )}
                   {isExpanded && openReviewHash === document.hash && (
                     renderComparison({
@@ -2836,22 +2825,21 @@ export default function HomePage() {
           file={scanFile}
           count={loadedFiles.length}
           snapshot={importSnapshot}
-          onClose={closeSheet}
+          onClose={() => {
+            personPrompt?.resolve(null);
+            closeSheet();
+          }}
           matchesWorker={matchesScanWorker}
+          personChoices={personPrompt?.names ?? null}
+          onChoosePerson={(name) => personPrompt?.resolve(name)}
         />
       ) : renderImportSheet())}
-      {viewedScan && (
-        <ScheduleScanReview
-          target={viewedScan}
-          matchesWorker={matchesScanWorker}
-          onClose={() => setViewedScan(null)}
-        />
-      )}
       {viewedDocument && (
         <ScheduleFileViewer
           id={viewedDocument.id}
           name={viewedDocument.name}
           pdf={isSchedulePdf(viewedDocument)}
+          matchesWorker={matchesScanWorker}
           onClose={() => setViewedDocument(null)}
         />
       )}
@@ -3254,6 +3242,7 @@ export default function HomePage() {
               <label>
                 <span>Your name on the schedule</span>
                 <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
+                  {!prefs.person && <option value="" disabled>Choose your name</option>}
                   {availableWorkers.map((worker) => (
                     <option value={worker} key={worker}>
                       {isGroundSecurityCoordinator(worker) ? `${worker} · GSC` : worker}

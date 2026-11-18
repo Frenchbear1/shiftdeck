@@ -1,6 +1,5 @@
 "use client";
 
-import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { confidenceLabels, ScanOverlay } from "./schedule-import-preview";
 import { FullscreenPhoto } from "./schedule-file-viewer";
@@ -8,43 +7,31 @@ import { recoverScheduleSource, type ScanPreviewPass } from "./schedule-import";
 import { scanConfidence } from "./schedule-parser";
 import { loadScheduleScan } from "./upload-store";
 
-export type ScanReviewTarget = {
-  id?: string;
-  hash: string;
-  name: string;
-  pass?: ScanPreviewPass;
-  original?: Blob;
-};
-
 /**
- * Read-only view of the highlighted scan: the photo with every read marked as
- * clear, check, or unreadable. Tapping a highlight shows what was read.
+ * The saved schedule photo with every read highlighted as clear, check, or
+ * unreadable. Tapping a highlight shows what was read. This is the "Scanned"
+ * tab of View schedule.
  */
-export function ScheduleScanReview({
-  target, matchesWorker, onClose,
+export function ScanHighlights({
+  id, name, matchesWorker,
 }: {
-  target: ScanReviewTarget;
+  id: string;
+  name: string;
   matchesWorker: (worker: string) => boolean;
-  onClose: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const content = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<{ url: string; pass: ScanPreviewPass }>();
   const [unavailable, setUnavailable] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const matchWorkerAtOpen = useRef(matchesWorker);
 
   useEffect(() => {
-    const viewer = dialog.current;
-    viewer?.showModal();
-    content.current?.focus({ preventScroll: true });
     let cancelled = false;
     let url: string | undefined;
     const load = async () => {
-      const stored = target.pass || !target.id ? undefined : await loadScheduleScan(target.id);
+      const stored = await loadScheduleScan(id);
       if (cancelled) return;
-      let pass = target.pass ?? stored?.scan;
-      const original = target.original ?? stored?.original;
+      let pass = stored?.scan;
+      const original = stored?.original;
       if (!pass && original) {
         await recoverScheduleSource(original, matchWorkerAtOpen.current, (next) => {
           if (next.marks.length) pass = next;
@@ -61,10 +48,9 @@ export function ScheduleScanReview({
     });
     return () => {
       cancelled = true;
-      viewer?.close();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [target]);
+  }, [id]);
 
   const selected = selectedId ? preview?.pass.marks.find((mark) => mark.id === selectedId) : undefined;
   const confidence = selected && scanConfidence(selected);
@@ -74,66 +60,51 @@ export function ScheduleScanReview({
     return total;
   }, { confident: 0, check: 0, unreadable: 0 });
 
+  if (unavailable) return <p role="status">The scan highlights are unavailable for this photo.</p>;
+  if (!preview) return <p role="status">Preparing highlights…</p>;
   return (
-    <dialog
-      className="schedule-file-viewer schedule-scan-review"
-      ref={dialog}
-      aria-label="Highlighted scan"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-    >
-      <header className="scan-dialog-heading">
-        <h2>Highlighted scan</h2>
-        <button type="button" onClick={onClose} aria-label="Close highlighted scan"><X /></button>
-      </header>
-      <div className="scan-review-photo" ref={content} tabIndex={-1}>
-        {unavailable ? <p role="status">The source highlights are unavailable for this photo.</p>
-          : preview ? (
-            <FullscreenPhoto
-              url={preview.url}
-              name={target.name}
-              onError={() => setUnavailable(true)}
-              renderOverlay={(ratio) => (
-                <ScanOverlay
-                  pass={preview.pass}
-                  ratio={ratio}
-                  matchesWorker={matchesWorker}
-                  selected={selectedId}
-                  onSelect={(id) => setSelectedId((current) => current === id ? null : id)}
-                />
-              )}
+    <div className="scan-highlights">
+      <div className="scan-review-photo">
+        <FullscreenPhoto
+          url={preview.url}
+          name={name}
+          onError={() => setUnavailable(true)}
+          renderOverlay={(ratio) => (
+            <ScanOverlay
+              pass={preview.pass}
+              ratio={ratio}
+              matchesWorker={matchesWorker}
+              selected={selectedId}
+              onSelect={(id) => setSelectedId((current) => current === id ? null : id)}
             />
-          ) : <p role="status">Preparing highlights…</p>}
-      </div>
-      {!unavailable && preview && (
-        <div className="scan-review-details">
-          <ul className="scan-legend" aria-label="Scan confidence colors">
-            {Object.entries(confidenceLabels).map(([key, label]) => (
-              <li key={key} className={`scan-mark-${key}`}><i />{label}</li>
-            ))}
-          </ul>
-          {selected ? (
-            <p className={`scan-review-read scan-mark-${confidence}`} aria-live="polite">
-              <strong>{confidenceLabels[confidence!]}</strong>
-              <span>{selected.shift
-                ? `${selected.shift.start.replace(":", "")}–${selected.shift.end.replace(":", "")}`
-                : selected.text}</span>
-              {selected.note && <small>{selected.note}</small>}
-            </p>
-          ) : (
-            <p aria-live="polite">
-              {counts && counts.confident + counts.check + counts.unreadable > 0
-                ? `Your row: ${counts.confident} clear` +
-                  (counts.check ? ` · ${counts.check} to check` : "") +
-                  (counts.unreadable ? ` · ${counts.unreadable} unreadable` : "") +
-                  ". Tap a highlight to see what was read."
-                : "Pinch to zoom. Tap a highlight to see what was read."}
-            </p>
           )}
-        </div>
-      )}
-    </dialog>
+        />
+      </div>
+      <div className="scan-review-details">
+        <ul className="scan-legend" aria-label="Scan confidence colors">
+          {Object.entries(confidenceLabels).map(([key, label]) => (
+            <li key={key} className={`scan-mark-${key}`}><i />{label}</li>
+          ))}
+        </ul>
+        {selected ? (
+          <p className={`scan-review-read scan-mark-${confidence}`} aria-live="polite">
+            <strong>{confidenceLabels[confidence!]}</strong>
+            <span>{selected.shift
+              ? `${selected.shift.start.replace(":", "")}–${selected.shift.end.replace(":", "")}`
+              : selected.text}</span>
+            {selected.note && <small>{selected.note}</small>}
+          </p>
+        ) : (
+          <p aria-live="polite">
+            {counts && counts.confident + counts.check + counts.unreadable > 0
+              ? `Your row: ${counts.confident} clear` +
+                (counts.check ? ` · ${counts.check} to check` : "") +
+                (counts.unreadable ? ` · ${counts.unreadable} unreadable` : "") +
+                ". Tap a highlight to see what was read."
+              : "Pinch to zoom. Tap a highlight to see what was read."}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

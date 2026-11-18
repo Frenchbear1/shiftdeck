@@ -2,6 +2,7 @@ import {
   mergeScheduleParses,
   parseScheduleTsv,
   ParsedSchedule,
+  isPlausibleWorkerName,
   resolveSchedulePersonName,
   type ScanMark,
   type ScheduleSourceLayout,
@@ -202,6 +203,11 @@ export type ReadCallbacks = {
   onDoubleCheck: () => void;
   /** Times this worker had on the same weekday in other imported weeks. */
   history?: (worker: string, date: string) => Array<{ start: string; end: string }>;
+  /**
+   * Set when this device doesn't know whose schedule it is yet. Called with
+   * the names read from the photo before your row is cropped and checked.
+   */
+  choosePerson?: (names: string[]) => Promise<void>;
 };
 
 export type ScheduleRead = ParsedSchedule & {
@@ -258,7 +264,7 @@ const DIGITS_ONLY = "0123456789-";
 
 async function scanScheduleImage(
   file: Blob,
-  { matchesSourceRow, onFraction, onReading, onDoubleCheck, onPass, history }: ReadCallbacks,
+  { matchesSourceRow, onFraction, onReading, onDoubleCheck, onPass, history, choosePerson }: ReadCallbacks,
   dedicatedReader?: Promise<TesseractWorker>,
   verify = true,
 ): Promise<ScheduleRead | null> {
@@ -355,7 +361,8 @@ async function scanScheduleImage(
 
     if (index === passes.length - 1) {
       const merged = mergeScheduleParses(readable);
-      const hasSelectedRow = sources.some((candidate) =>
+      // Without a chosen name there's no row to look for yet.
+      const hasSelectedRow = Boolean(choosePerson) || sources.some((candidate) =>
         candidate.schedule.dates.join() === merged?.dates.join() &&
         candidate.layout.rows.some((row) => matchesSourceRow(row.name)),
       );
@@ -368,6 +375,12 @@ async function scanScheduleImage(
   if (!schedule) {
     report(1);
     return null;
+  }
+  if (choosePerson) {
+    const names = [...new Set(schedule.shifts.map((shift) => shift.worker))]
+      .filter(isPlausibleWorkerName)
+      .sort((a, b) => a.localeCompare(b));
+    if (names.length) await choosePerson(names);
   }
   const workers = new Set(schedule.shifts.map((shift) => shift.worker));
   const source = sources

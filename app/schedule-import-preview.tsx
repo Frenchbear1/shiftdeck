@@ -110,13 +110,16 @@ export function ScanOverlay({
 }
 
 export function ScheduleImportPreview({
-  file, count, snapshot, matchesWorker, onClose,
+  file, count, snapshot, matchesWorker, onClose, personChoices, onChoosePerson,
 }: {
   file: ImportPreviewFile | null;
   count: number;
   snapshot: ImportSnapshot;
   matchesWorker: (name: string) => boolean;
   onClose: () => void;
+  /** Names read from the photo when this device doesn't know yours yet. */
+  personChoices?: string[] | null;
+  onChoosePerson?: (name: string | null) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const stageElement = useRef<HTMLDivElement>(null);
@@ -240,7 +243,21 @@ export function ScheduleImportPreview({
           </div>
         ))}
       </div>
-      <div className="scan-preview-notes">
+      {personChoices && (
+        <section className="scan-person-picker" aria-labelledby="scan-person-title">
+          <h3 id="scan-person-title">Which name is yours?</h3>
+          <p>Shiftdeck remembers it on this device. You can change it in Settings.</p>
+          <div className="scan-person-names">
+            {personChoices.map((name) => (
+              <button type="button" key={name} onClick={() => onChoosePerson?.(name)}>{name}</button>
+            ))}
+          </div>
+          <button type="button" className="scan-person-skip" onClick={() => onChoosePerson?.(null)}>
+            I’m not on this schedule
+          </button>
+        </section>
+      )}
+      <div className="scan-preview-notes" hidden={Boolean(personChoices)}>
         <ul className="scan-legend" aria-label="Scan confidence colors">
           {Object.entries(confidenceLabels).map(([key, label]) => (
             <li key={key} className={`scan-mark-${key}`}><i />{label}</li>

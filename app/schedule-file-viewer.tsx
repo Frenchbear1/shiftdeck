@@ -9,6 +9,7 @@ import {
   type PhotoTransform,
 } from "./schedule-photo-zoom";
 import { loadScheduleImage } from "./upload-store";
+import { ScanHighlights } from "./schedule-scan-review";
 
 const centerBetween = (a: PhotoPoint, b: PhotoPoint): PhotoPoint => ({
   x: (a.x + b.x) / 2,
@@ -149,16 +150,22 @@ export function FullscreenPhoto({
   );
 }
 
+/**
+ * Full-screen schedule. Photos open on the plain picture; the Scanned tab
+ * shows the same photo with what was read highlighted.
+ */
 export function ScheduleFileViewer({
-  id, name, pdf, onClose,
+  id, name, pdf, matchesWorker, onClose,
 }: {
   id: string;
   name: string;
   pdf: boolean;
+  matchesWorker: (worker: string) => boolean;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<"photo" | "scanned">("photo");
   const [url, setUrl] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
@@ -188,15 +195,33 @@ export function ScheduleFileViewer({
   return (
     <dialog
       ref={dialog}
-      className={`schedule-file-viewer${pdf ? " schedule-file-viewer-pdf" : ""}`}
+      className={`schedule-file-viewer${pdf ? " schedule-file-viewer-pdf" : ""}${tab === "scanned" ? " is-scanned" : ""}`}
       aria-label="View schedule"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
     >
+      {!pdf && (
+        <div className="schedule-view-tabs" role="tablist" aria-label="Schedule view">
+          {([["photo", "Photo"], ["scanned", "Scanned"]] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={tab === value}
+              className={tab === value ? "active" : ""}
+              onClick={() => setTab(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <div ref={content} className="schedule-file-content" tabIndex={-1}>
-        {unavailable ? (
+        {tab === "scanned" ? (
+          <ScanHighlights id={id} name={name} matchesWorker={matchesWorker} />
+        ) : unavailable ? (
           <p role="status">This schedule file is unavailable on this device.</p>
         ) : !url ? (
           <p role="status">Loading schedule…</p>
