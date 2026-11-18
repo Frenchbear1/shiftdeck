@@ -3,6 +3,8 @@
  * CELL), read from screenshots or a PDF and kept only on this device.
  */
 
+import { contactKey, matchWorker, type ContactEntry, type Contacts } from "./contacts-data.ts";
+
 export type DirectoryEntry = {
   id: string;
   /** A person… */
@@ -379,7 +381,7 @@ export const departmentsOf = (entries: DirectoryEntry[]) =>
   [...new Set(entries.map((entry) => entry.department).filter((value): value is string => Boolean(value)))]
     .sort((a, b) => a.localeCompare(b));
 
-export function searchDirectory(entries: DirectoryEntry[], query: string, department: string | null) {
+export function searchDirectory<T extends DirectoryEntry>(entries: T[], query: string, department: string | null): T[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   return entries
     .filter((entry) => !department || entry.department === department)
@@ -407,4 +409,123 @@ export function wordsFromTsv(tsv: string, group = 0): PlacedText[] {
       group,
     }))
     .filter((word) => Number.isFinite(word.x) && Number(word.height) > 0);
+}
+
+/** The tab for people on your schedules (and from your coworker lists). */
+export const COWORKERS = "Coworkers";
+
+/** An entry as the Directory shows it: coworkers are folded in on the fly. */
+export type ShownEntry = DirectoryEntry & {
+  /** Their schedule name, when they work with you. */
+  coworker?: string;
+  /** Only on the schedule, not saved in the directory itself. */
+  fromSchedule?: boolean;
+};
+
+const numberDigits = (value?: string) => (value ?? "").replace(/\D/g, "").slice(-10);
+
+/** The directory person this is (same email, or the same name in any order). */
+export function findPerson<T extends DirectoryEntry>(entries: T[], name: string, email?: string): T | null {
+  const people = entries.filter((entry) => !entry.line && (entry.first || entry.last));
+  if (email) {
+    const byEmail = people.find((entry) => entry.email?.toLowerCase() === email.toLowerCase());
+    if (byEmail) return byEmail;
+  }
+  if (!name.trim()) return null;
+  const names = [...new Set(people.map(entryName))];
+  const match = matchWorker(name, names);
+  return match ? people.find((entry) => entryName(entry) === match) ?? null : null;
+}
+
+/** "Weber, Landon" or "landon weber" → first and last, properly capitalized. */
+export function splitName(name: string) {
+  const ordered = name.includes(",") ? name.split(",").reverse().join(" ") : name;
+  const parts = smartCase(ordered.replace(/\s+/g, " ").trim()).split(" ").filter(Boolean);
+  return parts.length > 1
+    ? { first: parts.slice(0, -1).join(" "), last: parts.at(-1)! }
+    : { first: parts[0] ?? "" };
+}
+
+/**
+ * The directory with everyone from your schedules in it. Someone already
+ * listed gets their saved email and phone; anyone else shows under
+ * Coworkers. Nothing is copied, so nobody is ever listed twice.
+ */
+export function withCoworkers(entries: DirectoryEntry[], workers: string[], contacts: Contacts): ShownEntry[] {
+  const shown: ShownEntry[] = entries.map((entry) => ({ ...entry }));
+  const saved = shown.slice();
+  for (const worker of workers) {
+    const contact = contacts[contactKey(worker)] ?? {};
+    const listed = findPerson(saved, worker, contact.email);
+    if (listed) {
+      listed.coworker = worker;
+      if (!listed.email && contact.email) listed.email = contact.email;
+      if (!listed.cell && contact.phone && numberDigits(contact.phone) !== numberDigits(listed.phone)) {
+        listed.cell = formatDirectoryPhone(contact.phone);
+      }
+      continue;
+    }
+    shown.push({
+      id: `coworker:${contactKey(worker)}`,
+      ...splitName(worker),
+      department: COWORKERS,
+      email: contact.email,
+      cell: contact.phone ? formatDirectoryPhone(contact.phone) : undefined,
+      coworker: worker,
+      fromSchedule: true,
+    });
+  }
+  return shown;
+}
+
+/**
+ * People from a coworker list who aren't on your schedules. Anyone already
+ * in the directory only gets a missing email or cell filled in.
+ */
+export function addPeopleToDirectory(entries: DirectoryEntry[], people: ContactEntry[]) {
+  const next = entries.map((entry) => ({ ...entry }));
+  let added = 0;
+  let updated = 0;
+  for (const person of people) {
+    const listed = findPerson(next, person.name, person.email);
+    if (listed) {
+      let changed = false;
+      if (!listed.email && person.email) {
+        listed.email = person.email;
+        changed = true;
+      }
+      if (!listed.cell && person.phone && numberDigits(person.phone) !== numberDigits(listed.phone)) {
+        listed.cell = formatDirectoryPhone(person.phone);
+        changed = true;
+      }
+      if (changed) updated += 1;
+      continue;
+    }
+    if (!/[a-z]{2,}/i.test(person.name)) continue;
+    next.push({
+      id: newEntryId(),
+      ...splitName(person.name),
+      department: COWORKERS,
+      email: person.email,
+      cell: person.phone ? formatDirectoryPhone(person.phone) : undefined,
+    });
+    added += 1;
+  }
+  return { entries: next, added, updated };
+}
+
+/** Swap emails and texts can use the directory for anyone not saved in contacts. */
+export function contactsWithDirectory(contacts: Contacts, workers: string[], entries: DirectoryEntry[]): Contacts {
+  const next = { ...contacts };
+  for (const worker of workers) {
+    const key = contactKey(worker);
+    const current = next[key] ?? {};
+    if (current.email && current.phone) continue;
+    const listed = findPerson(entries, worker, current.email);
+    if (!listed) continue;
+    const email = current.email ?? listed.email;
+    const phone = current.phone ?? (listed.cell ? numberDigits(listed.cell) : undefined);
+    if (email || phone) next[key] = { email, phone };
+  }
+  return next;
 }

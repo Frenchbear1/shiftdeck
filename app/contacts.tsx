@@ -1,8 +1,11 @@
 "use client";
 
-import { ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search, X } from "lucide-react";
+import { BookUser, ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
+import { addPeopleToDirectory, type DirectoryEntry } from "./directory-data";
+import { ReadingBar } from "./reading-bar";
+import type { ReadProgress } from "./read-progress";
 import {
   contactKey,
   formatPhone,
@@ -32,10 +35,13 @@ const contactPicker = () =>
  * person can also be typed in. Everything stays on this device.
  */
 export function ContactsSheet({
-  workers, contacts, focus, onChange, onClose,
+  workers, contacts, focus, onChange, directory, onDirectoryChange, onClose,
 }: {
   workers: string[];
   contacts: Contacts;
+  /** People who aren't on your schedules can go to the Directory instead. */
+  directory: DirectoryEntry[];
+  onDirectoryChange: (entries: DirectoryEntry[]) => void;
   /** Opened from a swap match: show just this person first. */
   focus?: string;
   onChange: (contacts: Contacts) => void;
@@ -48,7 +54,9 @@ export function ContactsSheet({
   const [notice, setNotice] = useState("");
   const picker = contactPicker();
   const screenshotInput = useRef<HTMLInputElement>(null);
-  const [reading, setReading] = useState("");
+  const [reading, setReading] = useState<ReadProgress | null>(null);
+  const toDirectory = useMemo(() => addPeopleToDirectory(directory, unmatched), [directory, unmatched]);
+  const directoryCount = toDirectory.added + toDirectory.updated;
 
   const sorted = useMemo(() => [...workers].sort((a, b) => a.localeCompare(b)), [workers]);
   const shown = sorted.filter((worker) =>
@@ -119,7 +127,7 @@ export function ContactsSheet({
               disabled={Boolean(reading)}
               onClick={() => screenshotInput.current?.click()}
             >
-              <ImageIcon /> {reading || "Screenshots"}
+              <ImageIcon /> {reading ? "Reading…" : "Screenshots"}
             </button>
             <button type="button" className="button soft" onClick={() => setPasting((open) => !open)}>
               <ClipboardPaste /> Paste a list
@@ -136,17 +144,16 @@ export function ContactsSheet({
                 event.target.value = "";
                 if (!files.length) return;
                 setNotice("");
-                setReading("Reading…");
+                setReading({ label: "Starting the reader…", fraction: 0, secondsLeft: null });
                 try {
                   const { readContactScreenshots } = await import("./contacts-ocr");
-                  const entries = await readContactScreenshots(files, (done, total) =>
-                    setReading(total > 1 ? `Reading ${Math.min(done + 1, total)} of ${total}…` : "Reading…"));
+                  const entries = await readContactScreenshots(files, setReading);
                   if (entries.length) addEntries(entries);
                   else setNotice("No emails found in those screenshots. Try zooming in so the text is larger.");
                 } catch {
                   setNotice("The screenshots couldn’t be read. Paste a list instead.");
                 } finally {
-                  setReading("");
+                  setReading(null);
                 }
               }}
             />
@@ -183,6 +190,7 @@ export function ContactsSheet({
               </button>
             </div>
           )}
+          {reading && <ReadingBar progress={reading} />}
           {notice && <p className="contacts-notice" role="status">{notice}</p>}
 
           {unmatched.length > 0 && (
@@ -207,7 +215,27 @@ export function ContactsSheet({
                   </select>
                 </label>
               ))}
-              <button type="button" className="contacts-skip" onClick={() => setUnmatched([])}>Skip the rest</button>
+              <div className="contacts-unmatched-actions">
+                {directoryCount > 0 && (
+                  <button
+                    type="button"
+                    className="button soft contacts-to-directory"
+                    onClick={() => {
+                      onDirectoryChange(toDirectory.entries);
+                      setUnmatched([]);
+                      setNotice(
+                        [
+                          toDirectory.added && `Added ${toDirectory.added} to Directory`,
+                          toDirectory.updated && `filled in ${toDirectory.updated} already there`,
+                        ].filter(Boolean).join(" · "),
+                      );
+                    }}
+                  >
+                    <BookUser /> Add {directoryCount === unmatched.length && directoryCount > 1 ? "all" : directoryCount} to Directory
+                  </button>
+                )}
+                <button type="button" className="contacts-skip" onClick={() => setUnmatched([])}>Skip the rest</button>
+              </div>
             </div>
           )}
 

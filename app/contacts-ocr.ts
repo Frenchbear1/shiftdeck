@@ -1,4 +1,5 @@
 import { parseListScreenshotText, type ContactEntry } from "./contacts-data";
+import { progressClock, type ReadProgress } from "./read-progress";
 
 /**
  * Reads names and emails from screenshots of a member list, entirely on this
@@ -45,16 +46,26 @@ async function prepare(file: Blob): Promise<Blob> {
 
 export async function readContactScreenshots(
   files: File[],
-  onProgress: (done: number, total: number) => void,
+  onProgress: (progress: ReadProgress) => void,
 ): Promise<ContactEntry[]> {
+  const clock = progressClock(onProgress);
+  clock.setTotal(files.length);
+  clock.step("Starting the reader…");
+  let current = 0;
   const { createWorker, PSM } = await import("tesseract.js");
-  const worker = await createWorker("eng", 1);
+  const worker = await createWorker("eng", 1, {
+    logger: ({ status, progress }) => {
+      if (status === "recognizing text") clock.at(current + progress * 0.95);
+    },
+  });
+  clock.startTiming();
   try {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO as never });
     const entries: ContactEntry[] = [];
     const seen = new Set<string>();
     for (let index = 0; index < files.length; index += 1) {
-      onProgress(index, files.length);
+      current = index;
+      clock.step(files.length > 1 ? `Reading screenshot ${index + 1} of ${files.length}` : "Reading the screenshot");
       try {
         const { data } = await worker.recognize(await prepare(files[index]));
         for (const entry of parseListScreenshotText(data.text ?? "")) {
@@ -65,8 +76,9 @@ export async function readContactScreenshots(
       } catch {
         // Keep what the other screenshots had.
       }
+      clock.at(index + 1);
     }
-    onProgress(files.length, files.length);
+    clock.finish();
     return entries;
   } finally {
     await worker.terminate().catch(() => undefined);

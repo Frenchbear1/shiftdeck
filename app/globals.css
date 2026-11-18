@@ -7127,3 +7127,75 @@ select:focus-visible {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+/* ---------- reading progress ---------- */
+
+.reading-bar {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 12px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  animation: rise 200ms var(--ease-out) both;
+}
+
+.reading-bar-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.reading-bar-text span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.reading-bar-track {
+  height: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 99px;
+}
+
+.reading-bar-track i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+  border-radius: inherit;
+  transition: width 300ms linear;
+}
+
+.reading-bar small {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.contacts-unmatched-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.contacts-to-directory {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.contacts-to-directory svg {
+  width: 16px;
+  height: 16px;
+}
+
+.directory-from-schedule {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}

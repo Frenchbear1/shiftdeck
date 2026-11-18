@@ -6,6 +6,11 @@ import {
   type DirectoryEntry,
   type PlacedText,
 } from "./directory-data";
+import { progressClock, type ReadProgress } from "./read-progress";
+
+/** A guess until it's measured: one number check vs. one whole screenshot. */
+const CHECK_COST = 0.05;
+const CHECKS_PER_SCREENSHOT = 20;
 
 /**
  * Reads a phone directory on this phone: screenshots with the same OCR
@@ -69,15 +74,29 @@ function numberCrop(source: HTMLCanvasElement, box: { x: number; y: number; widt
 
 export async function readDirectoryImages(
   files: File[],
-  onProgress: (text: string) => void,
+  onProgress: (progress: ReadProgress) => void,
 ): Promise<DirectoryEntry[]> {
+  const clock = progressClock(onProgress);
+  const shots = files.length;
+  clock.setTotal(shots * (1 + CHECKS_PER_SCREENSHOT * CHECK_COST));
+  clock.step("Starting the reader…");
+  // Where the current read sits: progress maps to [from, from + size].
+  let from = 0;
+  let size = 1;
   const { createWorker, PSM } = await import("tesseract.js");
-  const worker = await createWorker("eng", 1);
+  const worker = await createWorker("eng", 1, {
+    logger: ({ status, progress }) => {
+      if (status === "recognizing text") clock.at(from + size * progress * 0.95);
+    },
+  });
+  clock.startTiming();
   const canvases: HTMLCanvasElement[] = [];
   try {
     const words: PlacedText[] = [];
     for (let index = 0; index < files.length; index += 1) {
-      onProgress(files.length > 1 ? `Reading ${index + 1} of ${files.length}…` : "Reading…");
+      from = index;
+      size = 1;
+      clock.step(files.length > 1 ? `Reading screenshot ${index + 1} of ${files.length}` : "Reading the screenshot");
       try {
         const { image, canvas, bitmap } = await prepare(files[index]);
         bitmap.close();
@@ -92,6 +111,7 @@ export async function readDirectoryImages(
       } catch {
         // Keep what the other screenshots had.
       }
+      clock.at(index + 1);
     }
     let entries = parseDirectory(words);
 
@@ -99,13 +119,19 @@ export async function readDirectoryImages(
     const jobs = entries.flatMap((entry, index) =>
       (Object.entries(numberBoxes(entry)) as Array<["phone" | "ext" | "cell", NonNullable<ReturnType<typeof numberBoxes>["phone"]>]>)
         .map(([field, box]) => ({ index, field, box })));
+    clock.setTotal(shots + jobs.length * CHECK_COST);
     if (jobs.length) {
+      // Number checks run at their own pace; time them on their own.
+      clock.startTiming();
       await worker.setParameters({
         tessedit_pageseg_mode: PSM.SINGLE_LINE as never,
         tessedit_char_whitelist: "0123456789-",
       });
       for (let job = 0; job < jobs.length; job += 1) {
-        onProgress(`Double-checking numbers ${job + 1} of ${jobs.length}…`);
+        clock.step(`Double-checking numbers ${job + 1} of ${jobs.length}`);
+        from = shots + job * CHECK_COST;
+        size = CHECK_COST;
+        clock.at(from);
         const { index, field, box } = jobs[job];
         const source = canvases[box.group];
         if (!source) continue;
@@ -119,6 +145,7 @@ export async function readDirectoryImages(
         }
       }
     }
+    clock.finish();
     entries = entries.map((entry) => ({ ...entry }));
     return entries;
   } finally {
@@ -126,14 +153,18 @@ export async function readDirectoryImages(
   }
 }
 
-export async function readDirectoryPdf(file: File, onProgress: (text: string) => void): Promise<DirectoryEntry[]> {
-  onProgress("Reading the PDF…");
+export async function readDirectoryPdf(file: File, onProgress: (progress: ReadProgress) => void): Promise<DirectoryEntry[]> {
+  const clock = progressClock(onProgress);
+  clock.step("Opening the PDF…");
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const words: PlacedText[] = [];
+  clock.setTotal(pdf.numPages);
+  clock.startTiming();
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      clock.step(`Reading page ${pageNumber} of ${pdf.numPages}`);
       const page = await pdf.getPage(pageNumber);
       const { height } = page.getViewport({ scale: 1 });
       const content = await page.getTextContent();
@@ -150,9 +181,11 @@ export async function readDirectoryPdf(file: File, onProgress: (text: string) =>
           group: pageNumber,
         });
       }
+      clock.at(pageNumber);
     }
   } finally {
     await pdf.destroy().catch(() => undefined);
   }
+  clock.finish();
   return parseDirectory(words).map((entry) => ({ ...entry }));
 }

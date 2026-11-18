@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ChevronDown, FileText, Image as ImageIcon, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, X,
+  ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, X,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
@@ -14,12 +14,17 @@ import {
   newEntryId,
   searchDirectory,
   applyKnownNames,
+  withCoworkers,
+  COWORKERS,
   type DirectoryEntry,
 } from "./directory-data";
+import type { Contacts } from "./contacts-data";
+import { ReadingBar } from "./reading-bar";
+import type { ReadProgress } from "./read-progress";
 
-type Draft = Omit<DirectoryEntry, "id" | "check"> & { id?: string };
+type Draft = Omit<DirectoryEntry, "id" | "check"> & { id?: string; coworker?: string; fromSchedule?: boolean };
 
-const FIELDS: Array<[keyof Draft, string, string]> = [
+const FIELDS: Array<[Exclude<keyof Draft, "id" | "coworker" | "fromSchedule">, string, string]> = [
   ["first", "First name", "text"],
   ["last", "Last name", "text"],
   ["line", "Or a shared line (e.g. Operations Center)", "text"],
@@ -75,10 +80,13 @@ function EntryForm({ draft, departments, onSave, onCancel }: {
  * this phone), or typed in. Search, department tabs, and one-tap calls
  * (the extension is dialed after a pause) and texts.
  */
-export function DirectorySheet({ entries, workers, onChange, onClose }: {
+export function DirectorySheet({ entries, workers, coworkers, contacts, onChange, onClose }: {
   entries: DirectoryEntry[];
   /** Names on your schedules, for spelling ("LABARRE" → "LaBarre"). */
   workers: string[];
+  /** Everyone you work with; they're always in the directory. */
+  coworkers: string[];
+  contacts: Contacts;
   onChange: (entries: DirectoryEntry[]) => void;
   onClose: () => void;
 }) {
@@ -86,23 +94,29 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
   const [department, setDepartment] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<Draft | null>(null);
-  const [reading, setReading] = useState("");
+  const [reading, setReading] = useState<ReadProgress | null>(null);
   const [notice, setNotice] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const images = useRef<HTMLInputElement>(null);
   const pdf = useRef<HTMLInputElement>(null);
 
-  const departments = useMemo(() => departmentsOf(entries), [entries]);
+  const everyone = useMemo(() => withCoworkers(entries, coworkers, contacts), [contacts, coworkers, entries]);
+  const departments = useMemo(() => departmentsOf(entries).filter((item) => item !== COWORKERS), [entries]);
   const counts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const entry of entries) if (entry.department) map.set(entry.department, (map.get(entry.department) ?? 0) + 1);
+    for (const entry of everyone) if (entry.department) map.set(entry.department, (map.get(entry.department) ?? 0) + 1);
+    map.set(COWORKERS, everyone.filter((entry) => entry.coworker || entry.department === COWORKERS).length);
     return map;
-  }, [entries]);
-  const shown = useMemo(() => searchDirectory(entries, query, department), [department, entries, query]);
+  }, [everyone]);
+  const shown = useMemo(() => department === COWORKERS
+    ? searchDirectory(everyone.filter((entry) => entry.coworker || entry.department === COWORKERS), query, null)
+      .sort((a, b) => (a.last ?? a.first ?? "").localeCompare(b.last ?? b.first ?? "") || (a.first ?? "").localeCompare(b.first ?? ""))
+    : searchDirectory(everyone, query, department), [department, everyone, query]);
+  const tabs = [null, ...(counts.get(COWORKERS) ? [COWORKERS] : []), ...departments];
 
   const importEntries = async (read: () => Promise<DirectoryEntry[]>) => {
     setNotice("");
-    setReading("Reading…");
+    setReading({ label: "Starting the reader…", fraction: 0, secondsLeft: null });
     try {
       const found = applyKnownNames(await read(), workers);
       if (!found.length) {
@@ -119,11 +133,13 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
     } catch {
       setNotice("That couldn’t be read. Try clearer screenshots, or add people by hand.");
     } finally {
-      setReading("");
+      setReading(null);
     }
   };
 
-  const save = (draft: Draft) => {
+  const save = ({ coworker: _coworker, fromSchedule, ...draft }: Draft) => {
+    void _coworker;
+    if (fromSchedule) delete draft.id;
     const clean = Object.fromEntries(Object.entries(draft)
       .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])
       .filter(([, value]) => value)) as Draft;
@@ -158,7 +174,7 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
             <>
               <div className="directory-import">
                 <button type="button" className="button soft" disabled={Boolean(reading)} onClick={() => images.current?.click()}>
-                  <ImageIcon /> {reading || "Screenshots"}
+                  <ImageIcon /> {reading ? "Reading…" : "Screenshots"}
                 </button>
                 <button type="button" className="button soft" disabled={Boolean(reading)} onClick={() => pdf.current?.click()}>
                   <FileText /> PDF
@@ -200,7 +216,8 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
                   }}
                 />
               </div>
-              {!entries.length && !notice && (
+              {reading && <ReadingBar progress={reading} />}
+              {!entries.length && !notice && !reading && (
                 <p className="contacts-hint">
                   Screenshot each page of the directory (LAST · FIRST · DEPARTMENT · TITLE · PHONE · EXT · CELL)
                   and pick them all at once, or use the PDF if you have it. Everything is read on this phone.
@@ -208,7 +225,7 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
               )}
               {notice && <p className="contacts-notice" role="status">{notice}</p>}
 
-              {entries.length > 0 && (
+              {everyone.length > 0 && (
                 <>
                   <label className="contacts-search">
                     <Search />
@@ -221,7 +238,7 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
                     />
                   </label>
                   <div className="directory-tabs" role="tablist" aria-label="Departments">
-                    {[null, ...departments].map((item) => (
+                    {tabs.map((item) => (
                       <button
                         key={item ?? "all"}
                         type="button"
@@ -230,7 +247,7 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
                         className={department === item ? "active" : ""}
                         onClick={() => setDepartment(item)}
                       >
-                        {item ?? "All"} <small>{item ? counts.get(item) : entries.length}</small>
+                        {item ?? "All"} <small>{item ? counts.get(item) : everyone.length}</small>
                       </button>
                     ))}
                   </div>
@@ -244,7 +261,11 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
                           <div className="directory-row">
                             <button type="button" className="directory-name" onClick={() => setOpen(expanded ? null : entry.id)} aria-expanded={expanded}>
                               <b>{entryName(entry)}</b>
-                              {(entry.title || (department && entry.line)) && <small>{entry.title}</small>}
+                              {department === COWORKERS
+                                ? (entry.department !== COWORKERS || entry.title) && (
+                                  <small>{[entry.department !== COWORKERS && entry.department, entry.title].filter(Boolean).join(" · ")}</small>
+                                )
+                                : (entry.title || (department && entry.line)) && <small>{entry.title}</small>}
                               {entry.check?.length ? <i className="directory-check">Check number</i> : null}
                             </button>
                             <div className="directory-actions">
@@ -252,6 +273,9 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
                                 <a href={callLink(entry.phone, entry.ext)} aria-label={`Call ${entryName(entry)}${entry.ext ? ` at extension ${entry.ext}` : ""}`}>
                                   <Phone />
                                 </a>
+                              )}
+                              {!entry.phone && !entry.cell && entry.email && (
+                                <a href={`mailto:${entry.email}`} aria-label={`Email ${entryName(entry)}`}><Mail /></a>
                               )}
                               {entry.cell && (
                                 <>
@@ -281,9 +305,12 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
                                 )}
                                 {entry.email && <div><dt>Email</dt><dd><a href={`mailto:${entry.email}`}>{entry.email}</a></dd></div>}
                               </dl>
+                              {entry.fromSchedule && (
+                                <p className="directory-from-schedule">From your schedules. Edit to save them with a department and numbers.</p>
+                              )}
                               <div className="directory-detail-actions">
                                 <button type="button" className="button soft" onClick={() => setEditing(entry)}>Edit</button>
-                                <button
+                                {!entry.fromSchedule && <button
                                   type="button"
                                   className="button soft danger-text"
                                   onClick={() => {
@@ -292,7 +319,7 @@ export function DirectorySheet({ entries, workers, onChange, onClose }: {
                                   }}
                                 >
                                   Delete
-                                </button>
+                                </button>}
                               </div>
                             </div>
                           )}

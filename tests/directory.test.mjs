@@ -78,3 +78,55 @@ test("merges imports, searches and filters by department", () => {
   assert.deepEqual(searchDirectory(entries, "8120", null).map((entry) => entry.id), ["1"]);
   assert.deepEqual(searchDirectory(entries, "", "Airline Services").map((entry) => entry.id), ["1"]);
 });
+
+test("coworkers fold into the directory without duplicates", async () => {
+  const { withCoworkers, addPeopleToDirectory, contactsWithDirectory, COWORKERS } = await import("../app/directory-data.ts");
+  const entries = [
+    { id: "1", first: "Landon", last: "Weber", department: "Airline Services", phone: "610-555-0100", ext: "12" },
+    { id: "2", line: "Operations Center", phone: "610-555-0199" },
+  ];
+  const contacts = { landonweber: { email: "lweber@abe.com", phone: "4845551234" }, nicolewatson: { phone: "4845559876" } };
+  const shown = withCoworkers(entries, ["Landon Weber", "Nicole Watson"], contacts);
+  assert.equal(shown.length, 3);
+  const landon = shown.find((entry) => entry.id === "1");
+  assert.equal(landon.coworker, "Landon Weber");
+  assert.equal(landon.email, "lweber@abe.com");
+  assert.equal(landon.cell, "484-555-1234");
+  const nicole = shown.find((entry) => entry.coworker === "Nicole Watson");
+  assert.deepEqual([nicole.first, nicole.last, nicole.department, nicole.fromSchedule], ["Nicole", "Watson", COWORKERS, true]);
+  assert.equal(entries[0].email, undefined, "the saved directory isn't changed");
+
+  const result = addPeopleToDirectory(entries, [
+    { name: "WEBER, LANDON", email: "lweber@abe.com" },
+    { name: "Priya Shah", email: "pshah@abe.com" },
+    { name: "", email: "nobody@abe.com" },
+  ]);
+  assert.equal(result.added, 1);
+  assert.equal(result.updated, 1);
+  assert.equal(result.entries.length, 3);
+  assert.equal(result.entries.find((entry) => entry.last === "Shah").department, COWORKERS);
+  assert.equal(addPeopleToDirectory(result.entries, [{ name: "Priya Shah", email: "pshah@abe.com" }]).added, 0);
+
+  const swap = contactsWithDirectory({}, ["Landon Weber"], [{ ...entries[0], email: "lweber@abe.com", cell: "484-555-1234" }]);
+  assert.deepEqual(swap.landonweber, { email: "lweber@abe.com", phone: "4845551234" });
+});
+
+test("time left is measured from real progress", async () => {
+  const { progressClock, formatTimeLeft } = await import("../app/read-progress.ts");
+  let time = 0;
+  const reports = [];
+  const clock = progressClock((progress) => reports.push(progress), () => time);
+  clock.setTotal(4);
+  clock.startTiming();
+  time = 5000;
+  clock.at(1);
+  assert.equal(Math.round(reports.at(-1).secondsLeft), 15);
+  assert.equal(reports.at(-1).fraction, 0.25);
+  clock.startTiming();
+  time = 6000;
+  clock.step("Next");
+  assert.equal(Math.round(reports.at(-1).secondsLeft), 14, "keeps counting down while re-timing");
+  assert.equal(formatTimeLeft(null), "Estimating time…");
+  assert.equal(formatTimeLeft(42), "About 45 sec left");
+  assert.equal(formatTimeLeft(130), "About 2 min left");
+});

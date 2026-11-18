@@ -98,7 +98,7 @@ import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import
 import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
 import { DirectorySheet } from "./directory";
-import { DIRECTORY_KEY, type DirectoryEntry } from "./directory-data";
+import { DIRECTORY_KEY, contactsWithDirectory, type DirectoryEntry } from "./directory-data";
 import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
 import {
   cancelSwap,
@@ -1413,6 +1413,10 @@ export default function HomePage() {
     .map((shift) => resolveMergedName(shift.worker, nameMerges))
     .filter((worker) => nameKey(worker) !== nameKey(prefs.person) && !isSameSchedulePerson(worker, prefs.person)))],
   [baseImportedShifts, nameMerges, prefs.person]);
+
+  // Swap emails and texts fall back to the Directory for anyone not in contacts.
+  const swapContacts = useMemo(() => contactsWithDirectory(contacts, contactWorkers, directory),
+    [contactWorkers, contacts, directory]);
 
   const availableWorkers = useMemo(() => {
     const names = Array.from(new Set(importedShifts.map((shift) => shift.worker)));
@@ -3033,7 +3037,7 @@ export default function HomePage() {
           person={prefs.person}
           dates={scheduleDates.filter((date) => date >= todayDate)}
           initialOffDate={selectedDate}
-          contacts={contacts}
+          contacts={swapContacts}
           onEditContact={(worker) => setContactsOpen({ focus: worker })}
           sentSwaps={sentSwaps}
           swapServiceUrl={CALENDAR_SERVICE_ORIGIN}
@@ -3573,6 +3577,8 @@ export default function HomePage() {
         <DirectorySheet
           entries={directory}
           workers={[prefs.person, ...contactWorkers].filter(Boolean)}
+          coworkers={contactWorkers}
+          contacts={contacts}
           onChange={saveDirectory}
           onClose={() => setDirectoryOpen(false)}
         />
@@ -3584,6 +3590,8 @@ export default function HomePage() {
           contacts={contacts}
           focus={contactsOpen.focus}
           onChange={saveContacts}
+          directory={directory}
+          onDirectoryChange={saveDirectory}
           onClose={() => setContactsOpen(null)}
         />
       )}
