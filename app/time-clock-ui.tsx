@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, ChevronLeft, ChevronRight, Plus, RotateCcw, Timer, Trash2, Undo2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, FileUp, Loader2, Plus, RotateCcw, Timer, Trash2, Undo2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { asPunch, compareSheet, isFlag, readPaycomSheet, type PaycomSheet, type SheetCheck } from "./paycom-sheet";
 import { backdropClose } from "./home-sections";
 import {
   addDays,
@@ -143,6 +144,55 @@ export function TimeClockSheet({ data, onChange, onClose }: {
   const [tab, setTab] = useState<Tab>("punches");
   const [periodDay, setPeriodDay] = useState(todayIso);
   const period = periodFor(periodDay, data.settings);
+  const picker = useRef<HTMLInputElement>(null);
+  const [reading, setReading] = useState(false);
+  const [imported, setImported] = useState<{ before: ClockData; text: string; flags: number } | null>(null);
+
+  // Paycom time sheets: keep each, add the punches missing here, then show the newest.
+  const importSheets = async (files: File[]) => {
+    if (!files.length) return;
+    setReading(true);
+    const sheets: PaycomSheet[] = [];
+    let unreadable = 0;
+    for (const file of files) {
+      const sheet = await readPaycomSheet(file).catch(() => null);
+      if (sheet) sheets.push(sheet);
+      else unreadable += 1;
+    }
+    setReading(false);
+    if (!sheets.length) {
+      setImported({ before: data, text: "That isn’t a Paycom time sheet. In Paycom, open Time Sheet and share it as a PDF.", flags: 0 });
+      return;
+    }
+    let punches = data.punches;
+    let added = 0;
+    for (const sheet of sheets) {
+      const missing = compareSheet(sheet, punches, data.settings).flatMap((check) => (check.kind === "missing-here" ? [asPunch(check.paycom)] : []));
+      punches = [...punches, ...missing];
+      added += missing.length;
+    }
+    const next = {
+      ...data,
+      punches,
+      sheets: { ...data.sheets, ...Object.fromEntries(sheets.map((sheet) => [sheet.start, sheet])) },
+    };
+    const flags = sheets.reduce((sum, sheet) => sum + compareSheet(sheet, punches, data.settings).filter(isFlag).length, 0);
+    onChange(next);
+    const newest = sheets.reduce((latest, sheet) => (sheet.start > latest.start ? sheet : latest));
+    setPeriodDay(newest.start);
+    setTab("pay");
+    setImported({
+      before: data,
+      flags,
+      text: [
+        `Read ${sheets.length === 1 ? "the time sheet" : `${sheets.length} time sheets`}`,
+        added ? `added ${added} punch${added === 1 ? "" : "es"}` : "nothing to add",
+        flags ? `${flags} to check` : "everything matches",
+        unreadable ? `${unreadable} couldn’t be read` : "",
+      ].filter(Boolean).join(" · "),
+    });
+  };
+  const choose = () => picker.current?.click();
   const now = useNow(Boolean(openPunch(data.punches)));
   const step = (direction: number) => setPeriodDay(addDays(period.start, direction * data.settings.period.days));
   const setSettings = (patch: Partial<ClockSettings>) => onChange({ ...data, settings: { ...data.settings, ...patch } });
@@ -173,9 +223,33 @@ export function TimeClockSheet({ data, onChange, onClose }: {
             <button type="button" onClick={() => step(1)} aria-label="Later pay period"><ChevronRight /></button>
           </div>
         )}
+        <input
+          ref={picker}
+          type="file"
+          accept="application/pdf,.pdf"
+          multiple
+          hidden
+          onChange={(event) => {
+            const files = [...(event.target.files ?? [])];
+            event.target.value = "";
+            void importSheets(files);
+          }}
+        />
         <div className="clock-sheet-body">
-          {tab === "punches" && <PunchesTab data={data} period={period} now={now} onChange={onChange} />}
-          {tab === "pay" && <PayTab data={data} period={period} now={now} onChange={onChange} />}
+          {(reading || imported) && (
+            <p className={`clock-import-note${imported?.flags ? " flagged" : ""}`} role="status">
+              {reading ? <Loader2 className="spin" aria-hidden="true" /> : imported?.flags ? <AlertTriangle aria-hidden="true" /> : <Check aria-hidden="true" />}
+              <span>{reading ? "Reading the time sheet…" : imported?.text}</span>
+              {imported && !reading && imported.before !== data && (
+                <button type="button" onClick={() => {
+                  onChange(imported.before);
+                  setImported(null);
+                }}><Undo2 aria-hidden="true" /> Undo</button>
+              )}
+            </p>
+          )}
+          {tab === "punches" && <PunchesTab data={data} period={period} now={now} onChange={onChange} onPaycom={choose} />}
+          {tab === "pay" && <PayTab data={data} period={period} now={now} onChange={onChange} onPaycom={choose} />}
           {tab === "rules" && <RulesTab settings={data.settings} onChange={setSettings} />}
         </div>
       </section>
@@ -193,11 +267,12 @@ const localInput = (iso?: string) => {
 };
 const fromInput = (value: string) => (value ? new Date(value).toISOString() : undefined);
 
-function PunchesTab({ data, period, now, onChange }: {
+function PunchesTab({ data, period, now, onChange, onPaycom }: {
   data: ClockData;
   period: PayPeriod;
   now: number;
   onChange: (data: ClockData) => void;
+  onPaycom: () => void;
 }) {
   const [editing, setEditing] = useState<{ id: string; in: string; out: string } | null>(null);
   const step = data.settings.roundTo;
@@ -210,6 +285,7 @@ function PunchesTab({ data, period, now, onChange }: {
     const start = fromInput(editing.in);
     const end = fromInput(editing.out);
     if (!start || (end && end <= start)) return;
+    // Saved by hand, so it's yours now (no longer marked as from Paycom).
     const next: Punch = { id: editing.id, in: start, ...(end ? { out: end } : {}) };
     const exists = data.punches.some((punch) => punch.id === editing.id);
     onChange({
@@ -255,16 +331,21 @@ function PunchesTab({ data, period, now, onChange }: {
 
   return (
     <>
-      <button
-        type="button"
-        className="clock-add"
-        onClick={() => {
-          const day = todayIso() >= period.start && todayIso() <= period.end ? todayIso() : period.start;
-          setEditing({ id: newId(), in: `${day}T09:00`, out: `${day}T17:00` });
-        }}
-      >
-        <Plus aria-hidden="true" /> Add a missed punch
-      </button>
+      <div className="clock-add-row">
+        <button
+          type="button"
+          className="clock-add"
+          onClick={() => {
+            const day = todayIso() >= period.start && todayIso() <= period.end ? todayIso() : period.start;
+            setEditing({ id: newId(), in: `${day}T09:00`, out: `${day}T17:00` });
+          }}
+        >
+          <Plus aria-hidden="true" /> Add a missed punch
+        </button>
+        <button type="button" className="clock-add" onClick={onPaycom}>
+          <FileUp aria-hidden="true" /> Fill in from Paycom
+        </button>
+      </div>
       {editing && !data.punches.some((punch) => punch.id === editing.id) && editor}
       {punches.length ? (
         <ul className="clock-punches">
@@ -275,7 +356,10 @@ function PunchesTab({ data, period, now, onChange }: {
               <li key={punch.id}>
                 {editing?.id === punch.id ? editor : (
                   <button type="button" onClick={() => setEditing({ id: punch.id, in: localInput(punch.in), out: localInput(punch.out) })}>
-                    <span className="clock-punch-day">{dayText(punchDay(punch))}</span>
+                    <span className="clock-punch-day">
+                      {dayText(punchDay(punch))}
+                      {punch.from === "paycom" && <small className="clock-from">Paycom</small>}
+                    </span>
                     <span className="clock-punch-times">
                       <b>{clockText(roundedIn)} – {roundedOut ? clockText(roundedOut) : "now"}</b>
                       <small>Punched {clockText(punch.in)} – {punch.out ? clockText(punch.out) : "still in"}</small>
@@ -296,15 +380,17 @@ function PunchesTab({ data, period, now, onChange }: {
 
 /* ---------- pay ---------- */
 
-function PayTab({ data, period, now, onChange }: {
+function PayTab({ data, period, now, onChange, onPaycom }: {
   data: ClockData;
   period: PayPeriod;
   now: number;
   onChange: (data: ClockData) => void;
+  onPaycom: () => void;
 }) {
   const { settings } = data;
   const totals = periodTotals(data.punches, period, settings, new Date(now));
   const check = data.checks[period.start] ?? {};
+  const sheet = data.sheets[period.start];
   const setCheck = (field: keyof typeof check, value: string) => {
     const number = value === "" ? undefined : Number(value);
     onChange({ ...data, checks: { ...data.checks, [period.start]: { ...check, [field]: Number.isFinite(number) ? number : undefined } } });
@@ -363,11 +449,15 @@ function PayTab({ data, period, now, onChange }: {
 
       <section className="clock-check">
         <h3>Check against Paycom</h3>
-        <p>Type what Paycom shows for this period.</p>
+        <button type="button" className="clock-add" onClick={onPaycom}>
+          <FileUp aria-hidden="true" /> {sheet ? "Upload a newer time sheet" : "Upload Paycom time sheet (PDF)"}
+        </button>
+        {sheet && <SheetReview sheet={sheet} data={data} now={now} onChange={onChange} />}
+        <p>{sheet ? "Hours come from the time sheet. Add gross and net from your pay stub:" : "Or type what Paycom shows for this period."}</p>
         <label>
           <span>Hours</span>
-          <input type="number" inputMode="decimal" step="0.01" placeholder={hoursText(totals.hours)} value={check.hours ?? ""} onChange={(event) => setCheck("hours", event.target.value)} />
-          {compare(totals.hours, check.hours, "h")}
+          <input type="number" inputMode="decimal" step="0.01" placeholder={sheet?.total !== null && sheet?.total !== undefined ? hoursText(sheet.total) : hoursText(totals.hours)} value={check.hours ?? ""} onChange={(event) => setCheck("hours", event.target.value)} />
+          {compare(totals.hours, check.hours ?? (sheet?.total ?? undefined), "h")}
         </label>
         <label>
           <span>Gross</span>
@@ -381,6 +471,114 @@ function PayTab({ data, period, now, onChange }: {
         </label>
       </section>
       <p className="clock-fineprint">Taxes can be a cent off on a line: Paycom rounds some on your year-to-date totals.</p>
+    </div>
+  );
+}
+
+/* ---------- a Paycom time sheet, against your punches ---------- */
+
+const span = (punch: Punch) => `${clockText(punch.in)} – ${punch.out ? clockText(punch.out) : "still in"}`;
+
+function SheetReview({ sheet, data, now, onChange }: {
+  sheet: PaycomSheet;
+  data: ClockData;
+  now: number;
+  onChange: (data: ClockData) => void;
+}) {
+  const step = data.settings.roundTo;
+  const checks = compareSheet(sheet, data.punches, data.settings);
+  const flags = checks.filter(isFlag);
+  const fine = checks.filter((check) => !isFlag(check) && check.kind !== "missing-here");
+  const missing = checks.filter((check) => check.kind === "missing-here");
+  const mine = periodTotals(data.punches, { start: sheet.start, end: sheet.end, payday: sheet.end }, data.settings, new Date(now)).hours;
+  const [showAll, setShowAll] = useState(false);
+  const add = (punches: Punch[]) => onChange({ ...data, punches: [...data.punches, ...punches.map(asPunch)] });
+  const replace = (mineId: string, paycom: Punch) =>
+    onChange({ ...data, punches: data.punches.map((punch) => (punch.id === mineId ? { ...asPunch(paycom), id: mineId } : punch)) });
+
+  const row = (check: SheetCheck, index: number) => {
+    const day = "paycom" in check ? dayText(punchDay(check.paycom)) : "mine" in check ? dayText(punchDay(check.mine)) : "Period total";
+    switch (check.kind) {
+      case "differs":
+        return (
+          <li key={index} className="flag">
+            <b>{day}</b>
+            <span>Paycom {span(check.paycom)} ({hoursText(punchHours(check.paycom, step))} h)<br />You {span(check.mine)} ({hoursText(punchHours(check.mine, step, new Date(now)))} h)</span>
+            <em>{check.gap > 0 ? "+" : "−"}{hoursText(Math.abs(check.gap))} h on Paycom</em>
+            <button type="button" onClick={() => replace(check.mine.id, check.paycom)}>Use Paycom&rsquo;s</button>
+          </li>
+        );
+      case "not-on-paycom":
+        return (
+          <li key={index} className="flag">
+            <b>{day}</b>
+            <span>You {span(check.mine)} ({hoursText(punchHours(check.mine, step))} h)</span>
+            <em>Not on Paycom: a missed punch there? Ask to have it added.</em>
+          </li>
+        );
+      case "paycom-math":
+        return (
+          <li key={index} className="flag">
+            <b>{day}</b>
+            <span>Paycom shows {hoursText(check.shown)} h, but its punches round to {hoursText(check.worked)} h</span>
+            <em>Paycom&rsquo;s hours look off</em>
+          </li>
+        );
+      case "paycom-total":
+        return (
+          <li key={index} className="flag">
+            <b>{day}</b>
+            <span>Paycom&rsquo;s total is {hoursText(check.shown)} h, but its days add up to {hoursText(check.worked)} h</span>
+            <em>Paycom&rsquo;s total looks off</em>
+          </li>
+        );
+      case "missing-here":
+        return (
+          <li key={index}>
+            <b>{day}</b>
+            <span>Paycom {span(check.paycom)} ({hoursText(punchHours(check.paycom, step))} h)</span>
+            <button type="button" onClick={() => add([check.paycom])}>Add</button>
+          </li>
+        );
+      default:
+        return (
+          <li key={index} className="ok">
+            <b>{day}</b>
+            <span>{span(check.paycom)} · {hoursText(punchHours(check.paycom, step))} h</span>
+            <em>{check.kind === "match" ? "Matches" : `Same once rounded (you ${span(check.mine)})`}</em>
+          </li>
+        );
+    }
+  };
+
+  return (
+    <div className="clock-sheet-review">
+      <div className="clock-sheet-summary">
+        <span><small>Paycom</small><b>{sheet.total !== null ? hoursText(sheet.total) : "—"} h</b></span>
+        <span><small>Your punches</small><b>{hoursText(mine)} h</b></span>
+        <span className={flags.length ? "flagged" : "ok"}>
+          {flags.length ? <AlertTriangle aria-hidden="true" /> : <Check aria-hidden="true" />}
+          {flags.length ? `${flags.length} to check` : "All good"}
+        </span>
+      </div>
+      {flags.length > 0 && <ul className="clock-sheet-rows">{flags.map(row)}</ul>}
+      {missing.length > 0 && (
+        <>
+          <ul className="clock-sheet-rows">{missing.map(row)}</ul>
+          {missing.length > 1 && (
+            <button type="button" className="clock-add" onClick={() => add(missing.flatMap((check) => (check.kind === "missing-here" ? [check.paycom] : [])))}>
+              <Plus aria-hidden="true" /> Add all {missing.length}
+            </button>
+          )}
+        </>
+      )}
+      {fine.length > 0 && (
+        <button type="button" className="clock-sheet-toggle" onClick={() => setShowAll(!showAll)} aria-expanded={showAll}>
+          {showAll ? "Hide" : "Show"} {fine.length} matching
+        </button>
+      )}
+      {showAll && <ul className="clock-sheet-rows">{fine.map(row)}</ul>}
+      <p className="clock-fineprint">Time sheet read {new Date(sheet.readAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })} at {clockText(sheet.readAt)}.</p>
     </div>
   );
 }

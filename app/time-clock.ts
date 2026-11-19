@@ -3,12 +3,15 @@
  * the employer rounds them, pay at your wage, and the taxes Paycom takes out,
  * so you can check each paycheck. Everything stays on this device.
  */
+import type { PaycomSheet } from "./paycom-sheet";
 
 export type Punch = {
   id: string;
   /** When you clocked in / out (ISO, to the second). */
   in: string;
   out?: string;
+  /** Added from a Paycom time sheet. */
+  from?: "paycom";
 };
 
 export type TaxLine = {
@@ -48,6 +51,8 @@ export type ClockData = {
   punches: Punch[];
   settings: ClockSettings;
   checks: Record<string, PaycomCheck>;
+  /** Paycom time sheets read, by pay period start. */
+  sheets: Record<string, PaycomSheet>;
 };
 
 /** Read from three of David's 2026 stubs (Hanover Twp / Catasauqua, PA). */
@@ -106,9 +111,10 @@ export function loadClock(): ClockData {
         deductions: Array.isArray(settings.deductions) ? settings.deductions : [],
       },
       checks: saved?.checks && typeof saved.checks === "object" ? saved.checks : {},
+      sheets: saved?.sheets && typeof saved.sheets === "object" ? saved.sheets : {},
     };
   } catch {
-    return { punches: [], settings: DEFAULT_SETTINGS, checks: {} };
+    return { punches: [], settings: DEFAULT_SETTINGS, checks: {}, sheets: {} };
   }
 }
 
