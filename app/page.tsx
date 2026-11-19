@@ -133,7 +133,7 @@ import {
 } from "./swap-requests";
 import { DEFAULT_HOME_ORDER, HOME_TILES, HomeOrderRow, type HomeTile } from "./home-order";
 import { isAndroid, isHeic } from "./platform";
-import { LearningSetting, LiveStatusSetting } from "./live-status-setting";
+import { LearningSetting, LiveStatusSetting, prefetchLearning, SettingPlaceholder } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
 import { LiveMapPanel } from "./live-map";
 import {
@@ -847,6 +847,11 @@ export default function HomePage() {
     calendarServiceUrl(`/api/flights/live?airport=${DEFAULT_PREFS.homeAirport}`),
   );
   const airportAlerts = liveFlights.live?.airportAlerts;
+  // Flight learning loads in the background so Settings opens complete.
+  const hasLive = Boolean(liveFlights.live);
+  useEffect(() => {
+    if (hasLive) void prefetchLearning(calendarServiceUrl("/api/flights/learning"));
+  }, [hasLive]);
   const [dismissedAirportAlerts, setDismissedAirportAlerts] = useState<string[]>([]);
   useEffect(() => {
     try {
@@ -3818,13 +3823,16 @@ export default function HomePage() {
                 <b>{team ? `${team.name} · ${team.members?.length ?? 1} ${(team.members?.length ?? 1) === 1 ? "member" : "members"}` : "Start or join a team"}</b>
               </button>
             </div>
-            {liveFlights.live?.status && (
+            {liveFlights.live?.status ? (
               <LiveStatusSetting
                 status={liveFlights.live.status}
                 updatedAt={liveFlights.live.airportBoardUpdatedAt ? null : liveFlights.live.updatedAt}
               />
-            )}
-            {liveFlights.live && (
+            ) : !liveFlights.checked ? (
+              // Still loading: hold the row's space so the sheet doesn't jump.
+              <SettingPlaceholder title="Live times" />
+            ) : null}
+            {(liveFlights.live || !liveFlights.checked) && (
               <LearningSetting url={calendarServiceUrl("/api/flights/learning")} />
             )}
           </section>

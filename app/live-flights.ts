@@ -74,6 +74,9 @@ const READ_EVERY_MS = 60_000;
 export function useLiveFlights(baseUrl: string) {
   const [live, setLive] = useState<LiveFlights | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // True once the first read has come back (or failed), so Settings knows
+  // whether to hold space for the live-times row.
+  const [checked, setChecked] = useState(false);
 
   const accept = (data: {
     enabled?: boolean;
@@ -106,6 +109,7 @@ export function useLiveFlights(baseUrl: string) {
         } catch {
           // Offline or worker not deployed yet: keep schedule times.
         }
+        if (!cancelled) setChecked(true);
       }
       if (!cancelled) timer = window.setTimeout(load, READ_EVERY_MS);
     };
@@ -143,7 +147,7 @@ export function useLiveFlights(baseUrl: string) {
     }
   };
 
-  return { live, refresh, refreshing };
+  return { live, refresh, refreshing, checked };
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");

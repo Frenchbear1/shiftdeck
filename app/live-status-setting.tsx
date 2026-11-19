@@ -113,23 +113,60 @@ type LearningResults = {
 
 const minutes = (value: number | null) => (value === null ? "—" : `~${value} min`);
 
+/**
+ * Learning results are fetched once in the background (when the app has
+ * live times) and kept here, so Settings opens with them already in place
+ * instead of the row popping in a moment later.
+ */
+let learning: { url: string; results: LearningResults | null; done: boolean; pending?: Promise<void> } | null = null;
+const listeners = new Set<() => void>();
+
+export function prefetchLearning(url: string) {
+  if (learning?.url === url && (learning.done || learning.pending)) return learning.pending;
+  learning = { url, results: learning?.url === url ? learning.results : null, done: false };
+  const current = learning;
+  current.pending = fetch(url, { cache: "no-store" })
+    .then((response) => response.json())
+    .then((data: LearningResults) => {
+      current.results = data?.enabled ? data : null;
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      current.done = true;
+      current.pending = undefined;
+      listeners.forEach((listener) => listener());
+    });
+  return current.pending;
+}
+
+/** A same-height stand-in while something in Settings is still on its way. */
+export function SettingPlaceholder({ title }: { title: string }) {
+  return (
+    <div className="live-status-setting collapsible is-loading" aria-busy="true">
+      <div className="collapsible-head">
+        <span>{title}</span>
+        <b><i className="setting-shimmer" /></b>
+        <ChevronDown />
+      </div>
+    </div>
+  );
+}
+
 /** What the flight-learning worker has figured out so far, shown in Settings. */
 export function LearningSetting({ url }: { url: string }) {
-  const [results, setResults] = useState<LearningResults | null>(null);
-
+  const [, rerender] = useState(0);
   useEffect(() => {
-    let cancelled = false;
-    fetch(url, { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: LearningResults) => {
-        if (!cancelled && data.enabled) setResults(data);
-      })
-      .catch(() => undefined);
+    const listener = () => rerender((count) => count + 1);
+    listeners.add(listener);
+    void prefetchLearning(url);
     return () => {
-      cancelled = true;
+      listeners.delete(listener);
     };
   }, [url]);
 
+  const state = learning?.url === url ? learning : null;
+  if (!state?.done && !state?.results) return <SettingPlaceholder title="Flight learning" />;
+  const results = state.results;
   if (!results) return null;
   const since = results.since
     ? new Date(results.since).toLocaleDateString("en-US", { month: "short", day: "numeric" })
