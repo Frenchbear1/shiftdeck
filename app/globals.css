@@ -7272,8 +7272,11 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
 }
 
 .sheet-empty small svg {
+  /* Sits in the sentence ("Tap + to add…"), not on a line of its own. */
+  display: inline-block !important;
   width: 14px;
   height: 14px;
+  margin: 0 1px;
   vertical-align: -2px;
 }
 
