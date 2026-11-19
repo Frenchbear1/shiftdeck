@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle, Plus, Search, type LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type AddMenuItem = { icon: LucideIcon; label: string; onSelect: () => void };
 
@@ -18,6 +18,21 @@ export function AddMenu({ label, items, note, busy, onOpen }: {
 }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  // A short sheet (nothing in it yet) would leave the menu hanging off the
+  // bottom of the screen: the sheet grows (upward) until the menu fits.
+  useLayoutEffect(() => {
+    const sheet = wrap.current?.closest<HTMLElement>(".panel-sheet");
+    if (!open || !sheet || !menu.current) return;
+    const overflow = menu.current.getBoundingClientRect().bottom - (window.innerHeight - 16);
+    if (overflow <= 0) return;
+    const before = sheet.style.minHeight;
+    sheet.style.minHeight = `${Math.min(window.innerHeight - 24, sheet.offsetHeight + overflow)}px`;
+    return () => {
+      sheet.style.minHeight = before;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -55,7 +70,7 @@ export function AddMenu({ label, items, note, busy, onOpen }: {
         {busy ? <LoaderCircle /> : <Plus />}
       </button>
       {open && (
-        <div className="sheet-menu" role="menu" aria-label={label}>
+        <div className="sheet-menu" role="menu" aria-label={label} ref={menu}>
           {items.map(({ icon: Icon, label: text, onSelect }) => (
             <button
               key={text}

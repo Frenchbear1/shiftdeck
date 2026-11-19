@@ -258,8 +258,10 @@ function Switch({ on, label, onChange }: { on: boolean; label: string; onChange:
 
 export function OwnerSheet({
   me, names, onRename, onRemove, onBlock, onUnblock, onShareAccess, onRenamePhone, onMovePhone, onRemovePhone, onDecide,
-  onStartHandover, onCancelHandover, onMakeRecoveryKey, onAddPhone, learning, rosterFor, onClose,
+  onStartHandover, onCancelHandover, onMakeRecoveryKey, onAddPhone, learning, rosterFor, focus, onClose,
 }: PhoneActions & {
+  /** Opened from a notification: that section open, that person shown. */
+  focus?: { section: "requests" | "log" | "people"; personId?: string };
   /** Where someone stands on the imported schedules (new, leaving, left). */
   rosterFor?: (name: string) => RosterStatus | undefined;
   me: Me;
@@ -287,8 +289,16 @@ export function OwnerSheet({
   const requests = (me.requests ?? []).filter((request) => request.personId !== me.personId);
   const log = me.log ?? [];
   const recommended = recommendedSuccessor(people, me.personId);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focus?.personId ?? null);
   const confirm = useConfirm();
+  // Scroll the person a notification was about into view.
+  useEffect(() => {
+    if (!focus?.personId) return;
+    const timer = window.setTimeout(() => {
+      document.querySelector(`[data-person="${CSS.escape(focus.personId!)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [focus?.personId]);
   const [handing, setHanding] = useState(false);
   const [successor, setSuccessor] = useState<string>("");
   const [confirming, setConfirming] = useState(false);
@@ -348,6 +358,7 @@ export function OwnerSheet({
         <Section
           icon={Users}
           title="People"
+          defaultOpen={focus?.section === "people"}
           summary={(() => {
             const gone = others.filter((person) => rosterFor?.(person.name)?.state === "left").length;
             return gone ? `${people.length} · ${gone} left the job` : people.length;
@@ -399,7 +410,7 @@ export function OwnerSheet({
           )}
         </Section>
 
-        <Section icon={Smartphone} title="New phones" summary={log.length ? timeLabel(log[0].at) : "None yet"}>
+        <Section icon={Smartphone} title="New phones" summary={log.length ? timeLabel(log[0].at) : "None yet"} defaultOpen={focus?.section === "log"}>
           {log.length ? (
             <ul className="owner-rows">
               {log.map((entry) => (
@@ -564,7 +575,7 @@ function PersonCard({ person, me, open, onToggle, renameTo, moveTo, confirm, run
   const phones = person.phones ?? [];
   const first = person.name.split(" ")[0];
   return (
-    <div className={`owner-card${open ? " open" : ""}`}>
+    <div className={`owner-card${open ? " open" : ""}`} data-person={person.id}>
       <button type="button" className="owner-card-head" aria-expanded={open} onClick={onToggle}>
         <span className="owner-person">
           <span className="team-member-name">

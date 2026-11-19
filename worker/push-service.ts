@@ -591,12 +591,15 @@ function notificationPayload(
       ? "Your shift starts now"
       : `Your shift starts in ${offsetLabel(row.alert_minutes)}`;
   const body = `${timing} · ${start}${row.location ? ` · ${row.location}` : ""}`;
+  // Tapping it opens the schedule on that shift's day.
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: row.timezone, year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date(row.start_at));
   return JSON.stringify({
     web_push: 8030,
     notification: {
       title: row.title || row.default_title || "Work",
       body,
-      navigate,
+      navigate: `${navigate}?open=${encodeURIComponent(`day:${day}`)}`,
       icon,
       badge: `${navigate}badge-96.png`,
       tag: `shiftdeck-${row.profile_id}-${row.event_key}-${row.alert_minutes}`,

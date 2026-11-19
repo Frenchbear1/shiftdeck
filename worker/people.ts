@@ -279,8 +279,14 @@ async function log(db: CalendarDatabase, kind: string, person: { id: string; nam
   await db.prepare("DELETE FROM app_log WHERE id NOT IN (SELECT id FROM app_log ORDER BY created_at DESC LIMIT 200)").run();
 }
 
-/** Pings every phone of a person (or of the owner). Blocked people get nothing. */
-async function ping(db: CalendarDatabase, env: PushEnvironment, where: { personId?: string; owner?: boolean }, body: string, tag = "names") {
+/**
+ * Pings every phone of a person (or of the owner). Blocked people get nothing.
+ * `open` is where tapping it goes in the app (see the app's openFromLink).
+ */
+async function ping(
+  db: CalendarDatabase, env: PushEnvironment, where: { personId?: string; owner?: boolean }, body: string,
+  tag = "names", open = "notifications",
+) {
   const rows = where.owner
     ? await db.prepare(`SELECT d.profile_id FROM app_devices d JOIN app_people p ON p.id = d.person_id
         WHERE p.is_owner = 1 AND d.profile_id IS NOT NULL`).all<{ profile_id: string }>()
@@ -289,7 +295,9 @@ async function ping(db: CalendarDatabase, env: PushEnvironment, where: { personI
       .bind(where.personId).all<{ profile_id: string }>();
   let sent = 0;
   for (const profileId of new Set((rows.results ?? []).map((row) => row.profile_id))) {
-    sent += await sendProfilePush(db, env, profileId, { title: "Shiftdeck", body, tag, path: "?notifications=1" }).catch(() => 0);
+    sent += await sendProfilePush(db, env, profileId, {
+      title: "Shiftdeck", body, tag, path: `?open=${encodeURIComponent(open)}`,
+    }).catch(() => 0);
   }
   return sent;
 }
@@ -548,7 +556,7 @@ async function sync(request: Request, db: CalendarDatabase, env: PushEnvironment
   const me = await deviceOf(db, body);
   if (me && me.person.is_owner !== 1) {
     await log(db, "new", me.person, model);
-    await ping(db, env, { owner: true }, `New on Shiftdeck: ${name}${model ? ` (${model})` : ""}`, "people");
+    await ping(db, env, { owner: true }, `New on Shiftdeck: ${name}${model ? ` (${model})` : ""}`, "people", `owner:person:${me.person.id}`);
   }
   return json(request, await view(db, me!), 201);
 }
@@ -597,7 +605,7 @@ async function link(request: Request, db: CalendarDatabase, env: PushEnvironment
   await log(db, person.is_owner === 1 ? "owner-phone" : "phone", person, model);
   await ping(db, env, { owner: true }, person.is_owner === 1
     ? `A new phone of yours was added${model ? ` (${model})` : ""}`
-    : `${person.name} added a phone${model ? ` (${model})` : ""}`, "people");
+    : `${person.name} added a phone${model ? ` (${model})` : ""}`, "people", `owner:person:${person.id}`);
   const me = await deviceOf(db, body);
   return json(request, await view(db, me!), 201);
 }
@@ -632,7 +640,7 @@ async function recover(request: Request, db: CalendarDatabase, env: PushEnvironm
   await addDevice(db, owner.id, deviceId, token);
   await remember(request, db, deviceId, body);
   await log(db, "recovered", owner, clean(body.model, 40));
-  await ping(db, env, { owner: true }, "Your recovery key was used to set up a new phone", "people");
+  await ping(db, env, { owner: true }, "Your recovery key was used to set up a new phone", "people", "owner:log");
   const me = await deviceOf(db, body);
   return json(request, await view(db, me!), 201);
 }
@@ -696,7 +704,7 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
   const message = swap ? `${first} wants to swap shifts` : recipients ? `${first} sent you ${what}` : `${first} shared ${what}`;
   let notified = 0;
   for (const personId of recipients ?? [...ids].filter((other) => other !== me.person.id)) {
-    notified += await ping(db, env, { personId }, message, `post-${id}`);
+    notified += await ping(db, env, { personId }, message, `post-${id}`, `post:${id}`);
   }
   return json(request, { id, notified, to: recipients?.length ?? null }, 201);
 }
@@ -717,7 +725,7 @@ async function requestName(request: Request, db: CalendarDatabase, env: PushEnvi
   }
   await db.prepare("INSERT OR REPLACE INTO app_name_requests (id, person_id, name, created_at) VALUES (?1, ?2, ?3, ?4)")
     .bind(newId(), me.person.id, name, Date.now()).run();
-  await ping(db, env, { owner: true }, `${me.person.name.split(" ")[0]} asks to change their name to ${name}`);
+  await ping(db, env, { owner: true }, `${me.person.name.split(" ")[0]} asks to change their name to ${name}`, "names", "owner:requests");
   return json(request, { ok: true, pending: true });
 }
 
@@ -755,7 +763,7 @@ async function acceptHandover(request: Request, db: CalendarDatabase, env: PushE
   await setSetting(db, "recovery_hash", null);
   await setSetting(db, "recovery_at", null);
   await log(db, "owner", me.person, "");
-  if (previous) await ping(db, env, { personId: previous.id }, `${me.person.name} is now the owner of Shiftdeck`, "people");
+  if (previous) await ping(db, env, { personId: previous.id }, `${me.person.name} is now the owner of Shiftdeck`, "people", "home");
   const fresh = await deviceOf(db, body);
   return json(request, await view(db, fresh!));
 }
@@ -779,10 +787,10 @@ async function ownerAction(request: Request, db: CalendarDatabase, env: PushEnvi
       const taken = await personByName(db, row.name);
       if (taken && taken.id !== row.person_id) return json(request, { error: `${taken.name} is already someone's name.` }, 409);
       await rename(db, row.person_id, row.name);
-      await ping(db, env, { personId: row.person_id }, `Your name is now ${row.name}`);
+      await ping(db, env, { personId: row.person_id }, `Your name is now ${row.name}`, "names", "settings");
     } else {
       await db.prepare("DELETE FROM app_name_requests WHERE id = ?1").bind(row.id).run();
-      if (!own) await ping(db, env, { personId: row.person_id }, "Your name change wasn't approved");
+      if (!own) await ping(db, env, { personId: row.person_id }, "Your name change wasn't approved", "names", "settings");
     }
     return json(request, { ok: true });
   }
@@ -811,7 +819,7 @@ async function ownerAction(request: Request, db: CalendarDatabase, env: PushEnvi
     const taken = await personByName(db, name);
     if (taken && taken.id !== target.id) return json(request, { error: `${taken.name} is already someone's name.` }, 409);
     await rename(db, target.id, name);
-    if (!self) await ping(db, env, { personId: target.id }, `Your name is now ${name}`);
+    if (!self) await ping(db, env, { personId: target.id }, `Your name is now ${name}`, "names", "settings");
     return json(request, { ok: true, name });
   }
   if (self) return json(request, { error: "That's you." }, 400);
@@ -854,7 +862,7 @@ async function ownerAction(request: Request, db: CalendarDatabase, env: PushEnvi
     const expiresAt = Date.now() + HANDOVER_HOURS * 3_600_000;
     await db.prepare("INSERT OR REPLACE INTO app_handover (id, person_id, key_hash, expires_at, tries) VALUES ('offer', ?1, ?2, ?3, 0)")
       .bind(target.id, await sha256(`handover:${target.id}:${key}`), expiresAt).run();
-    await ping(db, env, { personId: target.id }, `${me.person.name.split(" ")[0]} wants to make you the owner of Shiftdeck`, "people");
+    await ping(db, env, { personId: target.id }, `${me.person.name.split(" ")[0]} wants to make you the owner of Shiftdeck`, "people", "handover");
     return json(request, { key, expiresAt: iso(expiresAt), name: target.name });
   }
   return json(request, { error: "Not found" }, 404);
@@ -893,7 +901,7 @@ async function deviceAction(request: Request, db: CalendarDatabase, env: PushEnv
     await db.prepare("UPDATE app_devices SET person_id = ?2 WHERE id = ?1").bind(phone.id, to!.id).run();
     await dropIfEmpty(db, phone.person_id);
     if (phone.profile_id) {
-      await sendProfilePush(db, env, phone.profile_id, { title: "Shiftdeck", body: `This phone is now set up as ${to!.name}`, tag: "names", path: "?notifications=1" }).catch(() => 0);
+      await sendProfilePush(db, env, phone.profile_id, { title: "Shiftdeck", body: `This phone is now set up as ${to!.name}`, tag: "names", path: "?open=settings" }).catch(() => 0);
     }
     return json(request, { ok: true, name: to!.name });
   }

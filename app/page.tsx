@@ -809,6 +809,8 @@ export default function HomePage() {
   const [nameTaken, setNameTaken] = useState<{ name: string; ownerName: boolean } | null>(null);
   const [linkCodeOpen, setLinkCodeOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
+  /** What the owner screen opens to (from a notification). */
+  const [ownerFocus, setOwnerFocus] = useState<{ section: "requests" | "log" | "people"; personId?: string } | null>(null);
   const [seenPosts, setSeenPosts] = useState<string[]>([]);
   useEffect(() => {
     const seen = loadSeenPosts();
@@ -1749,15 +1751,71 @@ export default function HomePage() {
     };
   }, []);
 
-  // A swap-answer notification opens the app with ?notifications=1.
+  // Tapping a notification opens the app at ?open=<where> (older ones: ?notifications=1):
+  //   notifications · home · day:<date> · settings · handover · post:<id>
+  //   owner:requests · owner:log · owner:person:<id>
+  const [linkTarget, setLinkTarget] = useState<string | null>(null);
   useEffect(() => {
     if (!hydrated) return;
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("notifications")) return;
+    const open = url.searchParams.get("open") ?? (url.searchParams.has("notifications") ? "notifications" : null);
+    if (!open) return;
+    url.searchParams.delete("open");
     url.searchParams.delete("notifications");
     window.history.replaceState(null, "", url.href);
-    airportAlertsDialog.current?.showModal();
+    queueMicrotask(() => setLinkTarget(open));
   }, [hydrated]);
+  // Some places need this phone's check-in (owner screen, a team post) first;
+  // if that never comes (offline), the notifications list opens instead.
+  useEffect(() => {
+    if (!linkTarget) return;
+    const timer = window.setTimeout(() => {
+      setLinkTarget(null);
+      airportAlertsDialog.current?.showModal();
+    }, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [linkTarget]);
+  useEffect(() => {
+    if (!linkTarget) return;
+    const [kind, ...rest] = linkTarget.split(":");
+    const value = rest.join(":");
+    const finish = (then?: () => void) => queueMicrotask(() => {
+      setLinkTarget(null);
+      then?.();
+    });
+    if (kind === "home") return finish();
+    if (kind === "notifications") return finish(() => airportAlertsDialog.current?.showModal());
+    if (kind === "day") return finish(() => /^\d{4}-\d\d-\d\d$/.test(value) && setSelectedDate(value));
+    if (kind === "settings") {
+      return finish(() => {
+        setSettingsSnapshot(JSON.stringify(prefs));
+        setSettingsOpen(true);
+      });
+    }
+    if (!me) return; // Wait for the check-in.
+    if (kind === "owner") {
+      return finish(() => {
+        if (!me.owner) return;
+        const [section, id] = value.split(":");
+        setOwnerFocus(section === "person" ? { section: "people", personId: id } : { section: section === "log" ? "log" : "requests" });
+        setOwnerOpen(true);
+      });
+    }
+    if (kind === "handover") return finish(() => me.handoverOffer && setHandoverOpen(true));
+    if (kind === "post") {
+      const post = me.posts?.find((item) => item.id === value);
+      if (!post) return finish(() => airportAlertsDialog.current?.showModal());
+      if (post.kind === "swap") return finish(() => setSwapAnswerId(post.shareId));
+      if (!team) return; // The team key arrives with the check-in too.
+      return finish(() => {
+        markPostsSeen([post.id]);
+        openIncomingShare({ id: post.shareId, key: team.key }, post.id);
+      });
+    }
+    finish(() => airportAlertsDialog.current?.showModal());
+    // Runs again as the check-in and the team key arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkTarget, me, team]);
 
   // Follow the 5 AM rollover and land on today once saved data is restored.
   useEffect(() => {
@@ -1802,12 +1860,10 @@ export default function HomePage() {
   const rosterStatus = new Map([...rosterStatuses(baseImportedShifts, todayDate)]
     .filter(([name]) => nameKey(name) !== nameKey(prefs.person) && !isSameSchedulePerson(name, prefs.person)));
 
-  const availableWorkers = useMemo(() => {
-    // People who've left the schedule aren't offered as names anymore.
-    const names = Array.from(new Set(importedShifts.map((shift) => shift.worker)))
-      .filter((name) => !hasLeft(rosterStatus.get(name)));
-    return names.length ? names : prefs.person ? [prefs.person] : [];
-  }, [importedShifts, prefs.person, rosterStatus]);
+  // People who've left the schedule aren't offered as names anymore.
+  const activeWorkers = Array.from(new Set(importedShifts.map((shift) => shift.worker)))
+    .filter((name) => !hasLeft(rosterStatus.get(name)));
+  const availableWorkers = activeWorkers.length ? activeWorkers : prefs.person ? [prefs.person] : [];
 
   const scheduleDates = useMemo(() => [...new Set([
     ...importedDates,
@@ -4363,7 +4419,11 @@ export default function HomePage() {
             await refreshMe();
           }}
           onAddPhone={() => setLinkCodeOpen(true)}
-          onClose={() => setOwnerOpen(false)}
+          focus={ownerFocus ?? undefined}
+          onClose={() => {
+            setOwnerOpen(false);
+            setOwnerFocus(null);
+          }}
         />
       )}
 
