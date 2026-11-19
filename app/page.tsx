@@ -135,7 +135,7 @@ import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type
 import { ShareSheet, SharedImportSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
-import type { SharePackage } from "./share-data";
+import type { SharePackage, SharedRead } from "./share-data";
 import {
   forgetLegacyTeam,
   legacyTeamKey,
@@ -1697,7 +1697,7 @@ export default function HomePage() {
       directory: part.directory ? directory : undefined,
       contacts: part.contacts ? contacts : undefined,
       person: prefs.person,
-      loadFile: (id) => loadScheduleImage(id),
+      loadFile: (id, straightened) => loadScheduleImage(id, straightened),
     });
     return sendToTeam(share, what, to);
   };
@@ -1986,10 +1986,11 @@ export default function HomePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const openSheet = (next: Exclude<Sheet, null>) => {
+  const openSheet = (next: Exclude<Sheet, null>, options?: { scan?: boolean }) => {
     if (next === "import") {
       setImportComparisons([]);
-      void warmScheduleReader().catch(() => undefined);
+      // Starts the reader early, unless nothing needs scanning (a shared schedule that was already read).
+      if (options?.scan !== false) void warmScheduleReader().catch(() => undefined);
     }
     setSheet(next);
   };
@@ -2229,7 +2230,10 @@ export default function HomePage() {
     return matching.length;
   };
 
-  const processFiles = async (files: File[], options?: { person?: string; fromShare?: boolean }) => {
+  const processFiles = async (
+    files: File[],
+    options?: { person?: string; fromShare?: boolean; reads?: Array<SharedRead | undefined> },
+  ) => {
     if (!files.length || importState === "reading") return;
     setJustImported([]);
     const importedIds: string[] = [];
@@ -2308,9 +2312,26 @@ export default function HomePage() {
         const shiftReads: ScanMark[] = [];
         let scan: ScanPreviewPass | undefined;
         try {
+          // A schedule a coworker sent comes with what their phone read: use it, no scan.
+          const shared = options?.reads?.[index];
+          const sharedRead: ScheduleRead | null = shared?.dates?.length === 7 && !isPdf &&
+            shared.parserVersion <= SCHEDULE_PARSER_VERSION && (shared.shifts.length || shared.flights.length)
+            ? {
+                dates: shared.dates,
+                shifts: shared.shifts,
+                flights: shared.flights,
+                confidence: 90,
+                warnings: [],
+                sourceLayout: shared.sourceLayout,
+              }
+            : null;
+          if (sharedRead) {
+            progress.stage(2);
+            updateScanFile({ stage: 2 });
+          }
           const [hash, read] = await Promise.all([
             hashFile(file),
-            isPdf
+            sharedRead ? Promise.resolve(sharedRead) : isPdf
               ? (progress.stage(1), parseCharterPdf(file, (image) => updateScanFile({ image })))
               : readScheduleImage(file, {
                   knownNames,
@@ -2417,8 +2438,14 @@ export default function HomePage() {
             const key = `${mark.shift.date}|${resolvedWorker(mark.worker)}|${mark.shift.start}|${mark.shift.end}`;
             shiftConfidence.set(key, Boolean(shiftConfidence.get(key)) || scanConfidence(mark) === "confident");
           }
+          // A shared read says which times its phone wasn't sure of (by the names it used).
+          const sharedUnsure = new Set((shared?.uncertain ?? []).map((key) => {
+            const [date, worker, start] = key.split("|");
+            return `${date}|${resolvedWorker(worker)}|${start}`;
+          }));
           const uncertainShifts = parsed.shifts.filter((shift) =>
-            shiftConfidence.get(`${shift.date}|${shift.worker}|${shift.start}|${shift.end}`) === false,
+            shiftConfidence.get(`${shift.date}|${shift.worker}|${shift.start}|${shift.end}`) === false ||
+            sharedUnsure.has(`${shift.date}|${shift.worker}|${shift.start}`),
           ).map((shift) => shift.id);
           const nextDocument: ScheduleDocument = {
             id: documentId,
@@ -2536,16 +2563,18 @@ export default function HomePage() {
   };
 
 
-  const importShared = ({ directory: nextDirectory, contacts: nextContacts, files, summary, person }: SharedImport) => {
+  const importShared = ({ directory: nextDirectory, contacts: nextContacts, files, reads, summary, person }: SharedImport) => {
     if (nextDirectory) saveDirectory(nextDirectory);
     if (nextContacts) saveContacts(nextContacts);
     if (person) savePrefs({ person });
     setIncoming(null);
     if (summary.length) setToast(summary.join(" · "));
     if (files.length) {
-      openSheet("import");
+      const needsScan = files.some((file, index) => !reads?.[index] || /pdf$/i.test(file.type));
+      openSheet("import", { scan: needsScan });
       // The normal import, ending on "Your shifts vs. the photo".
-      void processFiles(files, { person: person || undefined, fromShare: true });
+      // What the sender's phone read comes along, so the scan is skipped.
+      void processFiles(files, { person: person || undefined, fromShare: true, reads });
     }
   };
 
@@ -4172,7 +4201,7 @@ export default function HomePage() {
           directory={directory}
           contacts={contacts}
           person={prefs.person}
-          loadFile={(id) => loadScheduleImage(id)}
+          loadFile={(id, straightened) => loadScheduleImage(id, straightened)}
           team={sendTeam}
           signedIn={Boolean(me)}
           inviteUrl={`${window.location.origin}${window.location.pathname}`}

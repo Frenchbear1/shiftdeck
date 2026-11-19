@@ -5,6 +5,8 @@
  */
 import { contactKey, type Contacts } from "./contacts-data.ts";
 import { entryKey, findPerson, newEntryId, type DirectoryEntry } from "./directory-data.ts";
+import type { Flight, Shift } from "./sample-data.ts";
+import type { ScheduleSourceLayout } from "./schedule-parser.ts";
 
 export type SharedSchedule = {
   name: string;
@@ -13,6 +15,23 @@ export type SharedSchedule = {
   /** The sender's copy (same photo → same hash). */
   hash: string;
   size: number;
+  /**
+   * What the sender's phone already read from it, so the phone that gets it
+   * doesn't scan it again: everyone's shifts and the flights, where each row
+   * is on the photo (for the side-by-side checks), and which times were unclear.
+   */
+  read?: SharedRead;
+};
+
+export type SharedRead = {
+  parserVersion: number;
+  /** The week it covers. */
+  dates: string[];
+  shifts: Shift[];
+  flights: Flight[];
+  sourceLayout?: ScheduleSourceLayout;
+  /** Unclear times, as "date|worker|start". */
+  uncertain?: string[];
 };
 
 export type ShareManifest = {

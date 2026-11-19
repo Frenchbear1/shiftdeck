@@ -131,3 +131,31 @@ test("a typed name finds the name the app knows, allowing small typos", async ()
   assert.equal(tidyName("david", "LaBarre"), "David LaBarre");
   assert.equal(tidyName("mary-jo", "o'neil"), "Mary-Jo O'Neil");
 });
+
+test("a shared schedule carries what the sender's phone read, matched to the photo it sends", async () => {
+  const { buildShare } = await import("../app/share-build.ts");
+  const shifts = [
+    { id: "2026-11-24-Nicole Watson-07:30", date: "2026-11-24", worker: "Nicole Watson", start: "07:30", end: "11:30", status: "working" },
+    { id: "2026-11-25-Nicole Watson-07:30", date: "2026-11-25", worker: "Nicole Watson", start: "07:30", end: "11:30", status: "working" },
+  ];
+  const layout = { width: 1161, height: 1134, left: 0, right: 1160, slope: 0, spacing: 145, centers: [], header: { top: 320, bottom: 340 }, rows: [] };
+  const asked = [];
+  const { share } = await buildShare({
+    documents: [{
+      id: "doc", hash: "h", name: "Schedule.jpg", dates: ["2026-11-22"], shifts, flights: [], parserVersion: 6,
+      review: { sourceLayout: layout, deskewed: true, uncertainShifts: ["2026-11-25-Nicole Watson-07:30"] },
+    }],
+    person: "David LaBarre",
+    loadFile: async (id, straightened) => {
+      asked.push(straightened ? "straightened" : "original");
+      return new Blob([straightened ? "straight" : "tilted"], { type: "image/jpeg" });
+    },
+  });
+  assert.deepEqual(asked, ["straightened"], "a straightened photo is sent as straightened, since the layout matches it");
+  assert.equal(await share.files[0].text(), "straight");
+  const read = share.manifest.schedules[0].read;
+  assert.equal(read.shifts.length, 2);
+  assert.deepEqual(read.sourceLayout, layout);
+  assert.deepEqual(read.uncertain, ["2026-11-25|Nicole Watson|07:30"]);
+  assert.deepEqual(read.dates, ["2026-11-22"]);
+});

@@ -14,6 +14,7 @@ import {
   weekLabel,
   type ShareManifest,
   type SharePackage,
+  type SharedRead,
 } from "./share-data";
 import { teammates, type Team } from "./team";
 
@@ -148,7 +149,7 @@ export function ShareSheet({
   directory: DirectoryEntry[];
   contacts: Contacts;
   person: string;
-  loadFile: (id: string) => Promise<Blob | undefined>;
+  loadFile: (id: string, straightened?: boolean) => Promise<Blob | undefined>;
   /** Null until this phone has a name and the team key. */
   team: Team | null;
   /** This phone has picked its name. */
@@ -310,6 +311,8 @@ export type SharedImport = {
   directory?: DirectoryEntry[];
   contacts?: Contacts;
   files: File[];
+  /** What the sender's phone read from each file (same order), so it isn't scanned again. */
+  reads?: Array<SharedRead | undefined>;
   summary: string[];
   /** Who this phone belongs to, when it was picked here. */
   person?: string;
@@ -456,16 +459,20 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
                 className="button primary share-make"
                 disabled={nothing || waitingForName}
                 onClick={() => {
-                  const files = schedules.flatMap((schedule, index) => {
+                  const picked = schedules.flatMap((schedule, index) => {
                     if (!pickedWeeks.has(index) || !share.files[index]) return [];
                     const extension = schedule.type === "application/pdf" ? "pdf" : schedule.type === "image/png" ? "png" : "jpg";
                     // Named by week, not by who sent it.
-                    return [new File([share.files[index]], `Schedule ${weekLabel(schedule.dates)}.${extension}`, { type: schedule.type })];
+                    return [{
+                      file: new File([share.files[index]], `Schedule ${weekLabel(schedule.dates)}.${extension}`, { type: schedule.type }),
+                      read: schedule.read,
+                    }];
                   });
                   onImport({
+                    files: picked.map((item) => item.file),
+                    reads: picked.map((item) => item.read),
                     directory: useDirectory ? directoryMerge!.entries : undefined,
                     contacts: useContacts ? contactsMerge!.contacts : undefined,
-                    files,
                     person: askName && chosen ? chosen : undefined,
                     summary: [
                       useDirectory && `Directory: ${mergeSummary({ ...directoryMerge!, same: 0 })}`,
