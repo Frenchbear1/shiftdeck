@@ -7903,3 +7903,19 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
 .team-join-name input {
   margin-top: 2px;
 }
+
+/* ---------- no zooming on phones ---------- */
+
+/* Double-tap never zooms (pinch-zoom still works where it's allowed). */
+html {
+  touch-action: manipulation;
+}
+
+/* iPhone zooms into any text box under 16px when it's tapped. */
+@media (hover: none), (pointer: coarse) {
+  input:not([type="range"], [type="checkbox"], [type="radio"], [type="file"], .shift-editor-title),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
