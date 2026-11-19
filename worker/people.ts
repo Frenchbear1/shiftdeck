@@ -16,6 +16,7 @@
  * owner's recovery key (a new phone of the owner's, for when all theirs are
  * lost). The owner can't be removed, blocked, or moved onto.
  */
+import { mergeState, readState } from "./synced-state";
 import { corsHeaders, json, type CalendarDatabase } from "./calendar-service";
 import { ownsNotificationProfile, sendProfilePush, type PushEnvironment } from "./push-service";
 import { matchName, tidyName } from "./name-match";
@@ -108,6 +109,10 @@ async function ensureSchema(db: CalendarDatabase) {
     ["app_people", "blocked_at INTEGER"],
     // The owner lets picked people send things to the team.
     ["app_people", "can_share INTEGER NOT NULL DEFAULT 0"],
+    // What each person dealt with (dismissed and read notifications), the same on all their phones.
+    ["app_people", "synced_state TEXT"],
+    // A post to your own phones: which schedules (photo hashes) it carries.
+    ["app_posts", "hashes TEXT"],
   ]) {
     await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column}`).run().catch(() => undefined);
   }
@@ -139,7 +144,19 @@ const iso = (at: number) => new Date(at).toISOString();
 type Body = Record<string, unknown>;
 type Person = {
   id: string; name: string; name_key: string; is_owner: number; created_at: number; blocked_at: number | null; can_share: number;
+  synced_state?: string | null;
 };
+
+async function syncState(db: CalendarDatabase, person: Person, sent: unknown) {
+  const saved = readState(person.synced_state);
+  if (!sent) return saved;
+  const merged = mergeState(saved, sent);
+  const value = JSON.stringify(merged);
+  if (value !== JSON.stringify(saved)) {
+    await db.prepare("UPDATE app_people SET synced_state = ?2 WHERE id = ?1").bind(person.id, value).run();
+  }
+  return merged;
+}
 type DeviceRow = {
   id: string; person_id: string; model: string | null; label: string | null; created_at: number; seen_at: number;
   public_key: string | null; wrapped_key: string | null; has_key: number; profile_id: string | null;
@@ -369,9 +386,14 @@ async function view(db: CalendarDatabase, me: Me) {
   }
 
   const posts = await db.prepare(`SELECT id, person_id, share_id, from_name, what, kind, recipients, created_at, expires_at
-      FROM app_posts WHERE expires_at > ?1 ORDER BY created_at DESC LIMIT 80`)
+      FROM app_posts WHERE expires_at > ?1 AND (kind IS NULL OR kind != 'self') ORDER BY created_at DESC LIMIT 80`)
     .bind(now).all<{ id: string; person_id: string; share_id: string; from_name: string; what: string; kind: string | null;
       recipients: string | null; created_at: number; expires_at: number }>();
+
+  // Schedules you imported on your other phones (only you see these).
+  const mySchedules = await db.prepare(`SELECT id, share_id, what, hashes, created_at, expires_at FROM app_posts
+      WHERE person_id = ?1 AND kind = 'self' AND expires_at > ?2 ORDER BY created_at LIMIT 60`)
+    .bind(person.id, now).all<{ id: string; share_id: string; what: string; hashes: string | null; created_at: number; expires_at: number }>();
 
   const handover = await db.prepare("SELECT person_id, expires_at, tries FROM app_handover WHERE id = 'offer'")
     .first<{ person_id: string; expires_at: number; tries: number }>();
@@ -407,6 +429,15 @@ async function view(db: CalendarDatabase, me: Me) {
         expiresAt: iso(post.expires_at),
       }];
     }).slice(0, 40),
+    state: readState(person.synced_state),
+    selfPosts: (mySchedules.results ?? []).map((post) => ({
+      id: post.id,
+      shareId: post.share_id,
+      what: post.what,
+      hashes: recipientsOf(post.hashes) ?? [],
+      createdAt: iso(post.created_at),
+      expiresAt: iso(post.expires_at),
+    })),
     // The owner offered to hand the app over to you.
     handoverOffer: liveHandover && liveHandover.person_id === person.id
       ? { from: owner?.name ?? "The owner", expiresAt: iso(liveHandover.expires_at) }
@@ -480,6 +511,7 @@ async function sync(request: Request, db: CalendarDatabase, env: PushEnvironment
     if (known.person.blocked_at) return blocked(request);
     await remember(request, db, known.device.id, body);
     await mergeRoster(db, body);
+    await syncState(db, known.person, body.state);
     await ensureOwner(db);
     // The team key. A phone proves it has it with a hash of it (proof); the
     // server keeps and shows only a hash of that (check), so seeing the check
@@ -673,8 +705,10 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
   if (auth instanceof Response) return auth;
   const { me, body } = auth;
   const swap = body.kind === "swap";
-  // Swap requests are between two people; sending to the team needs the owner's OK.
-  if (!swap && me.person.is_owner !== 1 && me.person.can_share !== 1) {
+  const self = body.kind === "self";
+  // Swap requests are between two people, and anyone can send to their own phones;
+  // sending to the team needs the owner's OK.
+  if (!swap && !self && me.person.is_owner !== 1 && me.person.can_share !== 1) {
     return json(request, { error: "The owner hasn't turned on sending to the team for you." }, 403);
   }
   const shareId = typeof body.shareId === "string" && ID.test(body.shareId) ? body.shareId : "";
@@ -686,6 +720,19 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
         .catch(() => null)
       : await db.prepare("SELECT expires_at FROM shares WHERE id = ?1").bind(shareId).first<{ expires_at: number }>().catch(() => null);
   if (!share) return json(request, { error: "Nothing to send" }, 400);
+  if (self) {
+    const hashes = Array.isArray(body.hashes)
+      ? [...new Set(body.hashes.filter((hash): hash is string => typeof hash === "string" && /^[a-f0-9]{16,128}$/i.test(hash)))].slice(0, 20)
+      : [];
+    const id = newId();
+    // Quietly: your other phones pick it up when they check in.
+    await db.prepare(`INSERT INTO app_posts (id, person_id, share_id, from_name, what, kind, recipients, hashes, created_at, expires_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, 'self', ?6, ?7, ?8, ?9)`)
+      .bind(id, me.person.id, shareId, me.person.name, clean(body.what, 120) || "a schedule",
+        JSON.stringify([me.person.id]), JSON.stringify(hashes), Date.now(), share.expires_at)
+      .run();
+    return json(request, { id, notified: 0, to: 1 }, 201);
+  }
   const what = swap ? "a shift swap" : clean(body.what, 120) || "an update";
   const everyone = await db.prepare("SELECT id FROM app_people WHERE blocked_at IS NULL").all<{ id: string }>();
   const ids = new Set((everyone.results ?? []).map((row) => row.id));

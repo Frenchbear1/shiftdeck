@@ -76,6 +76,10 @@ export type Me = {
   roster?: string[];
   key?: KeyState;
   posts?: TeamPost[];
+  /** What you dealt with, the same on all your phones. */
+  state?: SyncedState;
+  /** Schedules you imported on your phones, for your other phones to pick up. */
+  selfPosts?: SelfPost[];
   /** The owner wants to hand the app to you. */
   handoverOffer?: { from: string; expiresAt: string } | null;
   /** Owner only: everyone (blocked too), oldest first; name changes; new phones; a handover in progress. */
@@ -85,6 +89,10 @@ export type Me = {
   handover?: { personId: string; name: string; expiresAt: string } | null;
   recoveryKeyMadeAt?: string | null;
 };
+
+/** Notifications dismissed and read, and airport alerts closed: the same on all your phones. */
+export type SyncedState = { dismissed: string[]; seen: string[]; alerts: string[] };
+export type SelfPost = { id: string; shareId: string; what: string; hashes: string[]; createdAt: string; expiresAt: string };
 
 type Device = { deviceId: string; deviceToken: string };
 type Profile = { id: string; writeToken: string } | null | undefined;
@@ -203,6 +211,8 @@ export type CheckIn = {
   keyProof?: string;
   /** The wrapped key sent to this phone didn't open. */
   badWrap?: boolean;
+  /** What this phone dealt with (merged with your other phones'). */
+  state?: SyncedState;
   /** A new phone's typed name (matched to a known one, allowing typos, unless `exact`). */
   first?: string;
   last?: string;
@@ -234,7 +244,7 @@ export const recoverOwner = async (service: string, key: string, checkIn: CheckI
 export const sendWrappedKeys = (service: string, wraps: Array<{ deviceId: string; data: string }>) =>
   call<{ ok: boolean; saved: number }>(service, "keys", { wraps });
 
-export const sendPost = (service: string, post: { shareId: string; what?: string; kind?: "swap"; to?: string[] }) =>
+export const sendPost = (service: string, post: { shareId: string; what?: string; kind?: "swap" | "self"; to?: string[]; hashes?: string[] }) =>
   call<{ id: string; notified: number }>(service, "post", post);
 
 /** The person the owner picked: the key the owner gave you. */

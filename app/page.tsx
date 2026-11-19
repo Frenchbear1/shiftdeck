@@ -130,13 +130,16 @@ import {
   syncMe,
   withdrawNameRequest,
   type Me,
+  type SyncedState,
 } from "./people";
 import { hasLeft, rosterStatuses } from "./roster-status";
 import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type QuickMenuStyle } from "./quick-menu";
 import { ShareSheet, SharedImportSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
-import type { SharePackage, SharedRead } from "./share-data";
+import { weekLabel, type SharePackage, type SharedRead } from "./share-data";
+import { loadApplied, saveApplied, sendToMyPhones, toSend, wanted } from "./self-sync";
+import { SyncBar, type SyncStatus } from "./sync-bar";
 import {
   forgetLegacyTeam,
   legacyTeamKey,
@@ -292,6 +295,8 @@ const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
 const HOME_VIEW_KEY = "shiftdeck.homeView";
 const BLOCKED_KEY = "shiftdeck.blocked";
 const DISMISSED_POSTS_KEY = "shiftdeck.teamDismissed";
+/** For pacing the scan preview (outside the component: only called while importing). */
+const frameClock = () => performance.now();
 // The owner reset this phone: it can't be used until a name is picked.
 const PICK_NAME_KEY = "shiftdeck.pickName";
 const NAME_MERGES_KEY = "shiftdeck.nameMerges";
@@ -860,6 +865,7 @@ export default function HomePage() {
     }
   }, []);
   const dismissPosts = (ids: string[]) => {
+    if (ids.every((id) => dismissedPosts.includes(id))) return;
     setDismissedPosts((current) => {
       const next = [...new Set([...current, ...ids])].slice(-300);
       try {
@@ -869,13 +875,16 @@ export default function HomePage() {
       }
       return next;
     });
+    pushStateSoon();
   };
   const markPostsSeen = (ids: string[]) => {
+    if (ids.every((id) => seenPosts.includes(id))) return;
     setSeenPosts((current) => {
       const next = [...new Set([...current, ...ids])];
       saveSeenPosts(next);
       return next;
     });
+    pushStateSoon();
   };
   // Swap requests sent by email or text, and their answers.
   const [sentSwaps, setSentSwaps] = useState<SentSwap[]>([]);
@@ -995,7 +1004,37 @@ export default function HomePage() {
     } catch {
       // Keep the in-memory dismissal when storage is unavailable.
     }
+    pushStateSoon();
   };
+  // What you dealt with (dismissed, read, closed) goes along with each check-in,
+  // and comes back merged with your other phones'.
+  const syncedStateRef = useRef<SyncedState>({ dismissed: [], seen: [], alerts: [] });
+  useEffect(() => {
+    syncedStateRef.current = { dismissed: dismissedPosts, seen: seenPosts, alerts: dismissedAirportAlerts };
+  }, [dismissedPosts, seenPosts, dismissedAirportAlerts]);
+  const adoptSyncedState = (state?: SyncedState) => {
+    if (!state) return;
+    const add = (current: string[], incoming: string[], limit: number, save: (next: string[]) => void) => {
+      const missing = incoming.filter((item) => !current.includes(item));
+      if (!missing.length) return current;
+      const next = [...current, ...missing].slice(-limit);
+      save(next);
+      return next;
+    };
+    const store = (key: string) => (next: string[]) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch {
+        // Comes again with the next check-in.
+      }
+    };
+    setDismissedPosts((current) => add(current, state.dismissed, 300, store(DISMISSED_POSTS_KEY)));
+    setSeenPosts((current) => add(current, state.seen, 200, saveSeenPosts));
+    setDismissedAirportAlerts((current) => add(current, state.alerts, 100, store("shiftdeck.dismissedAirportAlerts")));
+  };
+  // Dealt with something: tell your other phones soon, not at the next minute's check-in.
+  const [stateChanged, setStateChanged] = useState(0);
+  const pushStateSoon = () => setStateChanged((count) => count + 1);
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   // Android's picker hides the gallery and camera when PDFs are also allowed,
@@ -1387,6 +1426,7 @@ export default function HomePage() {
   const prepareSavedReview = useEffectEvent(async (document: ScheduleDocument) => {
     let sourceLayout = document.review?.sourceLayout;
     let image = await loadScheduleImage(document.id, document.review?.deskewed).catch(() => undefined);
+    let recovered: { original: Blob; straightened?: Blob } | undefined;
     if (!sourceLayout && image) {
       const knownNames = [prefs.person, ...document.shifts.map((shift) => shift.worker)];
       const resolveRowName = (name: string) => resolveSchedulePersonName(name, knownNames);
@@ -1400,15 +1440,16 @@ export default function HomePage() {
           ...layout,
           rows: layout.rows.map((row) => ({ ...row, name: resolveRowName(row.name) })),
         };
+        recovered = { original: image, straightened: parsed.reviewImage };
         image = parsed.reviewImage ?? image;
       }
     }
-    return { image, sourceLayout };
+    return { image, sourceLayout, recovered };
   });
 
   const finishPreparingReview = useEffectEvent((
     hash: string,
-    prepared: { image?: Blob; sourceLayout?: ScheduleSourceLayout },
+    { recovered, ...prepared }: { image?: Blob; sourceLayout?: ScheduleSourceLayout; recovered?: { original: Blob; straightened?: Blob } },
   ) => {
     const activeHashes = new Set(scheduleDocuments.map((document) => document.hash));
     setPreparedReviews((current) => {
@@ -1416,6 +1457,18 @@ export default function HomePage() {
       if (activeHashes.has(hash)) next[hash] = prepared;
       return next;
     });
+    // Rows found again are kept (with the straightened copy they match), so they're not
+    // looked for every time, and go along when this schedule is sent.
+    const document = scheduleDocuments.find((item) => item.hash === hash);
+    if (!recovered || !prepared.sourceLayout || !document || isSchedulePdf(document)) return;
+    const keep = () => setScheduleDocuments((current) => current.map((item) => item.hash === hash
+      ? { ...item, review: { ...item.review, sourceLayout: prepared.sourceLayout, deskewed: Boolean(recovered.straightened) || Boolean(item.review?.deskewed) } }
+      : item));
+    if (recovered.straightened) {
+      void saveScheduleImage(document.id, recovered.original, recovered.straightened).then(keep, () => undefined);
+    } else {
+      keep();
+    }
   });
 
   useEffect(() => {
@@ -1607,6 +1660,7 @@ export default function HomePage() {
       profile: meProfile(),
       publicKey: publicKeyText(pair),
       roster: rosterRef.current,
+      state: syncedStateRef.current,
       ...(key ? { keyProof: await keyProof(key) } : {}),
       ...extra,
     };
@@ -1667,6 +1721,7 @@ export default function HomePage() {
       // Tell the server right away that this phone has the key now (or that what it got didn't open).
       if (fresh || badWrap) result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, await checkIn(badWrap ? { badWrap: true } : undefined));
       setMe(result);
+      adoptSyncedState(result.state);
       setBlocked(false);
       setMustPickName(false);
       setNameTaken(null);
@@ -1698,6 +1753,11 @@ export default function HomePage() {
   useEffect(() => {
     refreshMeRef.current = refreshMe;
   });
+  useEffect(() => {
+    if (!stateChanged) return;
+    const timer = window.setTimeout(() => void refreshMeRef.current(), 1500);
+    return () => window.clearTimeout(timer);
+  }, [stateChanged]);
   const syncedName = hydrated ? prefs.person : "";
   useEffect(() => {
     if (!syncedName) return;
@@ -2330,9 +2390,17 @@ export default function HomePage() {
 
   const processFiles = async (
     files: File[],
-    options?: { person?: string; fromShare?: boolean; reads?: Array<SharedRead | undefined> },
-  ) => {
-    if (!files.length || importState === "reading") return;
+    options?: {
+      person?: string;
+      fromShare?: boolean;
+      reads?: Array<SharedRead | undefined>;
+      /** From your other phone: keep its photo fingerprints (the copy sent was re-encoded). */
+      hashes?: Array<string | undefined>;
+      /** No "Schedule imported" screen or toast (your other phone's schedules, picked up quietly). */
+      quiet?: boolean;
+    },
+  ): Promise<boolean> => {
+    if (!files.length || importState === "reading") return false;
     setJustImported([]);
     const importedIds: string[] = [];
     setImportState("reading");
@@ -2402,9 +2470,9 @@ export default function HomePage() {
           continue;
         }
         setScanFile({ index, name: file.name, pdf: isPdf, stage: isPdf ? 1 : 0, image: isPdf ? undefined : file });
-        let lastPreviewFrame = performance.now();
+        let lastPreviewFrame = frameClock();
         const updateScanFile = (patch: Partial<ImportPreviewFile>) => {
-          if (patch.image || patch.pass) lastPreviewFrame = performance.now();
+          if (patch.image || patch.pass) lastPreviewFrame = frameClock();
           setScanFile((current) => current?.index === index ? { ...current, ...patch } : current);
         };
         const shiftReads: ScanMark[] = [];
@@ -2412,6 +2480,10 @@ export default function HomePage() {
         try {
           // A schedule a coworker sent comes with what their phone read: use it, no scan.
           const shared = options?.reads?.[index];
+          const sourceRowMatcher = (name: string) => Boolean(person) && nameKey(resolveMergedName(
+            resolveSchedulePersonName(name, knownNames),
+            nameMerges,
+          )) === nameKey(person);
           const sharedRead: ScheduleRead | null = shared?.dates?.length === 7 && !isPdf &&
             shared.parserVersion <= SCHEDULE_PARSER_VERSION && (shared.shifts.length || shared.flights.length)
             ? {
@@ -2423,20 +2495,29 @@ export default function HomePage() {
                 sourceLayout: shared.sourceLayout,
               }
             : null;
+          if (sharedRead && !sharedRead.sourceLayout) {
+            // Sent without its rows (an older import on their phone): find them here,
+            // keeping what their phone read, so "Your shifts vs. the photo" has rows to show.
+            progress.stage(1);
+            updateScanFile({ stage: 1 });
+            const found = await recoverScheduleSource(file, sourceRowMatcher, (pass) => updateScanFile({ pass })).catch(() => null);
+            if (found?.sourceLayout && found.dates.join() === sharedRead.dates.join()) {
+              sharedRead.sourceLayout = found.sourceLayout;
+              if (found.reviewImage) sharedRead.reviewImage = found.reviewImage;
+              if (found.scan) sharedRead.scan = found.scan;
+            }
+          }
           if (sharedRead) {
             progress.stage(2);
             updateScanFile({ stage: 2 });
           }
           const [hash, read] = await Promise.all([
-            hashFile(file),
+            options?.hashes?.[index] ?? hashFile(file),
             sharedRead ? Promise.resolve(sharedRead) : isPdf
               ? (progress.stage(1), parseCharterPdf(file, (image) => updateScanFile({ image })))
               : readScheduleImage(file, {
                   knownNames,
-                  matchesSourceRow: (name) => Boolean(person) && nameKey(resolveMergedName(
-                    resolveSchedulePersonName(name, knownNames),
-                    nameMerges,
-                  )) === nameKey(person),
+                  matchesSourceRow: sourceRowMatcher,
                   choosePerson: person || personSkipped ? undefined : async (names) => {
                     const chosen = await new Promise<string | null>((resolve) =>
                       setPersonPrompt({ names, resolve }));
@@ -2582,7 +2663,7 @@ export default function HomePage() {
         } catch {
           skippedFiles.push(file.name);
         } finally {
-          const remaining = 230 - (performance.now() - lastPreviewFrame);
+          const remaining = 230 - (frameClock() - lastPreviewFrame);
           if (remaining > 0 && index < files.length - 1 && allowScanMotion && sheetRef.current === "import") {
             await new Promise<void>((resolve) => window.setTimeout(resolve, remaining));
           }
@@ -2595,8 +2676,8 @@ export default function HomePage() {
         setImportMessage(
           "No names, work hours, or flights could be read. Try a sharper, straight-on photo of the schedule.",
         );
-        setImportState("error");
-        return;
+        setImportState(options?.quiet ? "idle" : "error");
+        return false;
       }
 
       const count = loadParsedSchedules(parsedSchedules, confirmedDaysOff, person);
@@ -2646,14 +2727,20 @@ export default function HomePage() {
       if (sheetRef.current === "import") setImportComparisons(comparisons);
       // Offer to send what was just imported to the team (not what came from it).
       if (!options?.fromShare) setJustImported([...new Set(importedIds)]);
+      if (options?.quiet) {
+        setImportState("idle");
+        return true;
+      }
       setImportState("review");
       setToast("Schedule imported");
+      return true;
     } catch {
       await finishScanPreview();
-      setImportState("error");
+      setImportState(options?.quiet ? "idle" : "error");
       setImportMessage(
         "The readable schedule details couldn’t be saved. Please try again.",
       );
+      return false;
     } finally {
       setScanFile(null);
       if (sheetRef.current !== "import") void releaseScheduleReader();
@@ -2670,13 +2757,97 @@ export default function HomePage() {
     setIncoming(null);
     if (summary.length) setToast(summary.join(" · "));
     if (files.length) {
-      const needsScan = files.some((file, index) => !reads?.[index] || /pdf$/i.test(file.type));
+      // No scan screen when the sender's read (with its rows) comes along.
+      const needsScan = files.some((file, index) => !reads?.[index]?.sourceLayout || /pdf$/i.test(file.type));
       openSheet("import", { scan: needsScan });
       // The normal import, ending on "Your shifts vs. the photo".
       // What the sender's phone read comes along, so the scan is skipped.
       void processFiles(files, { person: person || undefined, fromShare: true, reads });
     }
   };
+
+  const processFilesRef = useRef<typeof processFiles | null>(null);
+  useEffect(() => {
+    processFilesRef.current = processFiles;
+  });
+  // Your schedules on all your phones (see self-sync.ts): pick up what your other phones
+  // imported, then send what they don't have. One post per pass, so each import sees the last.
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "idle" });
+  const [syncPass, setSyncPass] = useState(0);
+  const syncBusy = useRef(false);
+  const syncApplied = useRef<string[] | null>(null);
+  const syncUnsendable = useRef(new Set<string>());
+  const myPhones = me?.devices ?? 1;
+  useEffect(() => {
+    if (!hydrated || !backgroundHydrated || !me || !prefs.person || importState === "reading" || syncBusy.current) return;
+    if (!teamKey) return;
+    syncApplied.current ??= loadApplied();
+    const applied = new Set(syncApplied.current);
+    const posts = me.selfPosts ?? [];
+    const incoming = posts.find((post) => !applied.has(post.id));
+    const outgoing = myPhones > 1
+      ? toSend(scheduleDocuments, posts, todayDate).filter((document) => !syncUnsendable.current.has(document.hash))
+      : [];
+    if (!incoming && !outgoing.length) return;
+    const remember = (ids: string[]) => {
+      syncApplied.current = [...(syncApplied.current ?? []), ...ids];
+      saveApplied(syncApplied.current);
+    };
+    syncBusy.current = true;
+    void (async () => {
+      try {
+        if (incoming) {
+          setSyncStatus({ state: "getting", what: incoming.what });
+          const share = await openShareLink({ id: incoming.shareId, key: teamKey }, CALENDAR_SERVICE_ORIGIN);
+          const schedules = share.manifest.schedules ?? [];
+          const take = wanted(schedules.map((schedule) => schedule.hash), schedules.map((schedule) => schedule.dates),
+            incoming.createdAt, scheduleDocuments, isScheduleRevision);
+          const picked = schedules.flatMap((schedule, index) => take[index] && share.files[index] ? [{ schedule, file: share.files[index] }] : []);
+          if (picked.length) {
+            const files = picked.map(({ schedule, file }) => new File([file],
+              `Schedule ${weekLabel(schedule.dates)}.${schedule.type === "application/pdf" ? "pdf" : schedule.type === "image/png" ? "png" : "jpg"}`,
+              { type: schedule.type }));
+            const ok = await processFilesRef.current?.(files, {
+              person: prefs.person,
+              fromShare: true,
+              quiet: true,
+              reads: picked.map(({ schedule }) => schedule.read),
+              hashes: picked.map(({ schedule }) => schedule.hash),
+            });
+            if (!ok) throw new Error("Not imported");
+            setToast(`Got ${incoming.what} from your other phone`);
+          }
+          remember([incoming.id]);
+        } else {
+          setSyncStatus({ state: "sending", what: outgoing.length === 1 ? `the ${weekLabel(outgoing[0].dates)} schedule` : `${outgoing.length} schedules` });
+          const made = await sendToMyPhones({
+            service: CALENDAR_SERVICE_ORIGIN,
+            key: teamKey,
+            documents: outgoing,
+            person: prefs.person,
+            loadFile: (id, straightened) => loadScheduleImage(id, straightened),
+          }).catch((problem: unknown) => {
+            // Photos no longer on this phone can't be sent: don't keep trying.
+            if (problem instanceof Error && /aren’t on this phone/.test(problem.message)) {
+              outgoing.forEach((document) => syncUnsendable.current.add(document.hash));
+              return [];
+            }
+            throw problem;
+          });
+          remember(made);
+          await refreshMeRef.current();
+        }
+        setSyncStatus({ state: "synced", at: Date.now() });
+      } catch {
+        setSyncStatus({ state: "error", at: Date.now() });
+      } finally {
+        syncBusy.current = false;
+        setSyncPass((pass) => pass + 1);
+      }
+    })();
+    // processFiles and the loaders read this render's state; these are what start a pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, backgroundHydrated, me, teamKey, scheduleDocuments, importState, syncPass, prefs.person]);
 
   const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
     void processFiles(Array.from(event.target.files ?? []));
@@ -3575,6 +3746,12 @@ export default function HomePage() {
       </dialog>
 
       <main className="home">
+        {me && (myPhones > 1 || syncStatus.state !== "idle") && (
+          <SyncBar
+            status={!teamKey && myPhones > 1 && syncStatus.state === "idle" && (me.selfPosts?.length ?? 0) > 0 ? { state: "waiting" } : syncStatus}
+            phones={myPhones}
+          />
+        )}
         <div className={`home-grid ${hydrated ? "is-ready" : ""}${homeOrder.some((tile, index) => tile !== DEFAULT_HOME_ORDER[index]) ? " custom-order" : ""}`}>
           {homeOrder.map((tile) => (
             <Fragment key={tile}>{homeTiles[tile]}</Fragment>
@@ -3641,6 +3818,7 @@ export default function HomePage() {
           id={viewedDocument.id}
           name={viewedDocument.name}
           pdf={isSchedulePdf(viewedDocument)}
+          showScanned={isAppOwner}
           matchesWorker={matchesScanWorker}
           onClose={() => setViewedDocument(null)}
         />

@@ -52,7 +52,7 @@ export async function shareableSchedule(file: Blob): Promise<Blob> {
 /** Encrypts and uploads; a team's key is reused so every member can open it. */
 export async function uploadShare(
   share: SharePackage,
-  { service, days, key: givenKey }: { service: string; days: 1 | 7; key?: string },
+  { service, days, key: givenKey }: { service: string; days: 1 | 7 | 30; key?: string },
 ) {
   const packed = await packShare(share);
   const compressed = await squeeze(packed, "compress");

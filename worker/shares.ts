@@ -5,7 +5,8 @@
  * The phone encrypts everything with a random key before upload; the key
  * rides in the link's #fragment, which browsers never send to a server. So
  * this only ever holds bytes it can't read. Each share is split into rows
- * (D1 caps a row at ~2 MB) and deleted when it expires (1 or 7 days).
+ * (D1 caps a row at ~2 MB) and deleted when it expires (1 or 7 days, or 30
+ * for schedules synced to your own phones).
  */
 import { corsHeaders, json, type CalendarDatabase } from "./calendar-service";
 
@@ -58,7 +59,8 @@ const asBytes = (value: unknown) =>
 
 async function createShare(request: Request, db: CalendarDatabase) {
   const url = new URL(request.url);
-  const days = url.searchParams.get("days") === "7" ? 7 : 1;
+  const asked = url.searchParams.get("days");
+  const days = asked === "30" ? 30 : asked === "7" ? 7 : 1;
   const declared = Number(request.headers.get("Content-Length") ?? 0);
   if (declared > MAX_BYTES) return json(request, { error: "That's too big to share (30 MB max)." }, 413);
   const body = new Uint8Array(await request.arrayBuffer());

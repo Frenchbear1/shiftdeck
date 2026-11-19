@@ -152,14 +152,16 @@ export function FullscreenPhoto({
 
 /**
  * Full-screen schedule. Photos open on the plain picture; the Scanned tab
- * shows the same photo with what was read highlighted.
+ * (the owner's, for checking the scanner) shows the same photo with what was read highlighted.
  */
 export function ScheduleFileViewer({
-  id, name, pdf, matchesWorker, onClose,
+  id, name, pdf, showScanned = false, matchesWorker, onClose,
 }: {
   id: string;
   name: string;
   pdf: boolean;
+  /** Offer the Scanned tab (the app's owner only). */
+  showScanned?: boolean;
   matchesWorker: (worker: string) => boolean;
   onClose: () => void;
 }) {
@@ -202,7 +204,7 @@ export function ScheduleFileViewer({
         onClose();
       }}
     >
-      {!pdf && (
+      {!pdf && showScanned && (
         <div className="schedule-view-tabs" role="tablist" aria-label="Schedule view">
           {([["photo", "Photo"], ["scanned", "Scanned"]] as const).map(([value, label]) => (
             <button
@@ -219,7 +221,7 @@ export function ScheduleFileViewer({
         </div>
       )}
       <div ref={content} className="schedule-file-content" tabIndex={-1}>
-        {tab === "scanned" ? (
+        {tab === "scanned" && showScanned ? (
           <ScanHighlights id={id} name={name} matchesWorker={matchesWorker} />
         ) : unavailable ? (
           <p role="status">This schedule file is unavailable on this device.</p>

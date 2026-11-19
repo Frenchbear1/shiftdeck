@@ -368,7 +368,7 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
                   {!shown.length && <p className="contacts-notice">Nobody matches that search.</p>}
                   {hiddenCount > 0 && (
                     <p className="directory-hidden-note">
-                      {hiddenCount === 1 ? "1 person who left the schedule is hidden." : `${hiddenCount} people who left the schedule are hidden.`} They come back if they're on a new schedule.
+                      {hiddenCount === 1 ? "1 person who left the schedule is hidden." : `${hiddenCount} people who left the schedule are hidden.`} They come back if they&rsquo;re on a new schedule.
                     </p>
                   )}
                   <button

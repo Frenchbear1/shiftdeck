@@ -9929,3 +9929,54 @@ html {
   justify-content: flex-end;
   padding: 8px 4px 2px;
 }
+
+/* ---------- your phones in step ---------- */
+
+.sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 auto 10px;
+  padding: 5px 12px;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.sync-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-bar svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.sync-bar.is-synced svg,
+.sync-bar.is-idle svg {
+  color: var(--green, #2f9e5b);
+}
+
+.sync-bar.is-getting,
+.sync-bar.is-sending {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+.sync-bar.is-error,
+.sync-bar.is-waiting {
+  color: #b86a00;
+  background: rgb(238 160 30 / 12%);
+}
+
+.sync-bar svg.spin {
+  animation: spin 900ms linear infinite;
+}
