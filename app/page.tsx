@@ -1091,6 +1091,8 @@ export default function HomePage() {
               )
               .map((document) => ({
                 ...document,
+                // Shared schedules used to be named after the sender ("David’s schedule Nov 8 – 14").
+                name: document.name.replace(/^[^’']{1,40}[’']s schedule (?=[A-Z][a-z]{2} \d)/, "Schedule "),
                 shifts: canonicalizeScheduleShifts(document.shifts),
               }));
             setScheduleDocuments(documents);

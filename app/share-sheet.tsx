@@ -556,7 +556,8 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
                   const files = schedules.flatMap((schedule, index) => {
                     if (!pickedWeeks.has(index) || !share.files[index]) return [];
                     const extension = schedule.type === "application/pdf" ? "pdf" : schedule.type === "image/png" ? "png" : "jpg";
-                    return [new File([share.files[index]], `${from}’s schedule ${weekLabel(schedule.dates)}.${extension}`, { type: schedule.type })];
+                    // Named by week, not by who sent it.
+                    return [new File([share.files[index]], `Schedule ${weekLabel(schedule.dates)}.${extension}`, { type: schedule.type })];
                   });
                   onImport({
                     directory: useDirectory ? directoryMerge!.entries : undefined,
