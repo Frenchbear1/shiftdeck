@@ -7816,3 +7816,50 @@ select:focus-visible {
   color: var(--blue);
   font-weight: 750;
 }
+
+/* ---------- who gets it ---------- */
+
+.share-to {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.share-to > span {
+  margin-right: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.share-to button {
+  height: 32px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.share-to button.on {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.team-prompt-to {
+  flex-basis: 100%;
+}
+
+.team-prompt-to .share-to {
+  margin: 0;
+}

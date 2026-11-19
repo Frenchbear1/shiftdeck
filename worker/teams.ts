@@ -6,7 +6,8 @@
  * only travels in invite links' #fragment, and stored as a share (see
  * shares.ts). This keeps the team's name, members' first names, and each
  * post's sender and a short "what" line, so the bell can say
- * "David shared Nov 22 – 28". Members with notifications on get a push.
+ * "David shared Nov 22 – 28". A post can go to everyone or to picked
+ * members only; only they see it and get the push.
  */
 import { corsHeaders, json, type CalendarDatabase } from "./calendar-service";
 import { ownsNotificationProfile, sendProfilePush, type PushEnvironment } from "./push-service";
@@ -43,6 +44,8 @@ async function ensureSchema(db: CalendarDatabase) {
     )`),
     db.prepare("CREATE INDEX IF NOT EXISTS team_posts_team ON team_posts (team_id, created_at)"),
   ]);
+  // Posts made before picking people existed went to everyone.
+  await db.prepare("ALTER TABLE team_posts ADD COLUMN recipients TEXT").run().catch(() => undefined);
   schemaReady = true;
 }
 
@@ -120,11 +123,25 @@ async function teamFor(db: CalendarDatabase, id: string) {
   return db.prepare("SELECT id, name, join_hash FROM teams WHERE id = ?1").bind(id).first<{ id: string; name: string; join_hash: string }>();
 }
 
-async function names(db: CalendarDatabase, teamId: string) {
-  const rows = await db.prepare("SELECT name FROM team_members WHERE team_id = ?1 ORDER BY joined_at")
-    .bind(teamId).all<{ name: string }>();
-  return (rows.results ?? []).map((row) => row.name);
+async function people(db: CalendarDatabase, teamId: string) {
+  const rows = await db.prepare("SELECT member_id, name, profile_id FROM team_members WHERE team_id = ?1 ORDER BY joined_at")
+    .bind(teamId).all<{ member_id: string; name: string; profile_id: string | null }>();
+  return rows.results ?? [];
 }
+
+async function names(db: CalendarDatabase, teamId: string) {
+  return (await people(db, teamId)).map((row) => row.name);
+}
+
+const recipientsOf = (value: string | null) => {
+  if (!value) return null;
+  try {
+    const list = JSON.parse(value);
+    return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : null;
+  } catch {
+    return null;
+  }
+};
 
 /** For an invite link: the team's name and who's in it (needs the join secret). */
 async function preview(request: Request, db: CalendarDatabase, teamId: string) {
@@ -158,22 +175,34 @@ async function state(request: Request, db: CalendarDatabase, teamId: string) {
     await db.prepare("UPDATE team_members SET profile_id = ?3 WHERE team_id = ?1 AND member_id = ?2")
       .bind(teamId, me.member_id, profile).run();
   }
-  const posts = await db.prepare(`SELECT id, member_id, share_id, from_name, what, created_at, expires_at FROM team_posts
-    WHERE team_id = ?1 AND expires_at > ?2 ORDER BY created_at DESC LIMIT 30`)
+  const posts = await db.prepare(`SELECT id, member_id, share_id, from_name, what, created_at, expires_at, recipients FROM team_posts
+    WHERE team_id = ?1 AND expires_at > ?2 ORDER BY created_at DESC LIMIT 60`)
     .bind(teamId, Date.now())
-    .all<{ id: string; member_id: string; share_id: string; from_name: string; what: string; created_at: number; expires_at: number }>();
+    .all<{ id: string; member_id: string; share_id: string; from_name: string; what: string; created_at: number; expires_at: number; recipients: string | null }>();
+  const everyone = await people(db, teamId);
+  const nameOf = new Map(everyone.map((row) => [row.member_id, row.name]));
   return json(request, {
     name: team.name,
-    members: await names(db, teamId),
-    posts: (posts.results ?? []).map((post) => ({
-      id: post.id,
-      shareId: post.share_id,
-      from: post.from_name,
-      what: post.what,
-      mine: post.member_id === me.member_id,
-      createdAt: new Date(post.created_at).toISOString(),
-      expiresAt: new Date(post.expires_at).toISOString(),
-    })),
+    me: me.member_id,
+    members: everyone.map((row) => row.name),
+    people: everyone.map((row) => ({ id: row.member_id, name: row.name })),
+    posts: (posts.results ?? []).flatMap((post) => {
+      const recipients = recipientsOf(post.recipients);
+      const mine = post.member_id === me.member_id;
+      // Picked people only: everyone else never sees it.
+      if (recipients && !mine && !recipients.includes(me.member_id)) return [];
+      return [{
+        id: post.id,
+        shareId: post.share_id,
+        from: post.from_name,
+        what: post.what,
+        mine,
+        direct: Boolean(recipients),
+        to: recipients && mine ? recipients.map((id) => nameOf.get(id) ?? "Someone who left") : undefined,
+        createdAt: new Date(post.created_at).toISOString(),
+        expiresAt: new Date(post.expires_at).toISOString(),
+      }];
+    }).slice(0, 30),
   });
 }
 
@@ -188,25 +217,32 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
     : null;
   if (!share) return json(request, { error: "Nothing to send" }, 400);
   const what = clean(body.what, 120) || "an update";
+  const everyone = await people(db, teamId);
+  // To picked teammates only, or (no list, or nobody valid picked) everyone.
+  const picked = Array.isArray(body.to)
+    ? [...new Set(body.to.filter((id): id is string => typeof id === "string"))]
+      .filter((id) => id !== me.member_id && everyone.some((row) => row.member_id === id))
+    : [];
+  const recipients = picked.length ? picked : null;
   const id = newId();
-  await db.prepare(`INSERT INTO team_posts (id, team_id, member_id, share_id, from_name, what, created_at, expires_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`)
-    .bind(id, teamId, me.member_id, shareId, me.name, what, Date.now(), share.expires_at)
+  await db.prepare(`INSERT INTO team_posts (id, team_id, member_id, share_id, from_name, what, created_at, expires_at, recipients)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`)
+    .bind(id, teamId, me.member_id, shareId, me.name, what, Date.now(), share.expires_at, recipients ? JSON.stringify(recipients) : null)
     .run();
-  const others = await db.prepare(`SELECT DISTINCT profile_id FROM team_members
-    WHERE team_id = ?1 AND member_id != ?2 AND profile_id IS NOT NULL`)
-    .bind(teamId, me.member_id)
-    .all<{ profile_id: string }>();
+  const profiles = new Set(everyone
+    .filter((row) => row.member_id !== me.member_id && row.profile_id && (!recipients || recipients.includes(row.member_id)))
+    .map((row) => row.profile_id!));
+  const first = me.name.split(" ")[0];
   let notified = 0;
-  for (const { profile_id: profileId } of others.results ?? []) {
+  for (const profileId of profiles) {
     notified += await sendProfilePush(db, env, profileId, {
       title: team.name,
-      body: `${me.name.split(" ")[0]} shared ${what}`,
+      body: recipients ? `${first} sent you ${what}` : `${first} shared ${what}`,
       tag: `team-${id}`,
       path: "?notifications=1",
     }).catch(() => 0);
   }
-  return json(request, { id, notified }, 201);
+  return json(request, { id, notified, to: recipients?.length ?? null }, 201);
 }
 
 async function leave(request: Request, db: CalendarDatabase, teamId: string) {

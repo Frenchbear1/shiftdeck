@@ -93,7 +93,7 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, team, on
   contacts: Contacts;
   /** After an import, offers to send the directory to this team. */
   team?: Team | null;
-  onSendToTeam?: () => Promise<number>;
+  onSendToTeam?: (to: string[]) => Promise<number>;
   onChange: (entries: DirectoryEntry[]) => void;
   onClose: () => void;
 }) {

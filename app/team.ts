@@ -16,7 +16,11 @@ export type Team = {
   memberId: string;
   memberToken: string;
   members?: string[];
+  /** Everyone on the team (including you), for picking who gets something. */
+  people?: TeamPerson[];
 };
+
+export type TeamPerson = { id: string; name: string };
 
 export type TeamPost = {
   id: string;
@@ -24,6 +28,10 @@ export type TeamPost = {
   from: string;
   what: string;
   mine: boolean;
+  /** Sent to picked people, not the whole team. */
+  direct?: boolean;
+  /** Who you sent it to (your own direct posts). */
+  to?: string[];
   createdAt: string;
   expiresAt: string;
 };
@@ -131,17 +139,24 @@ export async function joinTeam(service: string, invite: TeamInvite, { name, prof
 }
 
 export const teamState = (service: string, team: Team, profile?: Profile) =>
-  call<{ name: string; members: string[]; posts: TeamPost[] }>(service, `/api/teams/${team.id}/state`, {
+  call<{ name: string; me?: string; members: string[]; people?: TeamPerson[]; posts: TeamPost[] }>(service, `/api/teams/${team.id}/state`, {
     memberId: team.memberId, memberToken: team.memberToken, ...profileFields(profile),
   });
 
-/** Encrypts with the team key, uploads, and tells the team (a push to everyone with notifications on). */
-export async function postToTeam(service: string, team: Team, share: SharePackage, what: string) {
+/**
+ * Encrypts with the team key, uploads, and tells the team, or only the
+ * picked teammates (`to`: member ids). Those with notifications on get a push.
+ */
+export async function postToTeam(service: string, team: Team, share: SharePackage, what: string, to?: string[]) {
   const { id: shareId } = await uploadShare(share, { service, days: 7, key: team.key });
   return call<{ id: string; notified: number }>(service, `/api/teams/${team.id}/posts`, {
-    memberId: team.memberId, memberToken: team.memberToken, shareId, what,
+    memberId: team.memberId, memberToken: team.memberToken, shareId, what, ...(to?.length ? { to } : {}),
   });
 }
+
+/** Teammates other than you. */
+export const teammates = (team: Team | null) =>
+  (team?.people ?? []).filter((person) => person.id !== team?.memberId);
 
 export const leaveTeam = (service: string, team: Team) =>
   call<{ ok: boolean }>(service, `/api/teams/${team.id}/leave`, { memberId: team.memberId, memberToken: team.memberToken });

@@ -1489,8 +1489,11 @@ export default function HomePage() {
         const state = await teamState(CALENDAR_SERVICE_ORIGIN, current, profileRef.current);
         if (cancelled) return;
         setTeamPosts(state.posts);
-        if (state.name !== current.name || state.members.join("|") !== (current.members ?? []).join("|")) {
-          updateTeam({ ...current, name: state.name, members: state.members });
+        const people = state.people ?? current.people;
+        if (state.name !== current.name ||
+          state.members.join("|") !== (current.members ?? []).join("|") ||
+          (people ?? []).map((person) => person.id).join("|") !== (current.people ?? []).map((person) => person.id).join("|")) {
+          updateTeam({ ...current, name: state.name, members: state.members, people });
         }
       } catch (problem) {
         // Removed from the team (or it's gone): forget it here too.
@@ -1509,14 +1512,14 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, notificationProfile?.id]);
 
-  const sendToTeam = async (share: SharePackage, what: string) => {
+  const sendToTeam = async (share: SharePackage, what: string, to?: string[]) => {
     if (!team) throw new Error("Join or start a team first.");
-    const result = await postToTeam(CALENDAR_SERVICE_ORIGIN, team, share, what);
+    const result = await postToTeam(CALENDAR_SERVICE_ORIGIN, team, share, what, to);
     markPostsSeen([result.id]);
     return result.notified;
   };
   /** After an import: sends just that (schedule weeks, the directory, or contacts) to the team. */
-  const sendImportToTeam = async (part: { documentIds?: string[]; directory?: boolean; contacts?: boolean }) => {
+  const sendImportToTeam = async (part: { documentIds?: string[]; directory?: boolean; contacts?: boolean }, to?: string[]) => {
     const { share, what } = await buildShare({
       documents: scheduleDocuments.filter((document) => part.documentIds?.includes(document.id)),
       directory: part.directory ? directory : undefined,
@@ -1524,7 +1527,7 @@ export default function HomePage() {
       person: prefs.person,
       loadFile: (id) => loadScheduleImage(id),
     });
-    return sendToTeam(share, what);
+    return sendToTeam(share, what, to);
   };
 
   // A swap-answer notification opens the app with ?notifications=1.
@@ -2836,7 +2839,7 @@ export default function HomePage() {
           what={describeShare({
             weeks: scheduleDocuments.filter((document) => justImported.includes(document.id)).map((document) => document.dates),
           }) || "this schedule"}
-          onSend={() => sendImportToTeam({ documentIds: justImported })}
+          onSend={(to) => sendImportToTeam({ documentIds: justImported }, to)}
         />
       )}
 
@@ -3120,7 +3123,7 @@ export default function HomePage() {
                   <li key={post.id} className={seenPosts.includes(post.id) ? "" : "is-new"}>
                     <span className="swap-reply-icon"><Users /></span>
                     <div>
-                      <b>{post.from.split(" ")[0]} shared {post.what}</b>
+                      <b>{post.from.split(" ")[0]} {post.direct ? "sent you" : "shared"} {post.what}</b>
                       <small>{formatUpdatedAt(post.createdAt)}</small>
                     </div>
                     <button
@@ -3733,7 +3736,7 @@ export default function HomePage() {
                 }}
               >
                 <span><BookUser /> Directory</span>
-                <b>{directory.length ? `${directory.length} people & lines` : "Import the phone list"}</b>
+                <b>{directory.length ? `${directory.length} ${directory.length === 1 ? "entry" : "people & lines"}` : "Import the phone list"}</b>
               </button>
               <button
                 type="button"
@@ -3875,7 +3878,7 @@ export default function HomePage() {
           coworkers={contactWorkers}
           contacts={contacts}
           team={team}
-          onSendToTeam={() => sendImportToTeam({ directory: true })}
+          onSendToTeam={(to) => sendImportToTeam({ directory: true }, to)}
           onChange={saveDirectory}
           onClose={() => setDirectoryOpen(false)}
         />
@@ -3890,7 +3893,7 @@ export default function HomePage() {
           directory={directory}
           onDirectoryChange={saveDirectory}
           team={team}
-          onSendToTeam={() => sendImportToTeam({ contacts: true })}
+          onSendToTeam={(to) => sendImportToTeam({ contacts: true }, to)}
           onClose={() => setContactsOpen(null)}
         />
       )}

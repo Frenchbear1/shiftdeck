@@ -48,7 +48,7 @@ export function ContactsSheet({
   onDirectoryChange: (entries: DirectoryEntry[]) => void;
   /** After an import, offers to send coworker contacts to this team. */
   team?: Team | null;
-  onSendToTeam?: () => Promise<number>;
+  onSendToTeam?: (to: string[]) => Promise<number>;
   /** Opened from a swap match: show just this person first. */
   focus?: string;
   onChange: (contacts: Contacts) => void;

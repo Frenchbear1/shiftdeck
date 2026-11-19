@@ -15,7 +15,7 @@ import {
   type ShareManifest,
   type SharePackage,
 } from "./share-data";
-import { teamInText, type Team, type TeamInvite } from "./team";
+import { teamInText, teammates, type Team, type TeamInvite } from "./team";
 
 export type { ShareableDocument };
 
@@ -70,6 +70,57 @@ function Choice({ on, onToggle, icon: Icon, title, detail, disabled }: {
       </span>
       <span className="share-check" aria-hidden="true">{on && <Check />}</span>
     </button>
+  );
+}
+
+/* ---------- who gets it: everyone, or picked teammates ---------- */
+
+/** Names for the picker: first names, unless two teammates share one. */
+function pickerNames(people: Array<{ id: string; name: string }>) {
+  const counts = new Map<string, number>();
+  for (const person of people) counts.set(firstName(person.name), (counts.get(firstName(person.name)) ?? 0) + 1);
+  return new Map(people.map((person) => [person.id, (counts.get(firstName(person.name)) ?? 0) > 1 ? person.name : firstName(person.name)]));
+}
+
+/** "Nicole" · "Nicole and Landon" · "3 teammates" */
+export function recipientsLabel(team: Team, to: string[]) {
+  if (!to.length) return team.name;
+  const names = pickerNames(teammates(team));
+  const picked = to.map((id) => names.get(id)).filter(Boolean) as string[];
+  if (picked.length === 1) return picked[0];
+  if (picked.length === 2) return `${picked[0]} and ${picked[1]}`;
+  return `${picked.length} teammates`;
+}
+
+export function RecipientPicker({ team, value, onChange }: {
+  team: Team;
+  value: string[];
+  onChange: (to: string[]) => void;
+}) {
+  const others = teammates(team);
+  if (!others.length) return null;
+  const names = pickerNames(others);
+  return (
+    <div className="share-to" role="group" aria-label="Send to">
+      <span>To</span>
+      <button type="button" aria-pressed={!value.length} className={!value.length ? "on" : ""} onClick={() => onChange([])}>
+        Everyone
+      </button>
+      {others.map((person) => {
+        const on = value.includes(person.id);
+        return (
+          <button
+            key={person.id}
+            type="button"
+            aria-pressed={on}
+            className={on ? "on" : ""}
+            onClick={() => onChange(on ? value.filter((id) => id !== person.id) : [...value, person.id])}
+          >
+            {names.get(person.id)}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -191,8 +242,8 @@ export function ShareSheet({
   inviteUrl: string;
   onCreateTeam: (teamName: string) => Promise<void>;
   onLeaveTeam: () => void;
-  /** Resolves with how many teammates got a notification. */
-  onSendToTeam: (share: SharePackage, what: string) => Promise<number>;
+  /** Resolves with how many teammates got a notification. `to` empty = everyone. */
+  onSendToTeam: (share: SharePackage, what: string, to: string[]) => Promise<number>;
   /** An invite someone sent, pasted here (iPhone links open in Safari, not the app). */
   onOpenInvite: (invite: TeamInvite) => void;
   onClose: () => void;
@@ -211,7 +262,8 @@ export function ShareSheet({
   const [withContacts, setWithContacts] = useState(contactCount(contacts) > 0);
   const [state, setState] = useState<"idle" | "sending" | "error">("idle");
   const [error, setError] = useState("");
-  const [sent, setSent] = useState<{ what: string; notified: number } | null>(null);
+  const [sent, setSent] = useState<{ what: string; notified: number; to: string[] } | null>(null);
+  const [to, setTo] = useState<string[]>([]);
 
   const picked = sorted.filter((document) => weeks.has(document.id));
   const nothing = !picked.length && !withDirectory && !withContacts;
@@ -227,7 +279,7 @@ export function ShareSheet({
         person,
         loadFile,
       });
-      setSent({ what, notified: await onSendToTeam(share, what) });
+      setSent({ what, to, notified: await onSendToTeam(share, what, to) });
       setState("idle");
     } catch (problem) {
       setState("error");
@@ -248,11 +300,11 @@ export function ShareSheet({
           {sent ? (
             <div className="share-done">
               <span className="share-done-icon"><Send /></span>
-              <p>Sent to {team?.name}</p>
+              <p>Sent to {team ? recipientsLabel(team, sent.to) : ""}</p>
               <small>
-                {sent.what.charAt(0).toUpperCase() + sent.what.slice(1)} is in everyone’s Notifications
+                {sent.what.charAt(0).toUpperCase() + sent.what.slice(1)} is in {sent.to.length ? "their" : "everyone’s"} Notifications
                 {sent.notified ? `, and ${sent.notified} ${sent.notified === 1 ? "phone" : "phones"} got a ping` : ""}.
-                It’s there for a week.
+                {sent.to.length ? " Nobody else on the team sees it." : ""} It’s there for a week.
               </small>
               <button type="button" className="share-again" onClick={() => setSent(null)}>Send something else</button>
             </div>
@@ -297,7 +349,7 @@ export function ShareSheet({
                       onToggle={() => setWithDirectory(!withDirectory)}
                       icon={BookUser}
                       title="Directory"
-                      detail={directory.length ? `${directory.length} people & lines` : "Nothing saved yet"}
+                      detail={directory.length ? `${directory.length} ${directory.length === 1 ? "entry" : "people & lines"}` : "Nothing saved yet"}
                       disabled={!directory.length}
                     />
                     <Choice
@@ -309,9 +361,10 @@ export function ShareSheet({
                       disabled={!contactCount(contacts)}
                     />
                   </div>
+                  <RecipientPicker team={team} value={to} onChange={setTo} />
                   {state === "error" && <p className="contacts-notice share-error" role="alert">{error}</p>}
                   <button type="button" className="button primary share-make" disabled={nothing || state === "sending"} onClick={() => void send()}>
-                    {state === "sending" ? <><LoaderCircle className="spin" /> Sending…</> : <><Send /> Send to {team.name}</>}
+                    {state === "sending" ? <><LoaderCircle className="spin" /> Sending…</> : <><Send /> Send to {recipientsLabel(team, to)}</>}
                   </button>
                   <p className="share-note">
                     Encrypted on this phone first, so only your team can open it. Their phones keep what they
@@ -642,10 +695,11 @@ export function TeamSendPrompt({ team, what, onSend }: {
   team: Team;
   /** "the Nov 22 – 28 schedule" */
   what: string;
-  /** Resolves with how many teammates got a notification. */
-  onSend: () => Promise<number>;
+  /** Resolves with how many teammates got a notification. `to` empty = everyone. */
+  onSend: (to: string[]) => Promise<number>;
 }) {
   const [state, setState] = useState<"ask" | "sending" | "sent" | "error" | "dismissed">("ask");
+  const [to, setTo] = useState<string[]>([]);
   const [notified, setNotified] = useState(0);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -658,13 +712,18 @@ export function TeamSendPrompt({ team, what, onSend }: {
     <div className="team-prompt" role="status">
       <span className="share-choice-icon">{state === "sent" ? <Check /> : <Send />}</span>
       <span className="share-choice-copy">
-        <b>{state === "sent" ? `Sent to ${team.name}` : `Send ${what} to ${team.name}?`}</b>
+        <b>{state === "sent" ? `Sent to ${recipientsLabel(team, to)}` : `Send ${what} to ${team.name}?`}</b>
         <small>
           {state === "sent"
-            ? notified ? `${notified} ${notified === 1 ? "phone" : "phones"} got a ping.` : "It’s in everyone’s Notifications."
-            : state === "error" ? error : "Everyone on the team gets it in Notifications."}
+            ? notified ? `${notified} ${notified === 1 ? "phone" : "phones"} got a ping.` : to.length ? "It’s in their Notifications." : "It’s in everyone’s Notifications."
+            : state === "error" ? error : to.length ? "Only who you pick gets it." : "Everyone on the team gets it in Notifications."}
         </small>
       </span>
+      {state !== "sent" && (
+        <div className="team-prompt-to">
+          <RecipientPicker team={team} value={to} onChange={setTo} />
+        </div>
+      )}
       {(state === "ask" || state === "error" || state === "sending") && (
         <span className="team-prompt-actions">
           <button type="button" className="button soft" onClick={() => setState("dismissed")} disabled={state === "sending"}>Not now</button>
@@ -675,7 +734,7 @@ export function TeamSendPrompt({ team, what, onSend }: {
             onClick={async () => {
               setState("sending");
               try {
-                setNotified(await onSend());
+                setNotified(await onSend(to));
                 setState("sent");
               } catch (problem) {
                 setError(problem instanceof Error ? problem.message : "Couldn’t send. Try again.");
