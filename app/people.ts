@@ -119,6 +119,24 @@ export class PhoneResetError extends Error {}
 /** The owner blocked this person. */
 export class BlockedError extends Error {}
 
+/** A typed name is close to one the app knows: ask if that's them. */
+export class SuggestNameError extends Error {
+  suggest: string;
+  constructor(suggest: string) {
+    super(`Did you mean ${suggest}?`);
+    this.suggest = suggest;
+  }
+}
+
+/** A typed name isn't on any schedule or anyone's phone: check the spelling first. */
+export class UnknownNameError extends Error {
+  typed: string;
+  constructor(typed: string) {
+    super(`${typed} isn't on any schedule yet.`);
+    this.typed = typed;
+  }
+}
+
 /** What kind of phone this is ("iPhone · app", "Pixel 8 · Chrome"), so the owner can tell them apart. */
 export async function deviceModel(): Promise<string> {
   if (typeof navigator === "undefined") return "";
@@ -167,6 +185,9 @@ async function call<T>(service: string, path: string, body: object): Promise<T> 
   const result = await response.json().catch(() => ({})) as T & { error?: string; taken?: boolean; name?: string; ownerName?: boolean };
   if (response.status === 410 && (result as { reset?: boolean }).reset) throw new PhoneResetError(result.error ?? "");
   if (response.status === 403 && (result as { blocked?: boolean }).blocked) throw new BlockedError(result.error ?? "");
+  const extra = result as { suggest?: string; unknown?: boolean };
+  if (response.status === 422 && extra.suggest) throw new SuggestNameError(extra.suggest);
+  if (response.status === 404 && extra.unknown) throw new UnknownNameError(result.name ?? "");
   if (response.status === 409 && result.taken) throw new NameTakenError(result.name ?? "", Boolean(result.ownerName));
   if (!response.ok) throw Object.assign(new Error(result.error ?? "Couldn’t reach Shiftdeck. Check your connection."), { status: response.status });
   return result;
@@ -182,6 +203,10 @@ export type CheckIn = {
   keyProof?: string;
   /** The wrapped key sent to this phone didn't open. */
   badWrap?: boolean;
+  /** A new phone's typed name (matched to a known one, allowing typos, unless `exact`). */
+  first?: string;
+  last?: string;
+  exact?: boolean;
 };
 
 const extras = async ({ profile, ...rest }: CheckIn) => ({

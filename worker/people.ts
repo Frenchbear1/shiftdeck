@@ -18,6 +18,7 @@
  */
 import { corsHeaders, json, type CalendarDatabase } from "./calendar-service";
 import { ownsNotificationProfile, sendProfilePush, type PushEnvironment } from "./push-service";
+import { matchName, tidyName } from "./name-match";
 
 const CODE_MINUTES = 10;
 const CODE_TRIES = 5;
@@ -499,11 +500,29 @@ async function sync(request: Request, db: CalendarDatabase, env: PushEnvironment
     await db.prepare("DELETE FROM app_reset_devices WHERE id = ?1").bind(deviceId).run();
     return json(request, { reset: true, error: "The owner reset this phone. Pick your name in Settings." }, 410);
   }
-  const name = clean(body.name, 40);
-  if (!deviceId || token.length < 20 || nameKey(name).length < 2) return json(request, { error: "Pick your name first." }, 400);
-  if (await db.prepare("SELECT id FROM app_devices WHERE id = ?1").bind(deviceId).first()) {
+  if (deviceId && await db.prepare("SELECT id FROM app_devices WHERE id = ?1").bind(deviceId).first()) {
     return json(request, { error: "This phone's sign-in doesn't match. Reinstall or ask the owner." }, 403);
   }
+  // A new phone types a first and last name; it's matched to a name the app
+  // knows (people and names on schedules), allowing small typos.
+  const first = clean(body.first, 30);
+  const last = clean(body.last, 30);
+  let name = clean(body.name, 40);
+  if (first || last) {
+    if (nameKey(first).length < 2 || nameKey(last).length < 2) return json(request, { error: "Type your first and last name." }, 400);
+    const typed = tidyName(first, last);
+    name = typed;
+    if (body.exact !== true) {
+      const people = await db.prepare("SELECT name FROM app_people").all<{ name: string }>();
+      const known = [...(people.results ?? []).map((row) => row.name), ...await roster(db)];
+      const exact = known.find((option) => nameKey(option) === nameKey(typed));
+      const close = exact ?? matchName(typed, known);
+      if (exact) name = exact;
+      else if (close) return json(request, { suggest: close, error: `Did you mean ${close}?` }, 422);
+      else return json(request, { unknown: true, name: typed, error: `${typed} isn't on any schedule yet.` }, 404);
+    }
+  }
+  if (!deviceId || token.length < 20 || nameKey(name).length < 2) return json(request, { error: "Pick your name first." }, 400);
   const model = clean(body.model, 40);
   const existing = await personByName(db, name);
   if (existing?.blocked_at) {

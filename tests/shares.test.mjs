@@ -114,3 +114,20 @@ test("handing over suggests whoever has used the app longest (not you)", async (
   assert.equal(recommendedSuccessor([...people, { id: "x", name: "Zed", since: "2026-10-01T00:00:00Z", blocked: true }], "me").name, "Nicole",
     "blocked people aren't suggested");
 });
+
+test("a typed name finds the name the app knows, allowing small typos", async () => {
+  const { matchName, tidyName } = await import("../worker/name-match.ts");
+  const known = ["David LaBarre", "Nicole W. Watson", "Landon Price", "Mike Smyth", "Mike Smith"];
+  assert.equal(matchName("Nicole Watson", known), "Nicole W. Watson", "middle initials don't matter");
+  assert.equal(matchName("nicol watsen", known), "Nicole W. Watson");
+  assert.equal(matchName("David Labare", known), "David LaBarre");
+  assert.equal(matchName("Dvaid LaBarre", known), "David LaBarre", "swapped letters");
+  assert.equal(matchName("Landon Pryce", known), "Landon Price");
+  assert.equal(matchName("Mike Smth", known), null, "two names fit equally: no guess");
+  assert.equal(matchName("Mike Smitt", known), "Mike Smith");
+  assert.equal(matchName("Sarah Connor", known), null);
+  assert.equal(matchName("Davidd", known), null, "needs a last name");
+  assert.equal(tidyName("nicole", "WATSON"), "Nicole Watson");
+  assert.equal(tidyName("david", "LaBarre"), "David LaBarre");
+  assert.equal(tidyName("mary-jo", "o'neil"), "Mary-Jo O'Neil");
+});

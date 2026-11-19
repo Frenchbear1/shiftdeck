@@ -99,7 +99,7 @@ import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { SwapAnswerSheet } from "./swap-answer-sheet";
 import { NameChangeSheet } from "./name-change-sheet";
-import { AcceptHandoverSheet, BlockedScreen, LinkCodeSheet, LinkPhoneSheet, NamePickScreen, OwnerSheet } from "./owner-sheets";
+import { AcceptHandoverSheet, BlockedScreen, LinkCodeSheet, LinkPhoneSheet, NamePickScreen, OwnerSheet, type NameAttempt } from "./owner-sheets";
 import {
   acceptHandover,
   askForName,
@@ -113,6 +113,8 @@ import {
   sendWrappedKeys,
   startHandover,
   setShareAccess,
+  SuggestNameError,
+  UnknownNameError,
   unblockPerson,
   makeLinkCode,
   NameTakenError,
@@ -287,8 +289,6 @@ const HOME_VIEW_KEY = "shiftdeck.homeView";
 const BLOCKED_KEY = "shiftdeck.blocked";
 // The owner reset this phone: it can't be used until a name is picked.
 const PICK_NAME_KEY = "shiftdeck.pickName";
-// The team's names, kept for picking a name after a reset.
-const ROSTER_KEY = "shiftdeck.roster";
 const NAME_MERGES_KEY = "shiftdeck.nameMerges";
 const NAME_MERGE_DISMISSED_KEY = "shiftdeck.nameMergeDismissed";
 
@@ -788,7 +788,6 @@ export default function HomePage() {
   const [blockedHere, setBlockedHere] = useState(false);
   const [handoverOpen, setHandoverOpen] = useState(false);
   const [mustPickName, setMustPickNameState] = useState(false);
-  const [savedRoster, setSavedRoster] = useState<string[]>([]);
   const setMustPickName = (value: boolean) => {
     setMustPickNameState(value);
     try {
@@ -811,12 +810,9 @@ export default function HomePage() {
     const key = loadTeamKey();
     let wasBlocked = false;
     let pickName = false;
-    let roster: string[] = [];
     try {
       wasBlocked = localStorage.getItem(BLOCKED_KEY) === "1";
       pickName = localStorage.getItem(PICK_NAME_KEY) === "1";
-      const saved = JSON.parse(localStorage.getItem(ROSTER_KEY) ?? "[]");
-      if (Array.isArray(saved)) roster = saved.filter((name): name is string => typeof name === "string");
     } catch {
       // Checked again with the server below.
     }
@@ -825,7 +821,6 @@ export default function HomePage() {
       setTeamKey(key);
       setBlockedHere(wasBlocked);
       setMustPickNameState(pickName);
-      setSavedRoster(roster);
     });
   }, []);
   const setBlocked = (value: boolean) => {
@@ -1609,14 +1604,18 @@ export default function HomePage() {
     return { fresh, badWrap };
   };
   /** Checks in. Says how it went: "ok", "taken" (someone else's name), or "failed". */
-  const refreshMe = async (known?: string): Promise<"ok" | "taken" | "failed"> => {
+  /**
+   * Checks in (registering this phone the first time). A new phone sends its
+   * typed name (`typed`), which the server matches to a known name.
+   */
+  const refreshMe = async (known?: string, typed?: { first: string; last: string; exact: boolean }): Promise<NameAttempt> => {
     const name = known ?? personRef.current;
-    if (!name) {
+    if (!name && !typed) {
       setMe(null);
       return "failed";
     }
     try {
-      let result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, await checkIn());
+      let result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, { ...await checkIn(), ...typed });
       const { fresh, badWrap } = await settleTeamKey(result);
       // Tell the server right away that this phone has the key now (or that what it got didn't open).
       if (fresh || badWrap) result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, await checkIn(badWrap ? { badWrap: true } : undefined));
@@ -1624,13 +1623,6 @@ export default function HomePage() {
       setBlocked(false);
       setMustPickName(false);
       setNameTaken(null);
-      if (result.roster?.length) {
-        try {
-          localStorage.setItem(ROSTER_KEY, JSON.stringify(result.roster));
-        } catch {
-          // Only used after a reset.
-        }
-      }
       if (result.name && result.name !== personRef.current) savePrefsRef.current({ person: result.name });
       return "ok";
     } catch (problem) {
@@ -1638,6 +1630,8 @@ export default function HomePage() {
         setNameTaken({ name: problem.takenName, ownerName: problem.ownerName });
         return "taken";
       }
+      if (problem instanceof SuggestNameError) return { suggest: problem.suggest };
+      if (problem instanceof UnknownNameError) return { unknown: problem.typed };
       if (problem instanceof BlockedError) {
         setMe(null);
         setBlocked(true);
@@ -4210,8 +4204,8 @@ export default function HomePage() {
           onNotMe={() => {
             setNameTaken(null);
             savePrefs({ person: "" });
-            // After a reset the name screen is still up; otherwise pick in Settings.
-            if (mustPickName) return;
+            // A phone that isn't set up yet goes back to the name screen; otherwise pick in Settings.
+            if (mustPickName || !me) return;
             setSettingsSnapshot(JSON.stringify({ ...prefs, person: "" }));
             setSettingsOpen(true);
           }}
@@ -4307,16 +4301,12 @@ export default function HomePage() {
         />
       )}
 
-      {mustPickName && !me && !blockedHere && (
+      {/* No name on this phone yet (new, or reset by the owner): nothing until one is typed. */}
+      {hydrated && !me && !blockedHere && (mustPickName || !prefs.person) && (
         <NamePickScreen
-          names={[...new Set([...savedRoster, ...availableWorkers])].sort((a, b) => a.localeCompare(b))}
-          onPick={async (name) => {
-            savePrefs({ person: name });
-            if (await refreshMe(name) === "failed") {
-              savePrefs({ person: "" });
-              throw new Error("Couldn’t reach Shiftdeck. Check your connection and try again.");
-            }
-          }}
+          reset={mustPickName}
+          onTyped={(first, last, exact) => refreshMe("", { first, last, exact })}
+          onUseName={(name) => refreshMe(name)}
         />
       )}
 

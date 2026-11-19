@@ -853,64 +853,108 @@ export function BlockedScreen({ name, onRetry }: { name: string; onRetry: () => 
   );
 }
 
-/* ---------- the owner reset this phone: pick a name before using the app ---------- */
+/* ---------- a phone with no name yet: type it before using the app ---------- */
 
-const TYPE_NAME = "__type__";
+export type NameAttempt = "ok" | "taken" | "failed" | { suggest: string } | { unknown: string };
 
-export function NamePickScreen({ names, onPick }: {
-  /** Names on this phone's schedules and the team's list. */
-  names: string[];
-  onPick: (name: string) => Promise<void>;
+export function NamePickScreen({ reset, onTyped, onUseName }: {
+  /** The owner reset this phone (not a brand-new one). */
+  reset: boolean;
+  /** Tries a typed name; `exact` skips matching it to a known name. */
+  onTyped: (first: string, last: string, exact: boolean) => Promise<NameAttempt>;
+  /** "Yes, that's me" to a suggested name. */
+  onUseName: (name: string) => Promise<NameAttempt>;
 }) {
-  const [choice, setChoice] = useState(names.length ? "" : TYPE_NAME);
-  const [typed, setTyped] = useState("");
+  const [first, setFirst] = useState("");
+  const [last, setLast] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
-  const name = (choice === TYPE_NAME ? typed : choice).replace(/\s+/g, " ").trim();
+  const [suggest, setSuggest] = useState("");
+  const [unknown, setUnknown] = useState("");
+  const ready = first.replace(/[^a-z]/gi, "").length >= 2 && last.replace(/[^a-z]/gi, "").length >= 2;
+  const handle = async (attempt: () => Promise<NameAttempt>) => {
+    setBusy(true);
+    setProblem("");
+    const result = await attempt();
+    setBusy(false);
+    setSuggest("");
+    setUnknown("");
+    if (result === "failed") setProblem("Couldn’t reach Shiftdeck. Check your connection and try again.");
+    else if (typeof result === "object" && "suggest" in result) setSuggest(result.suggest);
+    else if (typeof result === "object" && "unknown" in result) setUnknown(result.unknown);
+  };
+  // Shown the way the server saves it ("nicole" → "Nicole"; "LaBarre" stays).
+  const tidy = (part: string) => {
+    const trimmed = part.replace(/\s+/g, " ").trim();
+    return trimmed === trimmed.toLowerCase() || trimmed === trimmed.toUpperCase()
+      ? trimmed.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (_, start: string, char: string) => start + char.toUpperCase())
+      : trimmed;
+  };
+  const typedName = `${tidy(first)} ${tidy(last)}`;
   return (
-    <div className="name-gate" role="dialog" aria-modal="true" aria-label="Pick your name">
+    <div className="name-gate" role="dialog" aria-modal="true" aria-label="Who’s using this phone?">
       <form
         className="name-gate-card"
-        onSubmit={async (event) => {
+        onSubmit={(event) => {
           event.preventDefault();
-          if (name.replace(/[^a-z]/gi, "").length < 2) return;
-          setBusy(true);
-          setProblem("");
-          try {
-            await onPick(name);
-          } catch (failure) {
-            setProblem(failure instanceof Error ? failure.message : "That didn’t work. Try again.");
-          }
-          setBusy(false);
+          if (ready && !busy) void handle(() => onTyped(first, last, false));
         }}
       >
         <span className="blocked-icon name-gate-icon"><Smartphone /></span>
         <h2>Who’s using this phone?</h2>
-        <p>The owner reset this phone. Pick your name to keep using Shiftdeck.</p>
-        <span className="team-join-select">
-          <select value={choice} onChange={(event) => setChoice(event.target.value)} aria-label="Your name">
-            <option value="" disabled>Pick your name</option>
-            {names.map((option) => <option key={option} value={option}>{option}</option>)}
-            <option value={TYPE_NAME}>Someone else…</option>
-          </select>
-          <ChevronDown aria-hidden="true" />
-        </span>
-        {choice === TYPE_NAME && (
-          <input
-            className="name-gate-input"
-            value={typed}
-            maxLength={40}
-            autoComplete="name"
-            placeholder="Your full name"
-            aria-label="Type your name"
-            onChange={(event) => setTyped(event.target.value)}
-          />
+        <p>{reset ? "The owner reset this phone. Type your name to keep using Shiftdeck." : "Type your name the way it is on the schedule."}</p>
+        {suggest ? (
+          <div className="name-gate-question">
+            <b>Did you mean {suggest}?</b>
+            <button type="button" className="button primary share-make" disabled={busy} onClick={() => void handle(() => onUseName(suggest))}>
+              {busy ? <LoaderCircle className="spin" /> : <Check />} Yes, that’s me
+            </button>
+            <button type="button" className="share-again" disabled={busy} onClick={() => void handle(() => onTyped(first, last, true))}>
+              No, I’m {typedName}
+            </button>
+          </div>
+        ) : unknown ? (
+          <div className="name-gate-question">
+            <b>{unknown} isn’t on any schedule yet</b>
+            <small>Check the spelling, or go ahead if you’re new.</small>
+            <button type="button" className="button soft share-make" disabled={busy} onClick={() => setUnknown("")}>Fix the spelling</button>
+            <button type="button" className="share-again" disabled={busy} onClick={() => void handle(() => onTyped(first, last, true))}>
+              Continue as {unknown}
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="name-gate-fields">
+              <input
+                className="name-gate-input"
+                value={first}
+                maxLength={30}
+                autoComplete="given-name"
+                autoCapitalize="words"
+                placeholder="First name"
+                aria-label="First name"
+                required
+                onChange={(event) => setFirst(event.target.value)}
+              />
+              <input
+                className="name-gate-input"
+                value={last}
+                maxLength={30}
+                autoComplete="family-name"
+                autoCapitalize="words"
+                placeholder="Last name"
+                aria-label="Last name"
+                required
+                onChange={(event) => setLast(event.target.value)}
+              />
+            </div>
+            <small>Your name gets locked to this phone. Only the owner can change it later.</small>
+            {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
+            <button type="submit" className="button primary share-make" disabled={busy || !ready}>
+              {busy ? <LoaderCircle className="spin" /> : <Check />} Continue
+            </button>
+          </>
         )}
-        <small>Your name gets locked to this phone. Only the owner can change it later.</small>
-        {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
-        <button type="submit" className="button primary share-make" disabled={busy || name.replace(/[^a-z]/gi, "").length < 2}>
-          {busy ? <LoaderCircle className="spin" /> : <Check />} {name ? `I’m ${name.split(" ")[0]}` : "Continue"}
-        </button>
       </form>
     </div>
   );

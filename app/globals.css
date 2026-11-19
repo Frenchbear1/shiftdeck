@@ -9352,3 +9352,22 @@ html {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+.name-gate-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.name-gate-question {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.name-gate-question b {
+  font-size: 16px;
+}
