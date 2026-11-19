@@ -119,17 +119,21 @@ async function call<T>(service: string, path: string, body: object): Promise<T> 
 
 const profileFields = (profile: Profile) => profile ? { profileId: profile.id, profileToken: profile.writeToken } : {};
 
-export async function createTeam(service: string, { teamName, name, profile }: { teamName: string; name: string; profile?: Profile }): Promise<Team> {
+export async function createTeam(
+  service: string,
+  { teamName, name, profile, roster }: { teamName: string; name: string; profile?: Profile; roster?: string[] },
+): Promise<Team> {
   const key = randomKey();
   const joinSecret = randomKey(18);
   const result = await call<{ id: string; name: string; memberId: string; memberToken: string }>(service, "/api/teams", {
-    teamName, name, joinSecret, ...profileFields(profile),
+    teamName, name, joinSecret, roster, ...profileFields(profile),
   });
   return { id: result.id, name: result.name, key, joinSecret, memberId: result.memberId, memberToken: result.memberToken, members: [name] };
 }
 
+/** The team's name, who's on it, and the names on its schedules (to pick yours from). */
 export const previewTeam = (service: string, invite: TeamInvite) =>
-  call<{ name: string; members: string[] }>(service, `/api/teams/${invite.id}/preview`, { joinSecret: invite.joinSecret });
+  call<{ name: string; members: string[]; roster?: string[] }>(service, `/api/teams/${invite.id}/preview`, { joinSecret: invite.joinSecret });
 
 export async function joinTeam(service: string, invite: TeamInvite, { name, profile }: { name: string; profile?: Profile }): Promise<Team> {
   const result = await call<{ id: string; name: string; memberId: string; memberToken: string }>(service, `/api/teams/${invite.id}/join`, {
@@ -138,9 +142,10 @@ export async function joinTeam(service: string, invite: TeamInvite, { name, prof
   return { id: result.id, name: result.name, key: invite.key, joinSecret: invite.joinSecret, memberId: result.memberId, memberToken: result.memberToken };
 }
 
-export const teamState = (service: string, team: Team, profile?: Profile) =>
+/** Also adds the names on this phone's schedules to the team's list (`roster`). */
+export const teamState = (service: string, team: Team, profile?: Profile, roster?: string[]) =>
   call<{ name: string; me?: string; members: string[]; people?: TeamPerson[]; posts: TeamPost[] }>(service, `/api/teams/${team.id}/state`, {
-    memberId: team.memberId, memberToken: team.memberToken, ...profileFields(profile),
+    memberId: team.memberId, memberToken: team.memberToken, ...(roster?.length ? { roster } : {}), ...profileFields(profile),
   });
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { BookUser, CalendarDays, Check, Copy, LoaderCircle, Send, UserPlus, Users, X } from "lucide-react";
+import { BookUser, CalendarDays, Check, ChevronDown, Copy, LoaderCircle, Send, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { backdropClose } from "./home-sections";
 import type { Contacts } from "./contacts-data";
@@ -592,8 +592,10 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
 
 /* ---------- joining a team ---------- */
 
+const SOMEONE_ELSE = "__someone-else__";
+
 export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJoin, onClose }: {
-  preview: { name: string; members: string[] } | null;
+  preview: { name: string; members: string[]; roster?: string[] } | null;
   error: string;
   /** The other team this phone is on, which joining would leave. */
   leaving?: string;
@@ -603,9 +605,19 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
   onJoin: (name: string) => Promise<void>;
   onClose: () => void;
 }) {
-  const [name, setName] = useState(defaultName);
+  const [choice, setChoice] = useState<string | null>(null);
+  const [typed, setTyped] = useState(defaultName);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
+  const roster = preview?.roster ?? [];
+  const key = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
+  const joined = new Set((preview?.members ?? []).map(key));
+  // The name in Settings is picked when it's on the list.
+  const fromSettings = roster.find((name) => key(name) === key(defaultName));
+  const selected = choice ?? (roster.length ? fromSettings ?? "" : SOMEONE_ELSE);
+  const typing = selected === SOMEONE_ELSE;
+  const name = typing ? typed.trim() : selected;
+
   return (
     <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
       <section className="panel-sheet share-sheet" role="dialog" aria-modal="true" aria-label="Join a team">
@@ -645,10 +657,11 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
               className="team-join"
               onSubmit={async (event) => {
                 event.preventDefault();
+                if (!name) return;
                 setBusy(true);
                 setProblem("");
                 try {
-                  await onJoin(name.trim());
+                  await onJoin(name);
                 } catch (failure) {
                   setProblem(failure instanceof Error ? failure.message : "Couldn’t join. Try again.");
                   setBusy(false);
@@ -667,18 +680,38 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
               </div>
               {leaving && <p className="share-iphone"><small>Joining leaves {leaving}.</small></p>}
               <label className="team-join-name">
-                <span>Your name</span>
-                <input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="First and last name"
-                  autoComplete="name"
-                  maxLength={40}
-                  required
-                />
+                <span>Which name is yours?</span>
+                {roster.length > 0 && (
+                  <span className="team-join-select">
+                    <select value={selected} onChange={(event) => setChoice(event.target.value)} aria-label="Your name">
+                      <option value="" disabled>Pick your name</option>
+                      {roster.map((option) => {
+                        const taken = joined.has(key(option)) && key(option) !== key(defaultName);
+                        return (
+                          <option key={option} value={option} disabled={taken}>
+                            {taken ? `${option} (on the team)` : option}
+                          </option>
+                        );
+                      })}
+                      <option value={SOMEONE_ELSE}>Someone else…</option>
+                    </select>
+                    <ChevronDown aria-hidden="true" />
+                  </span>
+                )}
+                {typing && (
+                  <input
+                    value={typed}
+                    onChange={(event) => setTyped(event.target.value)}
+                    placeholder="First and last name"
+                    aria-label={roster.length ? "Type your name" : "Your name"}
+                    autoComplete="name"
+                    autoFocus={roster.length > 0}
+                    maxLength={40}
+                  />
+                )}
               </label>
               {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
-              <button type="submit" className="button primary share-make" disabled={busy || !name.trim()}>
+              <button type="submit" className="button primary share-make" disabled={busy || !name}>
                 {busy ? <><LoaderCircle className="spin" /> Joining…</> : <><UserPlus /> Join team</>}
               </button>
             </form>

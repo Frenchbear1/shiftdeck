@@ -743,7 +743,7 @@ export default function HomePage() {
   const [seenPosts, setSeenPosts] = useState<string[]>([]);
   const [invite, setInvite] = useState<{
     invite: TeamInvite;
-    preview: { name: string; members: string[] } | null;
+    preview: { name: string; members: string[]; roster?: string[] } | null;
     error: string;
     /** Opened in iPhone Safari: the invite to paste into the Home Screen app. */
     link?: string;
@@ -1478,6 +1478,8 @@ export default function HomePage() {
   useEffect(() => {
     profileRef.current = notificationProfile;
   }, [notificationProfile]);
+  // The names on this phone's schedules, for the team's "pick your name" list.
+  const rosterRef = useRef<string[]>([]);
   const teamId = team?.id;
   useEffect(() => {
     if (!teamId) return;
@@ -1486,7 +1488,7 @@ export default function HomePage() {
       const current = loadTeam();
       if (!current || document.visibilityState !== "visible") return;
       try {
-        const state = await teamState(CALENDAR_SERVICE_ORIGIN, current, profileRef.current);
+        const state = await teamState(CALENDAR_SERVICE_ORIGIN, current, profileRef.current, rosterRef.current);
         if (cancelled) return;
         setTeamPosts(state.posts);
         const people = state.people ?? current.people;
@@ -1570,6 +1572,9 @@ export default function HomePage() {
     .map((shift) => resolveMergedName(shift.worker, nameMerges))
     .filter((worker) => nameKey(worker) !== nameKey(prefs.person) && !isSameSchedulePerson(worker, prefs.person)))],
   [baseImportedShifts, nameMerges, prefs.person]);
+  useEffect(() => {
+    rosterRef.current = [...new Set([prefs.person, ...contactWorkers].filter(Boolean))];
+  }, [contactWorkers, prefs.person]);
 
   // Swap emails and texts fall back to the Directory for anyone not in contacts.
   const swapContacts = useMemo(() => contactsWithDirectory(contacts, contactWorkers, directory),
@@ -3818,6 +3823,7 @@ export default function HomePage() {
               teamName,
               name: prefs.person || "Me",
               profile: notificationProfile,
+              roster: [...new Set([prefs.person, ...contactWorkers].filter(Boolean))],
             }));
           }}
           onLeaveTeam={() => {

@@ -46,6 +46,8 @@ async function ensureSchema(db: CalendarDatabase) {
   ]);
   // Posts made before picking people existed went to everyone.
   await db.prepare("ALTER TABLE team_posts ADD COLUMN recipients TEXT").run().catch(() => undefined);
+  // Names on members' schedules, so someone joining picks theirs from a list.
+  await db.prepare("ALTER TABLE teams ADD COLUMN roster TEXT").run().catch(() => undefined);
   schemaReady = true;
 }
 
@@ -64,6 +66,30 @@ const clean = (value: unknown, max: number) =>
   typeof value === "string" ? value.replace(/[\u0000-\u001f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, max) : "";
 
 type Body = Record<string, unknown>;
+
+const ROSTER_LIMIT = 300;
+
+/** A clean, sorted, de-duplicated list of names (at most a few hundred). */
+function cleanRoster(...lists: unknown[]) {
+  const seen = new Map<string, string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const value of list) {
+      const name = clean(value, 40);
+      const key = name.toLowerCase().replace(/[^a-z]/g, "");
+      if (key.length >= 2 && !seen.has(key)) seen.set(key, name);
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b)).slice(0, ROSTER_LIMIT);
+}
+
+const parseRoster = (value: string | null | undefined) => {
+  try {
+    return cleanRoster(JSON.parse(value ?? "[]"));
+  } catch {
+    return [];
+  }
+};
 
 async function readBody(request: Request): Promise<Body | null> {
   try {
@@ -113,14 +139,15 @@ async function createTeam(request: Request, db: CalendarDatabase) {
   if (!body || joinSecret.length < 16) return json(request, { error: "Invalid team" }, 400);
   const id = newId();
   const name = clean(body.teamName, 40) || "My team";
-  await db.prepare("INSERT INTO teams (id, name, join_hash, created_at) VALUES (?1, ?2, ?3, ?4)")
-    .bind(id, name, await sha256(joinSecret), Date.now())
+  await db.prepare("INSERT INTO teams (id, name, join_hash, created_at, roster) VALUES (?1, ?2, ?3, ?4, ?5)")
+    .bind(id, name, await sha256(joinSecret), Date.now(), JSON.stringify(cleanRoster(body.roster)))
     .run();
   return json(request, { id, name, ...(await addMember(request, db, id, body)) }, 201);
 }
 
 async function teamFor(db: CalendarDatabase, id: string) {
-  return db.prepare("SELECT id, name, join_hash FROM teams WHERE id = ?1").bind(id).first<{ id: string; name: string; join_hash: string }>();
+  return db.prepare("SELECT id, name, join_hash, roster FROM teams WHERE id = ?1").bind(id)
+    .first<{ id: string; name: string; join_hash: string; roster: string | null }>();
 }
 
 async function people(db: CalendarDatabase, teamId: string) {
@@ -150,7 +177,7 @@ async function preview(request: Request, db: CalendarDatabase, teamId: string) {
   if (!team || typeof body?.joinSecret !== "string" || team.join_hash !== await sha256(body.joinSecret)) {
     return json(request, { error: "This invite link doesn't work anymore." }, 404);
   }
-  return json(request, { name: team.name, members: await names(db, teamId) });
+  return json(request, { name: team.name, members: await names(db, teamId), roster: parseRoster(team.roster) });
 }
 
 async function join(request: Request, db: CalendarDatabase, teamId: string) {
@@ -170,6 +197,14 @@ async function state(request: Request, db: CalendarDatabase, teamId: string) {
   const team = await teamFor(db, teamId);
   const me = body && team ? await member(db, teamId, body) : null;
   if (!team || !me || !body) return json(request, { error: "You're not on this team anymore." }, 403);
+  // Members' phones add the names on their schedules to the team's list.
+  if (Array.isArray(body.roster) && body.roster.length) {
+    const current = parseRoster(team.roster);
+    const merged = cleanRoster(current, body.roster);
+    if (merged.length !== current.length) {
+      await db.prepare("UPDATE teams SET roster = ?2 WHERE id = ?1").bind(teamId, JSON.stringify(merged)).run();
+    }
+  }
   const profile = await ownedProfile(request, db, body);
   if (profile) {
     await db.prepare("UPDATE team_members SET profile_id = ?3 WHERE team_id = ?1 AND member_id = ?2")

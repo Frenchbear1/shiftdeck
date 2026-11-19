@@ -7863,3 +7863,38 @@ select:focus-visible {
 .team-prompt-to .share-to {
   margin: 0;
 }
+
+.team-join-select {
+  position: relative;
+  display: block;
+}
+
+.team-join-select select {
+  width: 100%;
+  height: 46px;
+  padding: 0 40px 0 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.team-join-select svg {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.team-join-name input {
+  margin-top: 2px;
+}
