@@ -95,6 +95,7 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
+import { QuickMenu } from "./quick-menu";
 import { ShareSheet, SharedImportSheet, TeamJoinSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
@@ -884,7 +885,6 @@ export default function HomePage() {
     }
   };
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
-  const airportAlertsButton = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   // Android's picker hides the gallery and camera when PDFs are also allowed,
   // so it only offers photos there.
@@ -3071,36 +3071,6 @@ export default function HomePage() {
 
   return (
     <div className="app-shell">
-      <header className="top-bar">
-        <button className="brand" onClick={returnToToday} aria-label="Shiftdeck, back to today">
-          <span><img src="./apple-touch-icon.png" alt="" /></span>
-          <b>Shiftdeck</b>
-        </button>
-        <div className="top-actions">
-          <button
-            ref={airportAlertsButton}
-            type="button"
-            className={`airport-alert-button${notificationCount ? " has-alerts" : ""}`}
-            aria-label={`Notifications${notificationCount ? ` (${notificationCount} new)` : ""}`}
-            aria-haspopup="dialog"
-            onClick={openNotifications}
-          >
-            <Bell aria-hidden="true" />
-            {notificationCount > 0 && <i aria-hidden="true">{notificationCount}</i>}
-          </button>
-          <button type="button" onClick={() => openSheet("import")} aria-label="Import schedule">
-            <Upload />
-            <span>Import</span>
-          </button>
-          <button type="button" onClick={() => openSheet("swap")} aria-label="Shift swap">
-            <ArrowLeftRight />
-            <span>Swap</span>
-          </button>
-          <button type="button" onClick={() => { setSettingsSnapshot(JSON.stringify(prefs)); setSettingsOpen(true); }} aria-label="Open settings">
-            <Settings />
-          </button>
-        </div>
-      </header>
 
       <dialog
         ref={airportAlertsDialog}
@@ -3113,7 +3083,6 @@ export default function HomePage() {
             : current);
           setNotificationsInfo(false);
           markPostsSeen(teamInbox.map((post) => post.id));
-          airportAlertsButton.current?.focus();
         }}
       >
         <header className="sheet-head notifications-head">
@@ -3259,6 +3228,33 @@ export default function HomePage() {
           )}
         </div>
       </main>
+
+      <QuickMenu
+        badge={notificationCount}
+        actions={[
+          {
+            id: "notifications",
+            label: "Notifications",
+            ariaLabel: `Notifications${notificationCount ? ` (${notificationCount} new)` : ""}`,
+            icon: Bell,
+            badge: notificationCount,
+            onSelect: openNotifications,
+          },
+          { id: "import", label: "Import", ariaLabel: "Import schedule", icon: Upload, onSelect: () => openSheet("import") },
+          { id: "swap", label: "Swap", ariaLabel: "Shift swap", icon: ArrowLeftRight, onSelect: () => openSheet("swap") },
+          { id: "directory", label: "Directory", icon: BookUser, onSelect: () => setDirectoryOpen(true) },
+          {
+            id: "settings",
+            label: "Settings",
+            ariaLabel: "Open settings",
+            icon: Settings,
+            onSelect: () => {
+              setSettingsSnapshot(JSON.stringify(prefs));
+              setSettingsOpen(true);
+            },
+          },
+        ]}
+      />
 
       {sheet === "import" && (importState === "reading" ? (
         <ScheduleImportPreview
@@ -3765,17 +3761,6 @@ export default function HomePage() {
                 className="settings-tile"
                 onClick={() => {
                   setSettingsOpen(false);
-                  setDirectoryOpen(true);
-                }}
-              >
-                <span><BookUser /> Directory</span>
-                <b>{directory.length ? `${directory.length} ${directory.length === 1 ? "entry" : "people & lines"}` : "Import the phone list"}</b>
-              </button>
-              <button
-                type="button"
-                className="settings-tile"
-                onClick={() => {
-                  setSettingsOpen(false);
                   setNotificationsOpen(true);
                 }}
               >
@@ -3813,7 +3798,7 @@ export default function HomePage() {
               </button>
               <button
                 type="button"
-                className="settings-tile wide"
+                className="settings-tile"
                 onClick={() => {
                   setSettingsOpen(false);
                   setShareOpen(true);
