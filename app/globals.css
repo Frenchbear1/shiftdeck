@@ -8490,3 +8490,83 @@ html {
   min-height: 44px;
   margin-top: 10px;
 }
+
+/* ---------- imports: the week you're in ---------- */
+
+.upload-document.this-week {
+  border-color: color-mix(in srgb, var(--blue) 55%, var(--line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent), 0 8px 22px color-mix(in srgb, var(--blue) 12%, transparent);
+}
+
+.upload-document-tags i.this-week {
+  color: white;
+  background: var(--blue);
+}
+
+/* ---------- owner ---------- */
+
+.settings-tile.owner-tile span svg {
+  color: var(--amber);
+}
+
+.owner-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 12px;
+}
+
+.owner-head .share-choice-icon {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+}
+
+.button.owner-add-phone,
+.button.owner-handover {
+  margin-bottom: 14px;
+}
+
+.owner-person {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.owner-person > small {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.owner-handover-box {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.button.danger {
+  color: white;
+  background: var(--danger);
+}
+
+.link-code {
+  margin: 4px 0 !important;
+  font-size: 40px !important;
+  font-weight: 800;
+  letter-spacing: .12em;
+  font-variant-numeric: tabular-nums;
+}
+
+.link-code-input {
+  height: 58px;
+  text-align: center;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 28px !important;
+  font-weight: 800;
+  letter-spacing: .3em;
+  font-variant-numeric: tabular-nums;
+}

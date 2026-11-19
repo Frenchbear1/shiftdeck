@@ -130,7 +130,8 @@ export function RecipientPicker({ team, value, onChange }: {
 function TeamMembers({ team, requests, onRename, onRemove, onDecide }: {
   team: Team;
   requests: NameRequest[];
-  onRename: (memberId: string, name: string) => Promise<void>;
+  /** Names are the app owner's to change (from Settings → Owner); not offered here. */
+  onRename?: (memberId: string, name: string) => Promise<void>;
   onRemove: (memberId: string) => Promise<void>;
   onDecide: (requestId: string, approve: boolean) => Promise<void>;
 }) {
@@ -175,7 +176,7 @@ function TeamMembers({ team, requests, onRename, onRemove, onDecide }: {
                     onChange={(event) => {
                       const name = event.target.value;
                       setEditing(null);
-                      if (name) void run(() => onRename(member.id, name));
+                      if (name && onRename) void run(() => onRename(member.id, name));
                     }}
                     onBlur={() => setEditing(null)}
                   >
@@ -197,7 +198,7 @@ function TeamMembers({ team, requests, onRename, onRemove, onDecide }: {
               )}
               {owner && editing !== member.id && (
                 <span className="team-member-actions">
-                  <button type="button" onClick={() => setEditing(member.id)}>Rename</button>
+                  {onRename && <button type="button" onClick={() => setEditing(member.id)}>Rename</button>}
                   {!me && (
                     <button
                       type="button"
@@ -224,8 +225,8 @@ function TeamMembers({ team, requests, onRename, onRemove, onDecide }: {
       {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
       <p className="share-note">
         {owner
-          ? "You run this team: names are locked, and only you can change or remove them."
-          : "Names are locked. Only the owner can change them; ask from Settings → your name."}
+          ? "You run this team and can remove people from it. Names are locked app-wide; the app’s owner changes them."
+          : "Names are locked. Only the app’s owner changes them; ask from Settings → your name."}
       </p>
     </div>
   );
@@ -350,7 +351,7 @@ export function ShareSheet({
   /** Resolves with how many teammates got a notification. `to` empty = everyone. */
   onSendToTeam: (share: SharePackage, what: string, to: string[]) => Promise<number>;
   requests: NameRequest[];
-  onRename: (memberId: string, name: string) => Promise<void>;
+  onRename?: (memberId: string, name: string) => Promise<void>;
   onRemove: (memberId: string) => Promise<void>;
   onDecide: (requestId: string, approve: boolean) => Promise<void>;
   /** An invite someone sent, pasted here (iPhone links open in Safari, not the app). */

@@ -11,6 +11,7 @@ import { handlePlanesRequest } from "./planes";
 import { handleSwapRequest } from "./swap-requests";
 import { deleteExpiredShares, handleShareRequest } from "./shares";
 import { deleteExpiredTeamPosts, handleTeamRequest } from "./teams";
+import { handlePeopleRequest } from "./people";
 import { ABE_BOARD_CRON, refreshAbeAlerts, refreshAbeBoard } from "./abe-flight-board";
 import {
   handlePushRequest,
@@ -38,6 +39,8 @@ const worker = {
     if (shareResponse) return shareResponse;
     const teamResponse = await handleTeamRequest(request, env.DB, env);
     if (teamResponse) return teamResponse;
+    const peopleResponse = await handlePeopleRequest(request, env.DB, env);
+    if (peopleResponse) return peopleResponse;
     const response = await handleCalendarRequest(request, env.DB);
     if (response) return response;
     return Response.json(

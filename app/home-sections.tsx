@@ -1748,7 +1748,11 @@ export function SwapSheet({
                                 ...newSwapKeys(), worker: match.worker, give, take, ...(options ? { options } : {}),
                                 sentAt: new Date().toISOString(), status: "waiting", seen: true,
                               }, teammate);
-                              setInApp(({ [match.worker]: _done, ...rest }) => rest);
+                              setInApp((current) => {
+                                const next = { ...current };
+                                delete next[match.worker];
+                                return next;
+                              });
                             } catch {
                               setInApp((current) => ({ ...current, [match.worker]: "error" }));
                             }

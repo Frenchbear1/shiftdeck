@@ -94,3 +94,14 @@ test("only the team's owner counts as the owner", async () => {
   assert.equal(team.isOwner(null), false);
   assert.deepEqual(team.teammates({ memberId: "a", people: [{ id: "a", name: "David" }, { id: "b", name: "Nicole" }] }).map((p) => p.name), ["Nicole"]);
 });
+
+test("handing over suggests whoever has used the app longest (not you)", async () => {
+  const { recommendedSuccessor } = await import("../app/people.ts");
+  const people = [
+    { id: "me", name: "David", since: "2026-11-01T00:00:00Z" },
+    { id: "b", name: "Landon", since: "2026-11-10T00:00:00Z" },
+    { id: "c", name: "Nicole", since: "2026-11-03T00:00:00Z" },
+  ];
+  assert.equal(recommendedSuccessor(people, "me").name, "Nicole");
+  assert.equal(recommendedSuccessor([people[0]], "me"), null);
+});
