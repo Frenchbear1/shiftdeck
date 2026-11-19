@@ -99,12 +99,20 @@ import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { SwapAnswerSheet } from "./swap-answer-sheet";
 import { NameChangeSheet } from "./name-change-sheet";
-import { LinkCodeSheet, LinkPhoneSheet, OwnerSheet } from "./owner-sheets";
+import { AcceptHandoverSheet, BlockedScreen, LinkCodeSheet, LinkPhoneSheet, OwnerSheet } from "./owner-sheets";
 import {
+  acceptHandover,
   askForName,
+  BlockedError,
+  blockPerson,
+  cancelHandover,
   decideName,
-  handOver,
   linkThisPhone,
+  makeRecoveryKey,
+  recoverOwner,
+  sendWrappedKeys,
+  startHandover,
+  unblockPerson,
   makeLinkCode,
   NameTakenError,
   movePhone,
@@ -118,30 +126,21 @@ import {
   type Me,
 } from "./people";
 import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type QuickMenuStyle } from "./quick-menu";
-import { ShareSheet, SharedImportSheet, TeamJoinSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
+import { ShareSheet, SharedImportSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
 import type { SharePackage } from "./share-data";
 import {
-  createTeam,
-  postSwapToTeam,
-  removeMember,
-  inviteLink,
-  joinTeam,
-  leaveTeam,
+  forgetLegacyTeam,
+  legacyTeamKey,
   loadSeenPosts,
-  loadTeam,
+  postSwapToTeam,
   postToTeam,
-  previewTeam,
   saveSeenPosts,
-  saveTeam,
-  teamInLocation,
-  teamState,
   teammates,
   type Team,
-  type TeamInvite,
-  type TeamPost,
 } from "./team";
+import { devicePair, keyCheck, keyProof, loadTeamKey, newTeamKey, publicKeyText, saveTeamKey, unwrapTeamKey, wrapTeamKey } from "./team-key";
 import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
 import { DirectorySheet } from "./directory";
@@ -284,6 +283,7 @@ const DEFAULT_SHIFT_TITLE = "Work";
 const DEFAULT_ALERT_MINUTES = 120;
 const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
 const HOME_VIEW_KEY = "shiftdeck.homeView";
+const BLOCKED_KEY = "shiftdeck.blocked";
 const NAME_MERGES_KEY = "shiftdeck.nameMerges";
 const NAME_MERGE_DISMISSED_KEY = "shiftdeck.nameMergeDismissed";
 
@@ -777,9 +777,11 @@ export default function HomePage() {
       // Kept for this visit.
     }
   };
-  // The team this phone is on, what's been sent to it, and which posts were opened.
-  const [team, setTeam] = useState<Team | null>(null);
-  const [teamPosts, setTeamPosts] = useState<TeamPost[]>([]);
+  // Everyone who uses the app is the team: the key that encrypts what's sent to it lives on this phone.
+  const [teamKey, setTeamKey] = useState<string | null>(null);
+  // The owner blocked this person: the app stays covered until they're unblocked.
+  const [blockedHere, setBlockedHere] = useState(false);
+  const [handoverOpen, setHandoverOpen] = useState(false);
   const [swapAnswerId, setSwapAnswerId] = useState<string | null>(null);
   const [nameChangeOpen, setNameChangeOpen] = useState(false);
   // Who this phone is in the app (its locked name, and owner access).
@@ -788,26 +790,34 @@ export default function HomePage() {
   const [linkCodeOpen, setLinkCodeOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
   const [seenPosts, setSeenPosts] = useState<string[]>([]);
-  const [invite, setInvite] = useState<{
-    invite: TeamInvite;
-    preview: { name: string; members: string[]; roster?: string[] } | null;
-    error: string;
-    /** Opened in iPhone Safari: the invite to paste into the Home Screen app. */
-    link?: string;
-  } | null>(null);
   useEffect(() => {
-    const saved = loadTeam();
     const seen = loadSeenPosts();
+    const key = loadTeamKey();
+    let wasBlocked = false;
+    try {
+      wasBlocked = localStorage.getItem(BLOCKED_KEY) === "1";
+    } catch {
+      // Checked again with the server below.
+    }
     queueMicrotask(() => {
-      setTeam(saved);
       setSeenPosts(seen);
+      setTeamKey(key);
+      setBlockedHere(wasBlocked);
     });
   }, []);
-  const updateTeam = (next: Team | null) => {
-    setTeam(next);
-    saveTeam(next);
-    if (!next) setTeamPosts([]);
+  const setBlocked = (value: boolean) => {
+    setBlockedHere(value);
+    try {
+      if (value) localStorage.setItem(BLOCKED_KEY, "1");
+      else localStorage.removeItem(BLOCKED_KEY);
+    } catch {
+      // The server says so again next check.
+    }
   };
+  const teamPosts = me?.posts ?? [];
+  const team = useMemo<Team | null>(() => me && teamKey
+    ? { name: "everyone", key: teamKey, memberId: me.personId, people: me.crew ?? [], ownerId: me.owner ? me.personId : undefined, roster: me.roster }
+    : null, [me, teamKey]);
   const markPostsSeen = (ids: string[]) => {
     setSeenPosts((current) => {
       const next = [...new Set([...current, ...ids])];
@@ -894,11 +904,12 @@ export default function HomePage() {
     calendarServiceUrl(`/api/flights/live?airport=${DEFAULT_PREFS.homeAirport}`),
   );
   const airportAlerts = liveFlights.live?.airportAlerts;
-  // Flight learning loads in the background so Settings opens complete.
+  // Flight learning (the owner's screen) loads in the background so it opens complete.
   const hasLive = Boolean(liveFlights.live);
+  const isAppOwner = Boolean(me?.owner);
   useEffect(() => {
-    if (hasLive) void prefetchLearning(calendarServiceUrl("/api/flights/learning"));
-  }, [hasLive]);
+    if (hasLive && isAppOwner) void prefetchLearning(calendarServiceUrl("/api/flights/learning"));
+  }, [hasLive, isAppOwner]);
   const [dismissedAirportAlerts, setDismissedAirportAlerts] = useState<string[]>([]);
   useEffect(() => {
     try {
@@ -1498,35 +1509,14 @@ export default function HomePage() {
       }));
   };
 
-  // Team invites open the app with ?team=<id>#t=<key>&j=<join secret>.
-  const openInvite = (key: TeamInvite, link?: string) => {
-    setInvite({ invite: key, preview: null, error: "", link });
-    previewTeam(CALENDAR_SERVICE_ORIGIN, key)
-      .then((preview) => setInvite((current) => current && { ...current, preview }))
-      .catch((problem: unknown) => setInvite((current) => current && {
-        ...current,
-        error: problem instanceof Error ? problem.message : "This invite couldn’t be opened.",
-      }));
-  };
+  // Old team invite links (?team=…#t=…) just open the app now: everyone's on one team.
   useEffect(() => {
     if (!hydrated) return;
-    const key = teamInLocation(window.location);
-    if (!key) return;
-    const link = window.location.href;
-    const url = new URL(link);
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("team")) return;
     url.searchParams.delete("team");
     url.hash = "";
     window.history.replaceState(null, "", url.href);
-    if (loadTeam()?.id === key.id) {
-      queueMicrotask(() => setToast("You’re already on this team"));
-      return;
-    }
-    const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
-      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-    queueMicrotask(() => openInvite(key, isAppleMobile && !isStandalone ? link : undefined));
-    // Runs once, when saved data is back.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 
   // Checks the team for new posts every minute while the app is open (and links notifications).
@@ -1539,54 +1529,60 @@ export default function HomePage() {
   // For the team check: the name in use, and a way to update it.
   const personRef = useRef(prefs.person);
   const savePrefsRef = useRef<(next: Partial<Preferences>) => void>(() => undefined);
-  const teamId = team?.id;
-  useEffect(() => {
-    if (!teamId) return;
-    let cancelled = false;
-    const check = async () => {
-      const current = loadTeam();
-      if (!current || document.visibilityState !== "visible") return;
-      try {
-        const state = await teamState(CALENDAR_SERVICE_ORIGIN, current, profileRef.current, rosterRef.current);
-        if (cancelled) return;
-        setTeamPosts(state.posts);
-        const people = state.people ?? current.people;
-        const ownerId = state.owner ?? current.ownerId;
-        const roster = state.roster ?? current.roster;
-        if (state.name !== current.name ||
-          state.members.join("|") !== (current.members ?? []).join("|") ||
-          ownerId !== current.ownerId ||
-          (roster ?? []).join("|") !== (current.roster ?? []).join("|") ||
-          (people ?? []).map((person) => `${person.id}:${person.name}`).join("|") !==
-            (current.people ?? []).map((person) => `${person.id}:${person.name}`).join("|")) {
-          updateTeam({ ...current, name: state.name, members: state.members, people, ownerId, roster });
-        }
-        // Your name on the team is the one this phone uses; only the owner changes it.
-        if (state.myName && state.myName !== personRef.current) savePrefsRef.current({ person: state.myName });
-      } catch (problem) {
-        // Removed from the team (or it's gone): forget it here too.
-        if (!cancelled && (problem as { status?: number }).status === 403) updateTeam(null);
-      }
-    };
-    void check();
-    const timer = window.setInterval(check, 60_000);
-    document.addEventListener("visibilitychange", check);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", check);
-    };
-    // updateTeam only uses state setters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, notificationProfile?.id]);
-
   // Who this phone is: registers its name the first time, then keeps its locked
   // name (set by the app's owner) and owner access up to date.
-  const teamCredentials = () => {
-    const current = loadTeam();
-    return current ? [{ teamId: current.id, memberId: current.memberId, memberToken: current.memberToken }] : [];
-  };
   const meProfile = () => (notificationPermission === "granted" ? notificationProfile : null);
+  /** What every check-in carries: notifications, this phone's public key, schedule names, proof of the team key. */
+  const checkIn = async (extra?: { keyProof?: string; badWrap?: boolean }) => {
+    const pair = await devicePair();
+    const key = loadTeamKey();
+    return {
+      profile: meProfile(),
+      publicKey: publicKeyText(pair),
+      roster: rosterRef.current,
+      ...(key ? { keyProof: await keyProof(key) } : {}),
+      ...extra,
+    };
+  };
+  /** Gets the team key if this phone doesn't have it, and passes it on to phones waiting for it. */
+  const settleTeamKey = async (result: Me) => {
+    const check = result.key?.check ?? null;
+    let key = loadTeamKey();
+    if (key && check && await keyCheck(key) !== check) key = null;
+    let fresh = false;
+    let badWrap = false;
+    if (!key) {
+      const legacy = legacyTeamKey();
+      if (!check && result.owner) {
+        // The owner's phone sets the key once (keeping the old team's, so what was sent still opens).
+        key = legacy ?? newTeamKey();
+        fresh = true;
+      } else if (check && legacy && await keyCheck(legacy) === check) {
+        key = legacy;
+        fresh = true;
+      } else if (check && result.key?.wrapped) {
+        const opened = await unwrapTeamKey(result.key.wrapped, await devicePair());
+        if (opened && await keyCheck(opened) === check) {
+          key = opened;
+          fresh = true;
+        } else {
+          badWrap = true;
+        }
+      }
+    }
+    saveTeamKey(key);
+    setTeamKey(key);
+    if (key) forgetLegacyTeam();
+    if (key && result.key?.wrapFor?.length) {
+      const pair = await devicePair();
+      const wraps = await Promise.all(result.key.wrapFor.map(async (phone) => ({
+        deviceId: phone.deviceId,
+        data: await wrapTeamKey(key!, phone.publicKey, pair).catch(() => ""),
+      })));
+      await sendWrappedKeys(CALENDAR_SERVICE_ORIGIN, wraps.filter((wrap) => wrap.data)).catch(() => undefined);
+    }
+    return { fresh, badWrap };
+  };
   const refreshMe = async (known?: string) => {
     const name = known ?? personRef.current;
     if (!name) {
@@ -1594,12 +1590,22 @@ export default function HomePage() {
       return;
     }
     try {
-      const result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, teamCredentials(), meProfile());
+      let result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, await checkIn());
+      const { fresh, badWrap } = await settleTeamKey(result);
+      // Tell the server right away that this phone has the key now (or that what it got didn't open).
+      if (fresh || badWrap) result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, await checkIn(badWrap ? { badWrap: true } : undefined));
       setMe(result);
+      setBlocked(false);
       setNameTaken(null);
       if (result.name && result.name !== personRef.current) savePrefsRef.current({ person: result.name });
     } catch (problem) {
       if (problem instanceof NameTakenError) setNameTaken({ name: problem.takenName, ownerName: problem.ownerName });
+      if (problem instanceof BlockedError) {
+        setMe(null);
+        setBlocked(true);
+        saveTeamKey(null);
+        setTeamKey(null);
+      }
       if (problem instanceof PhoneResetError) {
         // The owner took this phone off the app: pick a name again.
         setMe(null);
@@ -1625,10 +1631,10 @@ export default function HomePage() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", check);
     };
-  }, [syncedName, teamId, notificationProfile?.id]);
+  }, [syncedName, notificationProfile?.id]);
 
   const sendToTeam = async (share: SharePackage, what: string, to?: string[]) => {
-    if (!team) throw new Error("Join or start a team first.");
+    if (!team) throw new Error("This phone is still getting the team key. Try again in a minute.");
     const result = await postToTeam(CALENDAR_SERVICE_ORIGIN, team, share, what, to);
     markPostsSeen([result.id]);
     return result.notified;
@@ -3221,8 +3227,7 @@ export default function HomePage() {
                 <b>Swap replies</b> show up here when a coworker answers a swap you sent by email or text.
               </p>
               <p>
-                <b>{team ? team.name : "Your team"}</b>: schedules and info your teammates send. Start or join a
-                team in Settings → Team.
+                <b>Team</b>: schedules and info coworkers send you on Shiftdeck. Send yours from Settings → Team.
               </p>
               <p>
                 <b>ABE airport alerts</b> come from the airport’s website
@@ -3234,8 +3239,8 @@ export default function HomePage() {
             </div>
           )}
           {teamInbox.length > 0 && (
-            <section className="notice-group" aria-label={team?.name ?? "Team"}>
-              <h3>{team?.name ?? "Team"}</h3>
+            <section className="notice-group" aria-label="Team">
+              <h3>Team</h3>
               <ul className="swap-reply-list team-post-list">
                 {teamInbox.map((post) => (
                   <li key={post.id} className={seenPosts.includes(post.id) ? "" : "is-new"}>
@@ -3465,7 +3470,7 @@ export default function HomePage() {
             return teammates(team).find((person) => person.name.toLowerCase().replace(/[^a-z]/g, "") === key)?.id;
           }}
           onSendInApp={async (swap, memberId) => {
-            if (!team) throw new Error("Not on a team");
+            if (!me) throw new Error("Pick your name in Settings first.");
             // Registered first (the request has to exist before the teammate can open it).
             const registered = await fetch(`${calendarServiceUrl("")}/api/swaps`, {
               method: "POST",
@@ -3479,7 +3484,7 @@ export default function HomePage() {
               }),
             });
             if (!registered.ok) throw new Error("Couldn’t send");
-            await postSwapToTeam(CALENDAR_SERVICE_ORIGIN, team, swap.id, memberId);
+            await postSwapToTeam(CALENDAR_SERVICE_ORIGIN, swap.id, memberId);
             updateSentSwaps((current) => [...current.filter((item) => isLiveSwap(item, todayDate)), swap].slice(-60));
           }}
           onCancelSwap={(swap) => {
@@ -4064,8 +4069,25 @@ export default function HomePage() {
                 }}
               >
                 <span><Users /> Team</span>
-                <b>{team ? `${team.name} · ${team.members?.length ?? 1} ${(team.members?.length ?? 1) === 1 ? "member" : "members"}` : "Start or join a team"}</b>
+                <b>
+                  {!me
+                    ? "Pick your name first"
+                    : `${me.crew?.length ?? 1} ${(me.crew?.length ?? 1) === 1 ? "person" : "people"} · send schedules & info`}
+                </b>
               </button>
+              {me?.handoverOffer && (
+                <button
+                  type="button"
+                  className="settings-tile wide owner-tile"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setHandoverOpen(true);
+                  }}
+                >
+                  <span><Crown /> Become the owner</span>
+                  <b>{me.handoverOffer.from.split(" ")[0]} is handing Shiftdeck to you</b>
+                </button>
+              )}
             </div>
             {liveFlights.live?.status ? (
               <LiveStatusSetting
@@ -4076,9 +4098,7 @@ export default function HomePage() {
               // Still loading: hold the row's space so the sheet doesn't jump.
               <SettingPlaceholder title="Live times" />
             ) : null}
-            {(liveFlights.live || !liveFlights.checked) && (
-              <LearningSetting url={calendarServiceUrl("/api/flights/learning")} />
-            )}
+
           </section>
         </div>
       )}
@@ -4092,33 +4112,9 @@ export default function HomePage() {
           person={prefs.person}
           loadFile={(id) => loadScheduleImage(id)}
           team={team}
-          inviteUrl={team ? inviteLink(team, `${window.location.origin}${window.location.pathname}`) : ""}
-          onCreateTeam={async (teamName) => {
-            updateTeam(await createTeam(CALENDAR_SERVICE_ORIGIN, {
-              teamName,
-              name: prefs.person || "Me",
-              profile: notificationProfile,
-              roster: [...new Set([prefs.person, ...contactWorkers].filter(Boolean))],
-            }));
-          }}
-          onLeaveTeam={() => {
-            const leaving = team;
-            updateTeam(null);
-            if (leaving) void leaveTeam(CALENDAR_SERVICE_ORIGIN, leaving).catch(() => undefined);
-          }}
+          signedIn={Boolean(me)}
+          inviteUrl={`${window.location.origin}${window.location.pathname}`}
           onSendToTeam={sendToTeam}
-          requests={[]}
-          onRename={undefined}
-          onRemove={async (memberId) => {
-            if (!team) return;
-            await removeMember(CALENDAR_SERVICE_ORIGIN, team, memberId);
-            updateTeam({ ...team, people: team.people?.filter((person) => person.id !== memberId) });
-          }}
-          onDecide={async () => undefined}
-          onOpenInvite={(key) => {
-            setShareOpen(false);
-            openInvite(key);
-          }}
           onClose={() => setShareOpen(false)}
         />
       )}
@@ -4159,10 +4155,19 @@ export default function HomePage() {
           name={nameTaken.name}
           ownerName={nameTaken.ownerName}
           onLink={async (code) => {
-            const linked = await linkThisPhone(CALENDAR_SERVICE_ORIGIN, nameTaken.name, code, teamCredentials(), meProfile());
+            const linked = await linkThisPhone(CALENDAR_SERVICE_ORIGIN, nameTaken.name, code, await checkIn());
             setMe(linked);
             setNameTaken(null);
             setToast(linked.owner ? "This phone is set up as you, with owner access" : "This phone is set up as you");
+            void refreshMe(linked.name);
+          }}
+          onRecover={async (key) => {
+            const recovered = await recoverOwner(CALENDAR_SERVICE_ORIGIN, key, await checkIn());
+            setMe(recovered);
+            setNameTaken(null);
+            savePrefs({ person: recovered.name });
+            setToast("You’re back in, with owner access. Make a new recovery key in Owner.");
+            void refreshMe(recovered.name);
           }}
           onNotMe={() => {
             setNameTaken(null);
@@ -4191,12 +4196,29 @@ export default function HomePage() {
             await decideName(CALENDAR_SERVICE_ORIGIN, requestId, approve);
             await refreshMe();
           }}
-          onHandOver={async (personId) => {
-            await handOver(CALENDAR_SERVICE_ORIGIN, personId);
-            setOwnerOpen(false);
+          onBlock={async (personId) => {
+            await blockPerson(CALENDAR_SERVICE_ORIGIN, personId);
             await refreshMe();
-            setToast("Ownership handed over");
           }}
+          onUnblock={async (personId) => {
+            await unblockPerson(CALENDAR_SERVICE_ORIGIN, personId);
+            await refreshMe();
+          }}
+          onStartHandover={async (personId) => {
+            const started = await startHandover(CALENDAR_SERVICE_ORIGIN, personId);
+            await refreshMe();
+            return started;
+          }}
+          onCancelHandover={async () => {
+            await cancelHandover(CALENDAR_SERVICE_ORIGIN);
+            await refreshMe();
+          }}
+          onMakeRecoveryKey={async () => {
+            const { key } = await makeRecoveryKey(CALENDAR_SERVICE_ORIGIN);
+            await refreshMe();
+            return key;
+          }}
+          learning={liveFlights.live || !liveFlights.checked ? <LearningSetting url={calendarServiceUrl("/api/flights/learning")} /> : undefined}
           onRenamePhone={async (deviceId, label) => {
             await renamePhone(CALENDAR_SERVICE_ORIGIN, deviceId, label);
             await refreshMe();
@@ -4224,28 +4246,20 @@ export default function HomePage() {
         />
       )}
 
-      {invite && (
-        <TeamJoinSheet
-          preview={invite.preview}
-          error={invite.error}
-          leaving={team && team.id !== invite.invite.id ? team.name : undefined}
-          link={invite.link}
-          defaultName={prefs.person}
-          lockedName={prefs.person || undefined}
-          onJoin={async (name) => {
-            const previous = team;
-            const joined = await joinTeam(CALENDAR_SERVICE_ORIGIN, invite.invite, { name, profile: notificationProfile });
-            if (previous && previous.id !== joined.id) void leaveTeam(CALENDAR_SERVICE_ORIGIN, previous).catch(() => undefined);
-            updateTeam({ ...joined, members: [...(invite.preview?.members ?? []), name] });
-            // The name joined with is this phone's name from now on (locked).
-            savePrefs({ person: name });
-            setInvite(null);
-            setToast(notificationProfile
-              ? `You joined ${joined.name}`
-              : `You joined ${joined.name}. Turn on notifications in Settings to get pinged.`);
+      {handoverOpen && me?.handoverOffer && (
+        <AcceptHandoverSheet
+          from={me.handoverOffer.from}
+          onAccept={async (key) => {
+            setMe(await acceptHandover(CALENDAR_SERVICE_ORIGIN, key));
+            setHandoverOpen(false);
+            setToast("You’re the owner now. Settings → Owner");
           }}
-          onClose={() => setInvite(null)}
+          onClose={() => setHandoverOpen(false)}
         />
+      )}
+
+      {blockedHere && (
+        <BlockedScreen name={prefs.person} onRetry={() => void refreshMe()} />
       )}
 
       {incoming && (

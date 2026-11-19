@@ -1,6 +1,6 @@
 "use client";
 
-import { BookUser, CalendarDays, Check, ChevronDown, Copy, LoaderCircle, Lock, Send, UserPlus, Users, X } from "lucide-react";
+import { BookUser, CalendarDays, Check, LoaderCircle, Send, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { backdropClose } from "./home-sections";
 import type { Contacts } from "./contacts-data";
@@ -15,7 +15,7 @@ import {
   type ShareManifest,
   type SharePackage,
 } from "./share-data";
-import { isOwner, teamInText, teammates, type NameRequest, type Team, type TeamInvite } from "./team";
+import { teammates, type Team } from "./team";
 
 export type { ShareableDocument };
 
@@ -26,11 +26,6 @@ const untilLabel = (iso: string) => {
     : date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 };
 
-const listNames = (names: string[]) => {
-  const first = names.map(firstName).filter(Boolean);
-  if (first.length <= 3) return first.join(", ");
-  return `${first.slice(0, 3).join(", ")} and ${first.length - 3} more`;
-};
 
 /** Opens the phone's share menu, or copies when there isn't one. Returns true once copied. */
 async function sendOrCopy(text: string, url: string) {
@@ -124,219 +119,29 @@ export function RecipientPicker({ team, value, onChange }: {
   );
 }
 
-/* ---------- the team card (in the share sheet) ---------- */
+/* ---------- inviting: anyone who opens the app and picks their name is on the team ---------- */
 
-/** Who's on the team. The owner can rename or remove anyone and decide name changes. */
-function TeamMembers({ team, requests, onRename, onRemove, onDecide }: {
-  team: Team;
-  requests: NameRequest[];
-  /** Names are the app owner's to change (from Settings → Owner); not offered here. */
-  onRename?: (memberId: string, name: string) => Promise<void>;
-  onRemove: (memberId: string) => Promise<void>;
-  onDecide: (requestId: string, approve: boolean) => Promise<void>;
-}) {
-  const owner = isOwner(team);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [problem, setProblem] = useState("");
-  const people = team.people ?? [];
-  if (!people.length) return null;
-  const key = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
-  const run = async (action: () => Promise<void>) => {
-    setProblem("");
-    try {
-      await action();
-    } catch (failure) {
-      setProblem(failure instanceof Error ? failure.message : "That didn’t work.");
-    }
-  };
-  return (
-    <div className="team-members">
-      {owner && requests.filter((request) => request.memberId !== team.memberId).map((request) => (
-        <div key={request.id} className="team-request">
-          <span><b>{request.from}</b> asks to be <b>{request.name}</b></span>
-          <span className="team-request-actions">
-            <button type="button" className="button soft" onClick={() => void run(() => onDecide(request.id, false))}>Deny</button>
-            <button type="button" className="button primary" onClick={() => void run(() => onDecide(request.id, true))}>Approve</button>
-          </span>
-        </div>
-      ))}
-      <ul>
-        {people.map((member) => {
-          const me = member.id === team.memberId;
-          const isTheOwner = member.id === team.ownerId;
-          return (
-            <li key={member.id}>
-              {editing === member.id ? (
-                <span className="team-join-select team-member-rename">
-                  <select
-                    autoFocus
-                    defaultValue=""
-                    aria-label={`New name for ${member.name}`}
-                    onChange={(event) => {
-                      const name = event.target.value;
-                      setEditing(null);
-                      if (name && onRename) void run(() => onRename(member.id, name));
-                    }}
-                    onBlur={() => setEditing(null)}
-                  >
-                    <option value="" disabled>Rename {member.name.split(" ")[0]} to…</option>
-                    {(team.roster ?? []).filter((name) =>
-                      key(name) === key(member.name) || !people.some((other) => key(other.name) === key(name)),
-                    ).map((name) => (
-                      <option key={name} value={name}>{name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown aria-hidden="true" />
-                </span>
-              ) : (
-                <span className="team-member-name">
-                  {member.name}
-                  {me && <small>You</small>}
-                  {isTheOwner && <small className="owner">Owner</small>}
-                </span>
-              )}
-              {owner && editing !== member.id && (
-                <span className="team-member-actions">
-                  {onRename && <button type="button" onClick={() => setEditing(member.id)}>Rename</button>}
-                  {!me && (
-                    <button
-                      type="button"
-                      className={removing === member.id ? "confirm" : ""}
-                      onClick={() => {
-                        if (removing === member.id) {
-                          setRemoving(null);
-                          void run(() => onRemove(member.id));
-                        } else {
-                          setRemoving(member.id);
-                          window.setTimeout(() => setRemoving((current) => current === member.id ? null : current), 3500);
-                        }
-                      }}
-                    >
-                      {removing === member.id ? "Tap to remove" : "Remove"}
-                    </button>
-                  )}
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
-      <p className="share-note">
-        {owner
-          ? "You run this team and can remove people from it. Names are locked app-wide; the app’s owner changes them."
-          : "Names are locked. Only the app’s owner changes them; ask from Settings → your name."}
-      </p>
-    </div>
-  );
-}
-
-function TeamCard({ team, person, inviteUrl, onCreateTeam, onLeaveTeam }: {
-  team: Team | null;
-  person: string;
-  inviteUrl: string;
-  onCreateTeam: (teamName: string) => Promise<void>;
-  onLeaveTeam: () => void;
-}) {
-  const [teamName, setTeamName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+function InviteButton({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
-  const [leaving, setLeaving] = useState(false);
-
-  if (!team) {
-    return (
-      <div className="team-card">
-        <div className="team-card-head">
-          <span className="share-choice-icon"><Users /></span>
-          <span className="share-choice-copy">
-            <b>Start a team</b>
-            <small>Invite coworkers once, then send them anything in one tap.</small>
-          </span>
-        </div>
-        <form
-          className="share-paste"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setBusy(true);
-            setError("");
-            try {
-              await onCreateTeam(teamName.trim() || "My team");
-            } catch (problem) {
-              setError(problem instanceof Error ? problem.message : "The team couldn’t be made.");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <input
-            value={teamName}
-            onChange={(event) => setTeamName(event.target.value)}
-            placeholder="Team name, like ABE Ramp"
-            aria-label="Team name"
-            maxLength={40}
-          />
-          <button type="submit" className="button soft" disabled={busy}>
-            {busy ? <LoaderCircle className="spin" /> : "Start"}
-          </button>
-        </form>
-        {error && <p className="contacts-notice share-error" role="alert">{error}</p>}
-      </div>
-    );
-  }
-
   return (
-    <div className="team-card">
-      <div className="team-card-head">
-        <span className="share-choice-icon"><Users /></span>
-        <span className="share-choice-copy">
-          <b>{team.name}</b>
-          <small>
-            {team.members?.length
-              ? `${team.members.length} ${team.members.length === 1 ? "member" : "members"} · ${listNames(team.members)}`
-              : "Your team"}
-          </small>
-        </span>
-        <button
-          type="button"
-          className="button soft team-invite"
-          onClick={async () => {
-            const done = await sendOrCopy(
-              `${firstName(person) || "A coworker"} invited you to ${team.name} on Shiftdeck. Open this on your phone to join:`,
-              inviteUrl,
-            );
-            if (done) {
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1800);
-            }
-          }}
-        >
-          {copied ? <Check /> : <UserPlus />} {copied ? "Copied" : "Invite"}
-        </button>
-      </div>
-      <button
-        type="button"
-        className={`team-leave${leaving ? " confirm" : ""}`}
-        onClick={() => {
-          if (leaving) onLeaveTeam();
-          else {
-            setLeaving(true);
-            window.setTimeout(() => setLeaving(false), 3500);
-          }
-        }}
-      >
-        {leaving ? "Tap again to leave the team" : "Leave team"}
-      </button>
-    </div>
+    <button
+      type="button"
+      className="button soft share-make share-invite"
+      onClick={async () => {
+        const done = await sendOrCopy("Get Shiftdeck for our schedules. Open it, add it to your Home Screen, and pick your name:", url);
+        if (done) {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 2000);
+        }
+      }}
+    >
+      {copied ? <Check /> : <UserPlus />} {copied ? "Copied" : "Invite a coworker"}
+    </button>
   );
 }
-
-/* ---------- the team sheet: start/join, invite, send ---------- */
 
 export function ShareSheet({
-  schedules, today, directory, contacts, person, loadFile,
-  team, inviteUrl, onCreateTeam, onLeaveTeam, onSendToTeam, requests, onRename, onRemove, onDecide, onOpenInvite, onClose,
+  schedules, today, directory, contacts, person, loadFile, team, signedIn, inviteUrl, onSendToTeam, onClose,
 }: {
   schedules: ShareableDocument[];
   today: string;
@@ -344,22 +149,16 @@ export function ShareSheet({
   contacts: Contacts;
   person: string;
   loadFile: (id: string) => Promise<Blob | undefined>;
+  /** Null until this phone has a name and the team key. */
   team: Team | null;
+  /** This phone has picked its name. */
+  signedIn: boolean;
+  /** The app's address, to invite coworkers. */
   inviteUrl: string;
-  onCreateTeam: (teamName: string) => Promise<void>;
-  onLeaveTeam: () => void;
-  /** Resolves with how many teammates got a notification. `to` empty = everyone. */
+  /** Resolves with how many people got a notification. `to` empty = everyone. */
   onSendToTeam: (share: SharePackage, what: string, to: string[]) => Promise<number>;
-  requests: NameRequest[];
-  onRename?: (memberId: string, name: string) => Promise<void>;
-  onRemove: (memberId: string) => Promise<void>;
-  onDecide: (requestId: string, approve: boolean) => Promise<void>;
-  /** An invite someone sent, pasted here (iPhone links open in Safari, not the app). */
-  onOpenInvite: (invite: TeamInvite) => void;
   onClose: () => void;
 }) {
-  const [pasted, setPasted] = useState("");
-  const pastedInvite = teamInText(pasted);
   const sorted = useMemo(() =>
     [...schedules].sort((a, b) => ([...b.dates].sort()[0] ?? "").localeCompare([...a.dates].sort()[0] ?? "")),
   [schedules]);
@@ -401,7 +200,7 @@ export function ShareSheet({
     <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
       <section className="panel-sheet share-sheet" role="dialog" aria-modal="true" aria-label="Team">
         <header className="sheet-head sheet-head-tools">
-          <h2>Team</h2>
+          <h2>Send to the team</h2>
           <div className="sheet-tools">
             <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close team"><X /></button>
           </div>
@@ -420,8 +219,19 @@ export function ShareSheet({
             </div>
           ) : (
             <>
-              <TeamCard team={team} person={person} inviteUrl={inviteUrl} onCreateTeam={onCreateTeam} onLeaveTeam={onLeaveTeam} />
-              {team && <TeamMembers team={team} requests={requests} onRename={onRename} onRemove={onRemove} onDecide={onDecide} />}
+              <div className="owner-head">
+                <span className="share-choice-icon"><Users /></span>
+                <span className="share-choice-copy">
+                  <b>Everyone on Shiftdeck</b>
+                  <small>
+                    {!signedIn
+                      ? "Pick your name in Settings to send and get schedules."
+                      : !team
+                        ? "Getting the team key from a coworker’s phone. This takes a minute the first time."
+                        : `${team.people.length} ${team.people.length === 1 ? "person" : "people"}. Send to everyone or pick who.`}
+                  </small>
+                </span>
+              </div>
               {team && (
                 <>
                   <p className="share-section-title">Schedules</p>
@@ -478,30 +288,12 @@ export function ShareSheet({
                     {state === "sending" ? <><LoaderCircle className="spin" /> Sending…</> : <><Send /> Send to {recipientsLabel(team, to)}</>}
                   </button>
                   <p className="share-note">
-                    Encrypted on this phone first, so only your team can open it. Their phones keep what they
+                    Encrypted on this phone first, so only people on Shiftdeck can open it. Their phones keep what they
                     already have and add only what’s new. Imports also ask if you want to send them here.
                   </p>
                 </>
               )}
-              <p className="share-section-title">{team ? "Got an invite to another team?" : "Got an invite?"}</p>
-              <div className="share-paste">
-                <input
-                  type="url"
-                  inputMode="url"
-                  value={pasted}
-                  onChange={(event) => setPasted(event.target.value)}
-                  placeholder="Paste the invite link"
-                  aria-label="Paste a team invite link"
-                />
-                <button
-                  type="button"
-                  className="button soft"
-                  disabled={!pastedInvite}
-                  onClick={() => pastedInvite && onOpenInvite(pastedInvite)}
-                >
-                  Open
-                </button>
-              </div>
+              <InviteButton url={inviteUrl} />
             </>
           )}
         </div>
@@ -633,7 +425,7 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
                       I’m not on it
                     </button>
                   </div>
-                  <p className="share-note">This locks your name on this phone. Only your team’s owner can change it later.</p>
+                  <p className="share-note">This locks your name on this phone. Only the owner can change it later.</p>
                 </>
               )}
               {(directoryMerge || contactsMerge) && <p className="share-section-title">Also shared</p>}
@@ -702,153 +494,6 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
   );
 }
 
-/* ---------- joining a team ---------- */
-
-const SOMEONE_ELSE = "__someone-else__";
-
-export function TeamJoinSheet({ preview, error, leaving, link, defaultName, lockedName, onJoin, onClose }: {
-  preview: { name: string; members: string[]; roster?: string[] } | null;
-  error: string;
-  /** The other team this phone is on, which joining would leave. */
-  leaving?: string;
-  /** On an iPhone in Safari: the invite to paste into the Home Screen app instead. */
-  link?: string;
-  defaultName: string;
-  /** This phone's name is already chosen (and locked): it joins with that. */
-  lockedName?: string;
-  onJoin: (name: string) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [choice, setChoice] = useState<string | null>(null);
-  const [typed, setTyped] = useState(defaultName);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState("");
-  const key = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
-  // The name already in this phone's Settings goes first and is picked, even
-  // if the schedules spell it a little differently.
-  const listed = preview?.roster ?? [];
-  const fromSettings = defaultName.trim()
-    ? listed.find((name) => key(name) === key(defaultName)) ?? defaultName.trim()
-    : "";
-  const roster = fromSettings ? [fromSettings, ...listed.filter((name) => key(name) !== key(fromSettings))] : listed;
-  const joined = new Set((preview?.members ?? []).map(key));
-  const selected = choice ?? (roster.length ? fromSettings : SOMEONE_ELSE);
-  const typing = !lockedName && selected === SOMEONE_ELSE;
-  const name = lockedName ?? (typing ? typed.trim() : selected);
-
-  return (
-    <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
-      <section className="panel-sheet share-sheet" role="dialog" aria-modal="true" aria-label="Join a team">
-        <header className="sheet-head sheet-head-tools">
-          <h2>{preview ? `Join ${preview.name}` : "Team invite"}</h2>
-          <div className="sheet-tools">
-            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close"><X /></button>
-          </div>
-        </header>
-        <div className="sheet-scroll">
-          {!preview && !error && (
-            <div className="sheet-empty">
-              <LoaderCircle className="spin share-loading" />
-              <p>Opening the invite…</p>
-            </div>
-          )}
-          {error && (
-            <div className="sheet-empty">
-              <p>Couldn’t open this invite</p>
-              <small>{error}</small>
-            </div>
-          )}
-          {link && (
-            <div className="share-iphone">
-              <b>Join from your Home Screen app</b>
-              <small>
-                iPhone opened this in Safari, which keeps its own copy of Shiftdeck. Copy the invite, open
-                Shiftdeck from its icon, then paste it in Settings → Team.
-              </small>
-              <button type="button" className="button soft" onClick={() => void navigator.clipboard?.writeText(link).catch(() => undefined)}>
-                <Copy /> Copy invite
-              </button>
-            </div>
-          )}
-          {preview && (
-            <form
-              className="team-join"
-              onSubmit={async (event) => {
-                event.preventDefault();
-                if (!name) return;
-                setBusy(true);
-                setProblem("");
-                try {
-                  await onJoin(name);
-                } catch (failure) {
-                  setProblem(failure instanceof Error ? failure.message : "Couldn’t join. Try again.");
-                  setBusy(false);
-                }
-              }}
-            >
-              <div className="share-done">
-                <span className="share-done-icon"><Users /></span>
-                <p>{preview.name}</p>
-                <small>
-                  {preview.members.length
-                    ? `${listNames(preview.members)} ${preview.members.length === 1 ? "is" : "are"} on it. `
-                    : ""}
-                  You’ll get the schedules and info members send, in Notifications.
-                </small>
-              </div>
-              {leaving && <p className="share-iphone"><small>Joining leaves {leaving}.</small></p>}
-              {lockedName ? (
-                <div className="team-join-name">
-                  <span>Joining as</span>
-                  <b className="team-join-locked"><Lock aria-hidden="true" /> {lockedName}</b>
-                  <small>Your name is locked on this phone. If it’s wrong, the team’s owner can change it after you join.</small>
-                </div>
-              ) : (
-              <label className="team-join-name">
-                <span>Which name is yours?</span>
-                {roster.length > 0 && (
-                  <span className="team-join-select">
-                    <select value={selected} onChange={(event) => setChoice(event.target.value)} aria-label="Your name">
-                      <option value="" disabled>Pick your name</option>
-                      {roster.map((option) => {
-                        const taken = joined.has(key(option)) && key(option) !== key(defaultName);
-                        return (
-                          <option key={option} value={option} disabled={taken}>
-                            {taken ? `${option} (on the team)` : option}
-                          </option>
-                        );
-                      })}
-                      <option value={SOMEONE_ELSE}>Someone else…</option>
-                    </select>
-                    <ChevronDown aria-hidden="true" />
-                  </span>
-                )}
-                {typing && (
-                  <input
-                    value={typed}
-                    onChange={(event) => setTyped(event.target.value)}
-                    placeholder="First and last name"
-                    aria-label={roster.length ? "Type your name" : "Your name"}
-                    autoComplete="name"
-                    autoFocus={roster.length > 0}
-                    maxLength={40}
-                  />
-                )}
-                <small>This name gets locked to this phone. Only the team’s owner can change it later.</small>
-              </label>
-              )}
-              {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
-              <button type="submit" className="button primary share-make" disabled={busy || !name}>
-                {busy ? <><LoaderCircle className="spin" /> Joining…</> : <><UserPlus /> Join team</>}
-              </button>
-            </form>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
 /* ---------- "send this to the team?" after an import ---------- */
 
 export function TeamSendPrompt({ team, what, onSend }: {
@@ -872,11 +517,11 @@ export function TeamSendPrompt({ team, what, onSend }: {
     <div className="team-prompt" role="status">
       <span className="share-choice-icon">{state === "sent" ? <Check /> : <Send />}</span>
       <span className="share-choice-copy">
-        <b>{state === "sent" ? `Sent to ${recipientsLabel(team, to)}` : `Send ${what} to ${team.name}?`}</b>
+        <b>{state === "sent" ? `Sent to ${recipientsLabel(team, to)}` : `Send ${what} to ${to.length ? recipientsLabel(team, to) : "everyone"}?`}</b>
         <small>
           {state === "sent"
             ? notified ? `${notified} ${notified === 1 ? "phone" : "phones"} got a ping.` : to.length ? "It’s in their Notifications." : "It’s in everyone’s Notifications."
-            : state === "error" ? error : to.length ? "Only who you pick gets it." : "Everyone on the team gets it in Notifications."}
+            : state === "error" ? error : to.length ? "Only who you pick gets it." : "Everyone on Shiftdeck gets it in Notifications."}
         </small>
       </span>
       {state !== "sent" && (

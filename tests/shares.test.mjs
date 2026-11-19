@@ -66,18 +66,25 @@ test("week labels read naturally", () => {
   assert.equal(data.weekLabel(["2026-11-29", "2026-12-05"]), "Nov 29 – Dec 5");
 });
 
-test("team invites keep their keys in the link's fragment", async () => {
-  const team = await import("../app/team.ts");
-  const link = team.inviteLink(
-    { id: "AbCdEfGhIjKlMnOpQrSt12", name: "ABE Ramp", key: "secret-key_123", joinSecret: "join-secret_456", memberId: "m", memberToken: "t" },
-    "https://frenchbear1.github.io/shiftdeck/",
-  );
-  const url = new URL(link);
-  assert.equal(url.searchParams.get("team"), "AbCdEfGhIjKlMnOpQrSt12");
-  assert.ok(!url.search.includes("secret"), "keys never go in the part servers see");
-  assert.deepEqual(team.teamInLocation(url), { id: "AbCdEfGhIjKlMnOpQrSt12", key: "secret-key_123", joinSecret: "join-secret_456" });
-  assert.deepEqual(team.teamInText(`David invited you to ABE Ramp. Open this:\n${link}`)?.joinSecret, "join-secret_456");
-  assert.equal(team.teamInText("no link here"), null);
+test("the team key passes from phone to phone without the server being able to open it", async () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  const keys = await import("../app/team-key.ts");
+  const teamKey = keys.newTeamKey();
+  const holder = await keys.devicePair();
+  store.clear();
+  const newcomer = await keys.devicePair();
+  assert.notDeepEqual(holder.publicJwk, newcomer.publicJwk);
+  const wrapped = await keys.wrapTeamKey(teamKey, keys.publicKeyText(newcomer), holder);
+  assert.ok(!wrapped.includes(teamKey), "the key isn't readable in what the server carries");
+  assert.ok(!keys.publicKeyText(newcomer).includes('"d"'), "only the public half leaves the phone");
+  assert.equal(await keys.unwrapTeamKey(wrapped, newcomer), teamKey);
+  store.clear();
+  const stranger = await keys.devicePair();
+  assert.equal(await keys.unwrapTeamKey(wrapped, stranger), null, "another phone can't open it");
+  // The server shows a hash of the proof, so seeing it doesn't let you prove you have the key.
+  const proof = await keys.keyProof(teamKey);
+  assert.notEqual(await keys.keyCheck(teamKey), proof);
 });
 
 test("what's being sent reads naturally", async () => {
@@ -86,11 +93,11 @@ test("what's being sent reads naturally", async () => {
   assert.equal(describeShare({ weeks: [["2026-11-22"], ["2026-11-29"]], directory: true, contacts: true }), "2 schedules, the directory and coworker contacts");
 });
 
-test("only the team's owner counts as the owner", async () => {
+test("only the owner counts as the owner", async () => {
   const team = await import("../app/team.ts");
-  assert.equal(team.isOwner({ id: "t", memberId: "a", ownerId: "a" }), true);
-  assert.equal(team.isOwner({ id: "t", memberId: "b", ownerId: "a" }), false);
-  assert.equal(team.isOwner({ id: "t", memberId: "b" }), false, "unknown owner is not you");
+  assert.equal(team.isOwner({ memberId: "a", ownerId: "a" }), true);
+  assert.equal(team.isOwner({ memberId: "b", ownerId: "a" }), false);
+  assert.equal(team.isOwner({ memberId: "b" }), false, "unknown owner is not you");
   assert.equal(team.isOwner(null), false);
   assert.deepEqual(team.teammates({ memberId: "a", people: [{ id: "a", name: "David" }, { id: "b", name: "Nicole" }] }).map((p) => p.name), ["Nicole"]);
 });
@@ -104,4 +111,6 @@ test("handing over suggests whoever has used the app longest (not you)", async (
   ];
   assert.equal(recommendedSuccessor(people, "me").name, "Nicole");
   assert.equal(recommendedSuccessor([people[0]], "me"), null);
+  assert.equal(recommendedSuccessor([...people, { id: "x", name: "Zed", since: "2026-10-01T00:00:00Z", blocked: true }], "me").name, "Nicole",
+    "blocked people aren't suggested");
 });

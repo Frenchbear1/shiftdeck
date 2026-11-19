@@ -8762,3 +8762,182 @@ html {
 .owner-phone-label button:disabled {
   opacity: 0.45;
 }
+
+/* ---------- long keys (handover, recovery) ---------- */
+
+.link-code-input.long-key-input {
+  font-size: 19px !important;
+  letter-spacing: .06em;
+}
+
+.owner-key-box {
+  display: grid;
+  gap: 10px;
+  margin: -4px 0 14px;
+  padding: 16px 14px;
+  text-align: center;
+  background: var(--surface-2);
+  border: 1px dashed color-mix(in srgb, var(--blue) 45%, var(--line));
+  border-radius: 14px;
+}
+
+.owner-key {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: .05em;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+
+.owner-key-box small {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.owner-handover-status {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/* ---------- owner: new phones log, blocked ---------- */
+
+.owner-log {
+  display: grid;
+  margin: -6px 0 8px;
+  padding: 0;
+  list-style: none;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.owner-log-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.owner-log-row + .owner-log-row {
+  border-top: 1px solid var(--line);
+}
+
+.owner-log-row.blocked .owner-phone-icon {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
+
+.owner-log-text {
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+
+.owner-log-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--blue);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.owner-log-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.owner-log-action.danger {
+  color: var(--danger);
+}
+
+.owner-log-action.danger.armed {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.owner-log-more {
+  margin: 0 0 12px;
+}
+
+.owner-blocked li {
+  min-height: 52px;
+}
+
+.owner-blocked-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--danger);
+}
+
+.team-member-actions button.owner-unblock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--blue);
+}
+
+.owner-unblock svg {
+  width: 14px;
+  height: 14px;
+}
+
+.share-invite {
+  margin-top: 14px;
+}
+
+/* ---------- blocked: covers the app ---------- */
+
+.blocked-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 32px 28px calc(32px + env(safe-area-inset-bottom));
+  text-align: center;
+  background: var(--bg);
+}
+
+.blocked-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  border-radius: 20px;
+}
+
+.blocked-icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.blocked-screen h2 {
+  margin: 6px 0 0;
+  font-size: 22px;
+}
+
+.blocked-screen p {
+  max-width: 300px;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+}

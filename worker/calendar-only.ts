@@ -10,8 +10,7 @@ import { collectFlightLearning, handleLearningRequest } from "./flight-learning"
 import { handlePlanesRequest } from "./planes";
 import { handleSwapRequest } from "./swap-requests";
 import { deleteExpiredShares, handleShareRequest } from "./shares";
-import { deleteExpiredTeamPosts, handleTeamRequest } from "./teams";
-import { handlePeopleRequest } from "./people";
+import { deleteExpiredPosts, handlePeopleRequest } from "./people";
 import { ABE_BOARD_CRON, refreshAbeAlerts, refreshAbeBoard } from "./abe-flight-board";
 import {
   handlePushRequest,
@@ -37,8 +36,6 @@ const worker = {
     if (swapResponse) return swapResponse;
     const shareResponse = await handleShareRequest(request, env.DB);
     if (shareResponse) return shareResponse;
-    const teamResponse = await handleTeamRequest(request, env.DB, env);
-    if (teamResponse) return teamResponse;
     const peopleResponse = await handlePeopleRequest(request, env.DB, env);
     if (peopleResponse) return peopleResponse;
     const response = await handleCalendarRequest(request, env.DB);
@@ -65,7 +62,7 @@ const worker = {
       context.waitUntil(refreshAbeBoard(env.DB, controller.scheduledTime));
       context.waitUntil(refreshAbeAlerts(env.DB, controller.scheduledTime));
       context.waitUntil(deleteExpiredShares(env.DB, controller.scheduledTime).catch(() => undefined));
-      context.waitUntil(deleteExpiredTeamPosts(env.DB, controller.scheduledTime).catch(() => undefined));
+      context.waitUntil(deleteExpiredPosts(env.DB, controller.scheduledTime).catch(() => undefined));
       return;
     }
     context.waitUntil(sendDueNotifications(env.DB, env, controller.scheduledTime));
