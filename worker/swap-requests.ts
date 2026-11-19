@@ -131,21 +131,19 @@ async function cancelRequest(request: Request, db: CalendarDatabase) {
   return json(request, { ok: true });
 }
 
-async function answer(request: Request, db: CalendarDatabase, env: PushEnvironment, id: string) {
-  const form = await request.formData().catch(() => null);
-  const raw = String(form?.get("answer") ?? "");
+/** Records an answer ("yes", "yes:<option>", "no") and tells the requester. */
+async function applyAnswer(db: CalendarDatabase, env: PushEnvironment, id: string, raw: string) {
   const [choice, index] = raw.split(":");
-  const back = () => Response.redirect(new URL(`/swap/${id}`, request.url).href, 303);
-  if (choice !== "yes" && choice !== "no") return back();
+  if (choice !== "yes" && choice !== "no") return "invalid" as const;
   const row = await db
     .prepare(`SELECT ${ROW_COLUMNS}, profile_id FROM swap_requests WHERE id = ?1`)
     .bind(id)
     .first<SwapRow & { profile_id: string | null }>();
-  if (!row) return html(answerPage(null), 404);
-  if (row.status === "cancelled") return back();
+  if (!row) return "missing" as const;
+  if (row.status === "cancelled") return "cancelled" as const;
   const options = rowOptions(row);
   const picked = choice === "yes" && options.length > 1 ? options[Number(index)] : undefined;
-  if (choice === "yes" && options.length > 1 && !picked) return back();
+  if (choice === "yes" && options.length > 1 && !picked) return "invalid" as const;
   const take = picked
     ? { take_date: picked.date, take_start: picked.start, take_end: picked.end }
     : options.length > 1
@@ -168,7 +166,45 @@ async function answer(request: Request, db: CalendarDatabase, env: PushEnvironme
       }
     }
   }
+  return "done" as const;
+}
+
+async function answer(request: Request, db: CalendarDatabase, env: PushEnvironment, id: string) {
+  const form = await request.formData().catch(() => null);
+  const result = await applyAnswer(db, env, id, String(form?.get("answer") ?? ""));
+  if (result === "missing") return html(answerPage(null), 404);
+  if (result !== "done") return Response.redirect(new URL(`/swap/${id}`, request.url).href, 303);
   return Response.redirect(new URL(`/swap/${id}?done=1`, request.url).href, 303);
+}
+
+/** For answering inside the app (a teammate's swap request in Notifications). */
+async function viewJson(request: Request, db: CalendarDatabase, id: string) {
+  const row = await db
+    .prepare(`SELECT ${ROW_COLUMNS} FROM swap_requests WHERE id = ?1 AND expires_at >= ?2`)
+    .bind(id, new Date().toISOString())
+    .first<SwapRow>();
+  if (!row) return json(request, { error: "This swap request has expired." }, 404);
+  const shift = (date: string | null, start: string | null, end: string | null) =>
+    date && start && end ? { date, start, end } : null;
+  return json(request, {
+    from: row.from_name,
+    to: row.to_name,
+    give: shift(row.give_date, row.give_start, row.give_end),
+    take: shift(row.take_date, row.take_start, row.take_end),
+    options: rowOptions(row),
+    status: row.status,
+  });
+}
+
+async function answerJson(request: Request, db: CalendarDatabase, env: PushEnvironment) {
+  const body = await request.json().catch(() => null) as { id?: unknown; answer?: unknown } | null;
+  const id = typeof body?.id === "string" && /^[A-Za-z0-9_-]{16,40}$/.test(body.id) ? body.id : "";
+  if (!id) return json(request, { error: "Invalid swap" }, 400);
+  const result = await applyAnswer(db, env, id, typeof body?.answer === "string" ? body.answer : "");
+  if (result === "missing") return json(request, { error: "This swap request has expired." }, 404);
+  if (result === "cancelled") return json(request, { error: "They changed their mind about this swap." }, 409);
+  if (result === "invalid") return json(request, { error: "Pick one of the days." }, 400);
+  return json(request, { ok: true });
 }
 
 export async function handleSwapRequest(request: Request, db: CalendarDatabase | undefined, env: PushEnvironment) {
@@ -192,5 +228,8 @@ export async function handleSwapRequest(request: Request, db: CalendarDatabase |
   if (request.method === "POST" && url.pathname === "/api/swaps") return createRequest(request, db);
   if (request.method === "POST" && url.pathname === "/api/swaps/status") return requestStatuses(request, db);
   if (request.method === "POST" && url.pathname === "/api/swaps/cancel") return cancelRequest(request, db);
+  if (request.method === "POST" && url.pathname === "/api/swaps/answer") return answerJson(request, db, env);
+  const view = url.pathname.match(/^\/api\/swaps\/([A-Za-z0-9_-]{16,40})$/);
+  if (request.method === "GET" && view) return viewJson(request, db, view[1]);
   return json(request, { error: "Not found" }, 404);
 }

@@ -8276,3 +8276,217 @@ html {
   color: white;
   background: var(--blue);
 }
+
+/* ---------- swaps inside the team ---------- */
+
+.match-in-app {
+  color: var(--blue);
+}
+
+.match-in-app.is-error {
+  color: var(--danger);
+}
+
+.swap-answer-shift {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 10px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.swap-answer-shift span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.swap-answer-shift b {
+  font-size: 16px;
+}
+
+.button.swap-answer-no {
+  margin-top: 8px;
+}
+
+.swap-answer-sheet .spin {
+  animation: spin 900ms linear infinite;
+}
+
+/* ---------- locked names & team members ---------- */
+
+.settings-name-locked {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-name-locked > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.settings-name-locked b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.settings-name-locked b svg,
+.team-join-locked svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.settings-name-locked > button {
+  justify-self: start;
+  padding: 0;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.team-join-locked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 17px;
+}
+
+.team-join-name small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.team-members {
+  display: grid;
+  gap: 8px;
+  margin: -6px 0 14px;
+}
+
+.team-members ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.team-members li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 12px;
+}
+
+.team-members li + li {
+  border-top: 1px solid var(--line);
+}
+
+.team-member-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.team-member-name small {
+  padding: 2px 7px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.team-member-name small.owner {
+  color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 40%, var(--line));
+}
+
+.team-member-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.team-member-actions button {
+  padding: 0;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.team-member-actions button.confirm,
+.team-member-actions button:last-child:not(:first-child) {
+  color: var(--danger);
+}
+
+.team-member-rename {
+  flex: 1;
+}
+
+.team-member-rename select {
+  height: 38px;
+  font-size: 14px;
+}
+
+.team-request {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--amber) 12%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--line));
+  border-radius: 13px;
+  font-size: 13.5px;
+}
+
+.team-request-actions,
+.name-request-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.team-request-actions .button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.scan-person-names button.on {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.button.scan-person-confirm {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+}

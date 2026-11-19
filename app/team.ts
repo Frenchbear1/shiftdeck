@@ -18,12 +18,21 @@ export type Team = {
   members?: string[];
   /** Everyone on the team (including you), for picking who gets something. */
   people?: TeamPerson[];
+  /** The member who runs the team (renames and removes people). */
+  ownerId?: string;
+  /** Names on members' schedules. */
+  roster?: string[];
 };
+
+/** A name change waiting on the owner. */
+export type NameRequest = { id: string; memberId: string; from: string; name: string; createdAt: string };
 
 export type TeamPerson = { id: string; name: string };
 
 export type TeamPost = {
   id: string;
+  /** "share" (schedules, directory, contacts) or "swap" (a swap request; shareId is the swap's id). */
+  kind?: "share" | "swap";
   shareId: string;
   from: string;
   what: string;
@@ -128,7 +137,10 @@ export async function createTeam(
   const result = await call<{ id: string; name: string; memberId: string; memberToken: string }>(service, "/api/teams", {
     teamName, name, joinSecret, roster, ...profileFields(profile),
   });
-  return { id: result.id, name: result.name, key, joinSecret, memberId: result.memberId, memberToken: result.memberToken, members: [name] };
+  return {
+    id: result.id, name: result.name, key, joinSecret, memberId: result.memberId, memberToken: result.memberToken,
+    members: [name], ownerId: result.memberId,
+  };
 }
 
 /** The team's name, who's on it, and the names on its schedules (to pick yours from). */
@@ -136,15 +148,29 @@ export const previewTeam = (service: string, invite: TeamInvite) =>
   call<{ name: string; members: string[]; roster?: string[] }>(service, `/api/teams/${invite.id}/preview`, { joinSecret: invite.joinSecret });
 
 export async function joinTeam(service: string, invite: TeamInvite, { name, profile }: { name: string; profile?: Profile }): Promise<Team> {
-  const result = await call<{ id: string; name: string; memberId: string; memberToken: string }>(service, `/api/teams/${invite.id}/join`, {
+  const result = await call<{ id: string; name: string; memberId: string; memberToken: string; ownerId?: string }>(service, `/api/teams/${invite.id}/join`, {
     joinSecret: invite.joinSecret, name, ...profileFields(profile),
   });
-  return { id: result.id, name: result.name, key: invite.key, joinSecret: invite.joinSecret, memberId: result.memberId, memberToken: result.memberToken };
+  return {
+    id: result.id, name: result.name, key: invite.key, joinSecret: invite.joinSecret,
+    memberId: result.memberId, memberToken: result.memberToken, ownerId: result.ownerId,
+  };
 }
 
 /** Also adds the names on this phone's schedules to the team's list (`roster`). */
 export const teamState = (service: string, team: Team, profile?: Profile, roster?: string[]) =>
-  call<{ name: string; me?: string; members: string[]; people?: TeamPerson[]; posts: TeamPost[] }>(service, `/api/teams/${team.id}/state`, {
+  call<{
+    name: string;
+    me?: string;
+    /** Your name on the team; it's what this phone's name is locked to. */
+    myName?: string;
+    owner?: string | null;
+    roster?: string[];
+    requests?: NameRequest[];
+    members: string[];
+    people?: TeamPerson[];
+    posts: TeamPost[];
+  }>(service, `/api/teams/${team.id}/state`, {
     memberId: team.memberId, memberToken: team.memberToken, ...(roster?.length ? { roster } : {}), ...profileFields(profile),
   });
 
@@ -158,6 +184,32 @@ export async function postToTeam(service: string, team: Team, share: SharePackag
     memberId: team.memberId, memberToken: team.memberToken, shareId, what, ...(to?.length ? { to } : {}),
   });
 }
+
+/** Sends a swap request to one teammate inside the app (the swap is registered first). */
+export const postSwapToTeam = (service: string, team: Team, swapId: string, to: string) =>
+  call<{ id: string; notified: number }>(service, `/api/teams/${team.id}/posts`, {
+    memberId: team.memberId, memberToken: team.memberToken, kind: "swap", shareId: swapId, to: [to],
+  });
+
+const auth = (team: Team) => ({ memberId: team.memberId, memberToken: team.memberToken });
+
+/** Owner: change anyone's name (yours included). */
+export const renameMember = (service: string, team: Team, targetId: string, name: string) =>
+  call<{ ok: boolean; name: string }>(service, `/api/teams/${team.id}/rename`, { ...auth(team), targetId, name });
+
+/** Owner: take someone off the team. */
+export const removeMember = (service: string, team: Team, targetId: string) =>
+  call<{ ok: boolean }>(service, `/api/teams/${team.id}/remove`, { ...auth(team), targetId });
+
+/** Ask the owner to change your name (the owner's own change goes straight through). */
+export const requestNameChange = (service: string, team: Team, name: string) =>
+  call<{ ok: boolean; pending?: boolean; name?: string }>(service, `/api/teams/${team.id}/name-request`, { ...auth(team), name });
+
+/** Owner: approve or turn down a name change (a member can withdraw their own). */
+export const decideNameRequest = (service: string, team: Team, requestId: string, approve: boolean) =>
+  call<{ ok: boolean }>(service, `/api/teams/${team.id}/decide`, { ...auth(team), requestId, approve });
+
+export const isOwner = (team: Team | null) => Boolean(team && team.ownerId && team.ownerId === team.memberId);
 
 /** Teammates other than you. */
 export const teammates = (team: Team | null) =>

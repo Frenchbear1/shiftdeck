@@ -85,3 +85,12 @@ test("what's being sent reads naturally", async () => {
   assert.equal(describeShare({ weeks: [["2026-11-22", "2026-11-28"]] }), "the Nov 22 – 28 schedule");
   assert.equal(describeShare({ weeks: [["2026-11-22"], ["2026-11-29"]], directory: true, contacts: true }), "2 schedules, the directory and coworker contacts");
 });
+
+test("only the team's owner counts as the owner", async () => {
+  const team = await import("../app/team.ts");
+  assert.equal(team.isOwner({ id: "t", memberId: "a", ownerId: "a" }), true);
+  assert.equal(team.isOwner({ id: "t", memberId: "b", ownerId: "a" }), false);
+  assert.equal(team.isOwner({ id: "t", memberId: "b" }), false, "unknown owner is not you");
+  assert.equal(team.isOwner(null), false);
+  assert.deepEqual(team.teammates({ memberId: "a", people: [{ id: "a", name: "David" }, { id: "b", name: "Nicole" }] }).map((p) => p.name), ["Nicole"]);
+});

@@ -124,3 +124,31 @@ export function mergeSwapStatuses(swaps: SentSwap[], byId: Map<string, SwapStatu
   });
   return changed ? next : swaps;
 }
+
+export type SwapView = {
+  from: string;
+  to: string;
+  give: { date: string; start: string; end: string } | null;
+  take: { date: string; start: string; end: string } | null;
+  options: Array<{ date: string; start: string; end: string }>;
+  status: "waiting" | "yes" | "no" | "cancelled";
+};
+
+/** A swap request a teammate sent inside the app. */
+export async function viewSwap(service: string, id: string): Promise<SwapView> {
+  const response = await fetch(`${service}/api/swaps/${id}`, { cache: "no-store" });
+  const result = await response.json().catch(() => ({})) as SwapView & { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "This swap request couldn’t be opened.");
+  return result;
+}
+
+/** Answers it: "yes", "yes:<option>" or "no". */
+export async function answerSwap(service: string, id: string, answer: string) {
+  const response = await fetch(`${service}/api/swaps/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ id, answer }),
+  });
+  const result = await response.json().catch(() => ({})) as { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Your answer couldn’t be sent. Try again.");
+}

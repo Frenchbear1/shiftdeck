@@ -1,6 +1,6 @@
 "use client";
 
-import { BookUser, CalendarDays, Check, ChevronDown, Copy, LoaderCircle, Send, UserPlus, Users, X } from "lucide-react";
+import { BookUser, CalendarDays, Check, ChevronDown, Copy, LoaderCircle, Lock, Send, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { backdropClose } from "./home-sections";
 import type { Contacts } from "./contacts-data";
@@ -15,7 +15,7 @@ import {
   type ShareManifest,
   type SharePackage,
 } from "./share-data";
-import { teamInText, teammates, type Team, type TeamInvite } from "./team";
+import { isOwner, teamInText, teammates, type NameRequest, type Team, type TeamInvite } from "./team";
 
 export type { ShareableDocument };
 
@@ -126,6 +126,111 @@ export function RecipientPicker({ team, value, onChange }: {
 
 /* ---------- the team card (in the share sheet) ---------- */
 
+/** Who's on the team. The owner can rename or remove anyone and decide name changes. */
+function TeamMembers({ team, requests, onRename, onRemove, onDecide }: {
+  team: Team;
+  requests: NameRequest[];
+  onRename: (memberId: string, name: string) => Promise<void>;
+  onRemove: (memberId: string) => Promise<void>;
+  onDecide: (requestId: string, approve: boolean) => Promise<void>;
+}) {
+  const owner = isOwner(team);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [problem, setProblem] = useState("");
+  const people = team.people ?? [];
+  if (!people.length) return null;
+  const key = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
+  const run = async (action: () => Promise<void>) => {
+    setProblem("");
+    try {
+      await action();
+    } catch (failure) {
+      setProblem(failure instanceof Error ? failure.message : "That didn’t work.");
+    }
+  };
+  return (
+    <div className="team-members">
+      {owner && requests.filter((request) => request.memberId !== team.memberId).map((request) => (
+        <div key={request.id} className="team-request">
+          <span><b>{request.from}</b> asks to be <b>{request.name}</b></span>
+          <span className="team-request-actions">
+            <button type="button" className="button soft" onClick={() => void run(() => onDecide(request.id, false))}>Deny</button>
+            <button type="button" className="button primary" onClick={() => void run(() => onDecide(request.id, true))}>Approve</button>
+          </span>
+        </div>
+      ))}
+      <ul>
+        {people.map((member) => {
+          const me = member.id === team.memberId;
+          const isTheOwner = member.id === team.ownerId;
+          return (
+            <li key={member.id}>
+              {editing === member.id ? (
+                <span className="team-join-select team-member-rename">
+                  <select
+                    autoFocus
+                    defaultValue=""
+                    aria-label={`New name for ${member.name}`}
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      setEditing(null);
+                      if (name) void run(() => onRename(member.id, name));
+                    }}
+                    onBlur={() => setEditing(null)}
+                  >
+                    <option value="" disabled>Rename {member.name.split(" ")[0]} to…</option>
+                    {(team.roster ?? []).filter((name) =>
+                      key(name) === key(member.name) || !people.some((other) => key(other.name) === key(name)),
+                    ).map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown aria-hidden="true" />
+                </span>
+              ) : (
+                <span className="team-member-name">
+                  {member.name}
+                  {me && <small>You</small>}
+                  {isTheOwner && <small className="owner">Owner</small>}
+                </span>
+              )}
+              {owner && editing !== member.id && (
+                <span className="team-member-actions">
+                  <button type="button" onClick={() => setEditing(member.id)}>Rename</button>
+                  {!me && (
+                    <button
+                      type="button"
+                      className={removing === member.id ? "confirm" : ""}
+                      onClick={() => {
+                        if (removing === member.id) {
+                          setRemoving(null);
+                          void run(() => onRemove(member.id));
+                        } else {
+                          setRemoving(member.id);
+                          window.setTimeout(() => setRemoving((current) => current === member.id ? null : current), 3500);
+                        }
+                      }}
+                    >
+                      {removing === member.id ? "Tap to remove" : "Remove"}
+                    </button>
+                  )}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
+      <p className="share-note">
+        {owner
+          ? "You run this team: names are locked, and only you can change or remove them."
+          : "Names are locked. Only the owner can change them; ask from Settings → your name."}
+      </p>
+    </div>
+  );
+}
+
 function TeamCard({ team, person, inviteUrl, onCreateTeam, onLeaveTeam }: {
   team: Team | null;
   person: string;
@@ -230,7 +335,7 @@ function TeamCard({ team, person, inviteUrl, onCreateTeam, onLeaveTeam }: {
 
 export function ShareSheet({
   schedules, today, directory, contacts, person, loadFile,
-  team, inviteUrl, onCreateTeam, onLeaveTeam, onSendToTeam, onOpenInvite, onClose,
+  team, inviteUrl, onCreateTeam, onLeaveTeam, onSendToTeam, requests, onRename, onRemove, onDecide, onOpenInvite, onClose,
 }: {
   schedules: ShareableDocument[];
   today: string;
@@ -244,6 +349,10 @@ export function ShareSheet({
   onLeaveTeam: () => void;
   /** Resolves with how many teammates got a notification. `to` empty = everyone. */
   onSendToTeam: (share: SharePackage, what: string, to: string[]) => Promise<number>;
+  requests: NameRequest[];
+  onRename: (memberId: string, name: string) => Promise<void>;
+  onRemove: (memberId: string) => Promise<void>;
+  onDecide: (requestId: string, approve: boolean) => Promise<void>;
   /** An invite someone sent, pasted here (iPhone links open in Safari, not the app). */
   onOpenInvite: (invite: TeamInvite) => void;
   onClose: () => void;
@@ -311,6 +420,7 @@ export function ShareSheet({
           ) : (
             <>
               <TeamCard team={team} person={person} inviteUrl={inviteUrl} onCreateTeam={onCreateTeam} onLeaveTeam={onLeaveTeam} />
+              {team && <TeamMembers team={team} requests={requests} onRename={onRename} onRemove={onRemove} onDecide={onDecide} />}
               {team && (
                 <>
                   <p className="share-section-title">Schedules</p>
@@ -522,7 +632,7 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
                       I’m not on it
                     </button>
                   </div>
-                  <p className="share-note">Saved on this phone so your hours are picked out automatically. You can change it in Settings.</p>
+                  <p className="share-note">This locks your name on this phone. Only your team’s owner can change it later.</p>
                 </>
               )}
               {(directoryMerge || contactsMerge) && <p className="share-section-title">Also shared</p>}
@@ -595,7 +705,7 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
 
 const SOMEONE_ELSE = "__someone-else__";
 
-export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJoin, onClose }: {
+export function TeamJoinSheet({ preview, error, leaving, link, defaultName, lockedName, onJoin, onClose }: {
   preview: { name: string; members: string[]; roster?: string[] } | null;
   error: string;
   /** The other team this phone is on, which joining would leave. */
@@ -603,6 +713,8 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
   /** On an iPhone in Safari: the invite to paste into the Home Screen app instead. */
   link?: string;
   defaultName: string;
+  /** This phone's name is already chosen (and locked): it joins with that. */
+  lockedName?: string;
   onJoin: (name: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -620,8 +732,8 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
   const roster = fromSettings ? [fromSettings, ...listed.filter((name) => key(name) !== key(fromSettings))] : listed;
   const joined = new Set((preview?.members ?? []).map(key));
   const selected = choice ?? (roster.length ? fromSettings : SOMEONE_ELSE);
-  const typing = selected === SOMEONE_ELSE;
-  const name = typing ? typed.trim() : selected;
+  const typing = !lockedName && selected === SOMEONE_ELSE;
+  const name = lockedName ?? (typing ? typed.trim() : selected);
 
   return (
     <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
@@ -684,6 +796,13 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
                 </small>
               </div>
               {leaving && <p className="share-iphone"><small>Joining leaves {leaving}.</small></p>}
+              {lockedName ? (
+                <div className="team-join-name">
+                  <span>Joining as</span>
+                  <b className="team-join-locked"><Lock aria-hidden="true" /> {lockedName}</b>
+                  <small>Your name is locked on this phone. If it’s wrong, the team’s owner can change it after you join.</small>
+                </div>
+              ) : (
               <label className="team-join-name">
                 <span>Which name is yours?</span>
                 {roster.length > 0 && (
@@ -714,7 +833,9 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
                     maxLength={40}
                   />
                 )}
+                <small>This name gets locked to this phone. Only the team’s owner can change it later.</small>
               </label>
+              )}
               {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
               <button type="submit" className="button primary share-make" disabled={busy || !name}>
                 {busy ? <><LoaderCircle className="spin" /> Joining…</> : <><UserPlus /> Join team</>}

@@ -124,6 +124,8 @@ export function ScheduleImportPreview({
   const dialog = useRef<HTMLDialogElement>(null);
   const stageElement = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  // Picking your name is two taps (pick, then confirm), since it gets locked.
+  const [pickedPerson, setPickedPerson] = useState<string | null>(null);
   const [frames, setFrames] = useState<{ current: PhotoFrame; previous?: PhotoFrame }>();
   const [selected, setSelected] = useState<{ index: number; id: string }>();
   const [failedSource, setFailedSource] = useState<Blob>();
@@ -246,12 +248,25 @@ export function ScheduleImportPreview({
       {personChoices && (
         <section className="scan-person-picker" aria-labelledby="scan-person-title">
           <h3 id="scan-person-title">Which name is yours?</h3>
-          <p>Shiftdeck remembers it on this device. You can change it in Settings.</p>
+          <p>This locks your name on this phone. Only your team’s owner can change it later, so pick carefully.</p>
           <div className="scan-person-names">
             {personChoices.map((name) => (
-              <button type="button" key={name} onClick={() => onChoosePerson?.(name)}>{name}</button>
+              <button
+                type="button"
+                key={name}
+                className={pickedPerson === name ? "on" : ""}
+                aria-pressed={pickedPerson === name}
+                onClick={() => setPickedPerson(name)}
+              >
+                {name}
+              </button>
             ))}
           </div>
+          {pickedPerson && (
+            <button type="button" className="button primary scan-person-confirm" onClick={() => onChoosePerson?.(pickedPerson)}>
+              I’m {pickedPerson}
+            </button>
+          )}
           <button type="button" className="scan-person-skip" onClick={() => onChoosePerson?.(null)}>
             I’m not on this schedule
           </button>

@@ -7,7 +7,12 @@
  * shares.ts). This keeps the team's name, members' first names, and each
  * post's sender and a short "what" line, so the bell can say
  * "David shared Nov 22 – 28". A post can go to everyone or to picked
- * members only; only they see it and get the push.
+ * members only; only they see it and get the push. A post can also be a
+ * shift swap request sent to one teammate inside the app.
+ *
+ * Names are who's who: each name is on a team once, and only the team's
+ * owner (whoever started it) can change or remove anyone. Members ask the
+ * owner to change their name.
  */
 import { corsHeaders, json, type CalendarDatabase } from "./calendar-service";
 import { ownsNotificationProfile, sendProfilePush, type PushEnvironment } from "./push-service";
@@ -48,6 +53,17 @@ async function ensureSchema(db: CalendarDatabase) {
   await db.prepare("ALTER TABLE team_posts ADD COLUMN recipients TEXT").run().catch(() => undefined);
   // Names on members' schedules, so someone joining picks theirs from a list.
   await db.prepare("ALTER TABLE teams ADD COLUMN roster TEXT").run().catch(() => undefined);
+  // Whoever started the team (older teams: the first member) runs it.
+  await db.prepare("ALTER TABLE teams ADD COLUMN owner_id TEXT").run().catch(() => undefined);
+  // What a post is: something shared (null) or a shift swap request ("swap").
+  await db.prepare("ALTER TABLE team_posts ADD COLUMN kind TEXT").run().catch(() => undefined);
+  await db.prepare(`CREATE TABLE IF NOT EXISTS team_name_requests (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`).run();
   schemaReady = true;
 }
 
@@ -81,6 +97,23 @@ function cleanRoster(...lists: unknown[]) {
     }
   }
   return [...seen.values()].sort((a, b) => a.localeCompare(b)).slice(0, ROSTER_LIMIT);
+}
+
+const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
+
+/** The member who runs the team. */
+async function ownerOf(db: CalendarDatabase, team: { id: string; owner_id?: string | null }) {
+  if (team.owner_id) return team.owner_id;
+  const first = await db.prepare("SELECT member_id FROM team_members WHERE team_id = ?1 ORDER BY joined_at LIMIT 1")
+    .bind(team.id).first<{ member_id: string }>();
+  return first?.member_id ?? null;
+}
+
+/** Who already has this name on the team (other than `except`). */
+async function nameTakenBy(db: CalendarDatabase, teamId: string, name: string, except?: string) {
+  const rows = await db.prepare("SELECT member_id, name FROM team_members WHERE team_id = ?1")
+    .bind(teamId).all<{ member_id: string; name: string }>();
+  return (rows.results ?? []).find((row) => row.member_id !== except && nameKey(row.name) === nameKey(name)) ?? null;
 }
 
 const parseRoster = (value: string | null | undefined) => {
@@ -142,12 +175,14 @@ async function createTeam(request: Request, db: CalendarDatabase) {
   await db.prepare("INSERT INTO teams (id, name, join_hash, created_at, roster) VALUES (?1, ?2, ?3, ?4, ?5)")
     .bind(id, name, await sha256(joinSecret), Date.now(), JSON.stringify(cleanRoster(body.roster)))
     .run();
-  return json(request, { id, name, ...(await addMember(request, db, id, body)) }, 201);
+  const owner = await addMember(request, db, id, body);
+  await db.prepare("UPDATE teams SET owner_id = ?2 WHERE id = ?1").bind(id, owner.memberId).run();
+  return json(request, { id, name, ...owner, ownerId: owner.memberId }, 201);
 }
 
 async function teamFor(db: CalendarDatabase, id: string) {
-  return db.prepare("SELECT id, name, join_hash, roster FROM teams WHERE id = ?1").bind(id)
-    .first<{ id: string; name: string; join_hash: string; roster: string | null }>();
+  return db.prepare("SELECT id, name, join_hash, roster, owner_id FROM teams WHERE id = ?1").bind(id)
+    .first<{ id: string; name: string; join_hash: string; roster: string | null; owner_id: string | null }>();
 }
 
 async function people(db: CalendarDatabase, teamId: string) {
@@ -188,7 +223,19 @@ async function join(request: Request, db: CalendarDatabase, teamId: string) {
   }
   const count = await db.prepare("SELECT COUNT(*) AS count FROM team_members WHERE team_id = ?1").bind(teamId).first<{ count: number }>();
   if ((count?.count ?? 0) >= 200) return json(request, { error: "This team is full." }, 409);
-  return json(request, { id: team.id, name: team.name, ...(await addMember(request, db, teamId, body)) }, 201);
+  // Each name is on the team once; only the owner can sort out a mix-up.
+  const wanted = clean(body.name, 40);
+  if (wanted && await nameTakenBy(db, teamId, wanted)) {
+    const ownerId = await ownerOf(db, team);
+    const owner = ownerId
+      ? await db.prepare("SELECT name FROM team_members WHERE team_id = ?1 AND member_id = ?2").bind(teamId, ownerId).first<{ name: string }>()
+      : null;
+    return json(request, {
+      error: `${wanted} is already on ${team.name}. If that's you, ask ${owner?.name.split(" ")[0] ?? "the team owner"} to sort it out.`,
+    }, 409);
+  }
+  const ownerId = await ownerOf(db, team);
+  return json(request, { id: team.id, name: team.name, ownerId, ...(await addMember(request, db, teamId, body)) }, 201);
 }
 
 /** A member's view: the team, who's in it, and recent posts. Also links their notifications. */
@@ -216,9 +263,27 @@ async function state(request: Request, db: CalendarDatabase, teamId: string) {
     .all<{ id: string; member_id: string; share_id: string; from_name: string; what: string; created_at: number; expires_at: number; recipients: string | null }>();
   const everyone = await people(db, teamId);
   const nameOf = new Map(everyone.map((row) => [row.member_id, row.name]));
+  const ownerId = await ownerOf(db, team);
+  const requests = await db.prepare("SELECT id, member_id, name, created_at FROM team_name_requests WHERE team_id = ?1 ORDER BY created_at")
+    .bind(teamId).all<{ id: string; member_id: string; name: string; created_at: number }>();
+  const pending = (requests.results ?? []).filter((row) => nameOf.has(row.member_id));
+  const kinds = await db.prepare("SELECT id, kind FROM team_posts WHERE team_id = ?1 AND kind IS NOT NULL")
+    .bind(teamId).all<{ id: string; kind: string }>();
+  const kindOf = new Map((kinds.results ?? []).map((row) => [row.id, row.kind]));
   return json(request, {
     name: team.name,
     me: me.member_id,
+    myName: me.name,
+    owner: ownerId,
+    roster: parseRoster(team.roster),
+    // The owner sees everyone's name-change requests; a member sees their own.
+    requests: (me.member_id === ownerId ? pending : pending.filter((row) => row.member_id === me.member_id)).map((row) => ({
+      id: row.id,
+      memberId: row.member_id,
+      from: nameOf.get(row.member_id) ?? "",
+      name: row.name,
+      createdAt: new Date(row.created_at).toISOString(),
+    })),
     members: everyone.map((row) => row.name),
     people: everyone.map((row) => ({ id: row.member_id, name: row.name })),
     posts: (posts.results ?? []).flatMap((post) => {
@@ -228,6 +293,7 @@ async function state(request: Request, db: CalendarDatabase, teamId: string) {
       if (recipients && !mine && !recipients.includes(me.member_id)) return [];
       return [{
         id: post.id,
+        kind: kindOf.get(post.id) ?? "share",
         shareId: post.share_id,
         from: post.from_name,
         what: post.what,
@@ -246,12 +312,18 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
   const team = await teamFor(db, teamId);
   const me = body && team ? await member(db, teamId, body) : null;
   if (!team || !me || !body) return json(request, { error: "You're not on this team anymore." }, 403);
+  const swap = body.kind === "swap";
   const shareId = typeof body.shareId === "string" && ID.test(body.shareId) ? body.shareId : "";
-  const share = shareId
-    ? await db.prepare("SELECT expires_at FROM shares WHERE id = ?1").bind(shareId).first<{ expires_at: number }>()
-    : null;
+  // A swap request points at the swap (which keeps its own expiry); anything else at a share.
+  const share = !shareId
+    ? null
+    : swap
+      ? await db.prepare("SELECT expires_at FROM swap_requests WHERE id = ?1").bind(shareId).first<{ expires_at: string }>()
+        .then((row) => row && { expires_at: Date.parse(row.expires_at) })
+        .catch(() => null)
+      : await db.prepare("SELECT expires_at FROM shares WHERE id = ?1").bind(shareId).first<{ expires_at: number }>();
   if (!share) return json(request, { error: "Nothing to send" }, 400);
-  const what = clean(body.what, 120) || "an update";
+  const what = swap ? "a shift swap" : clean(body.what, 120) || "an update";
   const everyone = await people(db, teamId);
   // To picked teammates only, or (no list, or nobody valid picked) everyone.
   const picked = Array.isArray(body.to)
@@ -259,10 +331,12 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
       .filter((id) => id !== me.member_id && everyone.some((row) => row.member_id === id))
     : [];
   const recipients = picked.length ? picked : null;
+  if (swap && recipients?.length !== 1) return json(request, { error: "A swap goes to one teammate." }, 400);
   const id = newId();
-  await db.prepare(`INSERT INTO team_posts (id, team_id, member_id, share_id, from_name, what, created_at, expires_at, recipients)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`)
-    .bind(id, teamId, me.member_id, shareId, me.name, what, Date.now(), share.expires_at, recipients ? JSON.stringify(recipients) : null)
+  await db.prepare(`INSERT INTO team_posts (id, team_id, member_id, share_id, from_name, what, created_at, expires_at, recipients, kind)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`)
+    .bind(id, teamId, me.member_id, shareId, me.name, what, Date.now(), share.expires_at,
+      recipients ? JSON.stringify(recipients) : null, swap ? "swap" : null)
     .run();
   const profiles = new Set(everyone
     .filter((row) => row.member_id !== me.member_id && row.profile_id && (!recipients || recipients.includes(row.member_id)))
@@ -272,7 +346,7 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
   for (const profileId of profiles) {
     notified += await sendProfilePush(db, env, profileId, {
       title: team.name,
-      body: recipients ? `${first} sent you ${what}` : `${first} shared ${what}`,
+      body: swap ? `${first} wants to swap shifts` : recipients ? `${first} sent you ${what}` : `${first} shared ${what}`,
       tag: `team-${id}`,
       path: "?notifications=1",
     }).catch(() => 0);
@@ -280,11 +354,112 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
   return json(request, { id, notified, to: recipients?.length ?? null }, 201);
 }
 
+/** Tells one member something (if they have notifications on). */
+async function ping(db: CalendarDatabase, env: PushEnvironment, teamId: string, memberId: string, title: string, body: string) {
+  const row = await db.prepare("SELECT profile_id FROM team_members WHERE team_id = ?1 AND member_id = ?2")
+    .bind(teamId, memberId).first<{ profile_id: string | null }>();
+  if (row?.profile_id) {
+    await sendProfilePush(db, env, row.profile_id, { title, body, tag: `team-name-${memberId}`, path: "?notifications=1" }).catch(() => 0);
+  }
+}
+
+async function setName(db: CalendarDatabase, teamId: string, memberId: string, name: string) {
+  await db.prepare("UPDATE team_members SET name = ?3 WHERE team_id = ?1 AND member_id = ?2").bind(teamId, memberId, name).run();
+  await db.prepare("DELETE FROM team_name_requests WHERE team_id = ?1 AND member_id = ?2").bind(teamId, memberId).run();
+}
+
+/** Owner only: rename anyone (including themselves), or remove someone. */
+async function manage(request: Request, db: CalendarDatabase, env: PushEnvironment, teamId: string, action: "rename" | "remove") {
+  const body = await readBody(request);
+  const team = await teamFor(db, teamId);
+  const me = body && team ? await member(db, teamId, body) : null;
+  if (!team || !me || !body) return json(request, { error: "You're not on this team anymore." }, 403);
+  if (await ownerOf(db, team) !== me.member_id) return json(request, { error: "Only the team's owner can do that." }, 403);
+  const targetId = typeof body.targetId === "string" ? body.targetId : "";
+  const target = await db.prepare("SELECT member_id, name FROM team_members WHERE team_id = ?1 AND member_id = ?2")
+    .bind(teamId, targetId).first<{ member_id: string; name: string }>();
+  if (!target) return json(request, { error: "They're not on the team anymore." }, 404);
+  if (action === "remove") {
+    if (target.member_id === me.member_id) return json(request, { error: "You run the team, so you can't remove yourself." }, 400);
+    await db.prepare("DELETE FROM team_members WHERE team_id = ?1 AND member_id = ?2").bind(teamId, target.member_id).run();
+    await db.prepare("DELETE FROM team_name_requests WHERE team_id = ?1 AND member_id = ?2").bind(teamId, target.member_id).run();
+    return json(request, { ok: true });
+  }
+  const name = clean(body.name, 40);
+  if (!name) return json(request, { error: "Pick a name." }, 400);
+  const taken = await nameTakenBy(db, teamId, name, target.member_id);
+  if (taken) return json(request, { error: `${taken.name} is already on the team.` }, 409);
+  await setName(db, teamId, target.member_id, name);
+  if (target.member_id !== me.member_id) {
+    await ping(db, env, teamId, target.member_id, team.name, `Your name is now ${name}`);
+  }
+  return json(request, { ok: true, name });
+}
+
+/** A member asks the owner to change their name. */
+async function requestName(request: Request, db: CalendarDatabase, env: PushEnvironment, teamId: string) {
+  const body = await readBody(request);
+  const team = await teamFor(db, teamId);
+  const me = body && team ? await member(db, teamId, body) : null;
+  if (!team || !me || !body) return json(request, { error: "You're not on this team anymore." }, 403);
+  const name = clean(body.name, 40);
+  if (!name || nameKey(name) === nameKey(me.name)) return json(request, { error: "Pick a different name." }, 400);
+  const taken = await nameTakenBy(db, teamId, name, me.member_id);
+  if (taken) return json(request, { error: `${taken.name} is already on the team.` }, 409);
+  const ownerId = await ownerOf(db, team);
+  if (ownerId === me.member_id) {
+    await setName(db, teamId, me.member_id, name);
+    return json(request, { ok: true, name });
+  }
+  await db.prepare("DELETE FROM team_name_requests WHERE team_id = ?1 AND member_id = ?2").bind(teamId, me.member_id).run();
+  await db.prepare("INSERT INTO team_name_requests (id, team_id, member_id, name, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
+    .bind(newId(), teamId, me.member_id, name, Date.now()).run();
+  if (ownerId) await ping(db, env, teamId, ownerId, team.name, `${me.name.split(" ")[0]} asks to change their name to ${name}`);
+  return json(request, { ok: true, pending: true });
+}
+
+/** The owner approves or turns down a name change. */
+async function decide(request: Request, db: CalendarDatabase, env: PushEnvironment, teamId: string) {
+  const body = await readBody(request);
+  const team = await teamFor(db, teamId);
+  const me = body && team ? await member(db, teamId, body) : null;
+  if (!team || !me || !body) return json(request, { error: "You're not on this team anymore." }, 403);
+  const row = typeof body.requestId === "string"
+    ? await db.prepare("SELECT id, member_id, name FROM team_name_requests WHERE team_id = ?1 AND id = ?2")
+      .bind(teamId, body.requestId).first<{ id: string; member_id: string; name: string }>()
+    : null;
+  if (!row) return json(request, { error: "That request is gone." }, 404);
+  const ownerId = await ownerOf(db, team);
+  // The owner decides; a member can only take back their own request.
+  if (ownerId !== me.member_id && !(row.member_id === me.member_id && body.approve !== true)) {
+    return json(request, { error: "Only the team's owner can do that." }, 403);
+  }
+  if (body.approve === true) {
+    const taken = await nameTakenBy(db, teamId, row.name, row.member_id);
+    if (taken) return json(request, { error: `${taken.name} is already on the team.` }, 409);
+    await setName(db, teamId, row.member_id, row.name);
+    await ping(db, env, teamId, row.member_id, team.name, `Your name is now ${row.name}`);
+  } else {
+    await db.prepare("DELETE FROM team_name_requests WHERE id = ?1").bind(row.id).run();
+    if (row.member_id !== me.member_id) await ping(db, env, teamId, row.member_id, team.name, "Your name change wasn't approved");
+  }
+  return json(request, { ok: true });
+}
+
 async function leave(request: Request, db: CalendarDatabase, teamId: string) {
   const body = await readBody(request);
   const me = body ? await member(db, teamId, body) : null;
   if (me) {
+    const team = await teamFor(db, teamId);
+    const wasOwner = team ? await ownerOf(db, team) === me.member_id : false;
     await db.prepare("DELETE FROM team_members WHERE team_id = ?1 AND member_id = ?2").bind(teamId, me.member_id).run();
+    await db.prepare("DELETE FROM team_name_requests WHERE team_id = ?1 AND member_id = ?2").bind(teamId, me.member_id).run();
+    // The owner leaving hands the team to whoever's been on it longest.
+    if (wasOwner) {
+      const next = await db.prepare("SELECT member_id FROM team_members WHERE team_id = ?1 ORDER BY joined_at LIMIT 1")
+        .bind(teamId).first<{ member_id: string }>();
+      await db.prepare("UPDATE teams SET owner_id = ?2 WHERE id = ?1").bind(teamId, next?.member_id ?? null).run();
+    }
   }
   return json(request, { ok: true });
 }
@@ -299,13 +474,16 @@ export async function handleTeamRequest(request: Request, db: CalendarDatabase |
   if (request.method !== "POST") return json(request, { error: "Not found" }, 404);
   await ensureSchema(db);
   if (url.pathname === "/api/teams") return createTeam(request, db);
-  const match = url.pathname.match(/^\/api\/teams\/([A-Za-z0-9_-]{16,40})\/(preview|join|state|posts|leave)$/);
+  const match = url.pathname.match(/^\/api\/teams\/([A-Za-z0-9_-]{16,40})\/(preview|join|state|posts|leave|rename|remove|name-request|decide)$/);
   if (!match) return json(request, { error: "Not found" }, 404);
   const [, teamId, action] = match;
   if (action === "preview") return preview(request, db, teamId);
   if (action === "join") return join(request, db, teamId);
   if (action === "state") return state(request, db, teamId);
   if (action === "posts") return post(request, db, env, teamId);
+  if (action === "rename" || action === "remove") return manage(request, db, env, teamId, action);
+  if (action === "name-request") return requestName(request, db, env, teamId);
+  if (action === "decide") return decide(request, db, env, teamId);
   return leave(request, db, teamId);
 }
 

@@ -17,6 +17,7 @@ import {
   Mail,
   MessageSquare,
   RefreshCw,
+  Send,
   Sun,
   Undo2,
   UsersRound,
@@ -1475,6 +1476,8 @@ export function SwapSheet({
   swapServiceUrl,
   onSwapSent,
   onCancelSwap,
+  teammateFor,
+  onSendInApp,
   onClose,
 }: {
   shifts: Shift[];
@@ -1490,8 +1493,13 @@ export function SwapSheet({
   swapServiceUrl: string;
   onSwapSent: (swap: SentSwap) => void;
   onCancelSwap: (swap: SentSwap) => void;
+  /** The teammate (member id) with this schedule name, when they're on your team. */
+  teammateFor?: (worker: string) => string | undefined;
+  /** Sends the request inside the app to that teammate. */
+  onSendInApp?: (swap: SentSwap, memberId: string) => Promise<void>;
   onClose: () => void;
 }) {
+  const [inApp, setInApp] = useState<Record<string, "sending" | "error">>({});
   const apple = typeof navigator !== "undefined" && /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent);
 
   const myDays = useMemo(() => {
@@ -1731,6 +1739,20 @@ export function SwapSheet({
                           const latest = sentSwaps
                             .filter((swap) => swap.worker === match.worker && swap.give.date === offDate)
                             .at(-1);
+                          const teammate = teammateFor?.(match.worker);
+                          const sendInApp = async () => {
+                            if (!give || !teammate || !onSendInApp) return;
+                            setInApp((current) => ({ ...current, [match.worker]: "sending" }));
+                            try {
+                              await onSendInApp({
+                                ...newSwapKeys(), worker: match.worker, give, take, ...(options ? { options } : {}),
+                                sentAt: new Date().toISOString(), status: "waiting", seen: true,
+                              }, teammate);
+                              setInApp(({ [match.worker]: _done, ...rest }) => rest);
+                            } catch {
+                              setInApp((current) => ({ ...current, [match.worker]: "error" }));
+                            }
+                          };
                           return (
                             <>
                             {latest && (
@@ -1752,6 +1774,18 @@ export function SwapSheet({
                               </div>
                             )}
                             <div className="match-contact">
+                              {teammate && message && (
+                                <button
+                                  type="button"
+                                  className={`button soft match-in-app${inApp[match.worker] === "error" ? " is-error" : ""}`}
+                                  disabled={inApp[match.worker] === "sending"}
+                                  onClick={() => void sendInApp()}
+                                  title="Sends it to them in Shiftdeck"
+                                >
+                                  {inApp[match.worker] === "sending" ? <Clock3 /> : <Send />}
+                                  {inApp[match.worker] === "error" ? "Try again" : "In app"}
+                                </button>
+                              )}
                               {contact?.email && message && (
                                 <a className="button soft" href={emailLink(contact.email, message)} onClick={send("email")}>
                                   <Mail /> Email
@@ -1764,7 +1798,7 @@ export function SwapSheet({
                               )}
                               {!contact?.email && !contact?.phone ? (
                                 <button type="button" className="match-add-contact" onClick={() => onEditContact(match.worker)}>
-                                  <Plus /> Add email or number
+                                  <Plus /> {teammate ? "Email or number" : "Add email or number"}
                                 </button>
                               ) : (
                                 <button type="button" className="match-edit-contact" onClick={() => onEditContact(match.worker)} aria-label={`Edit ${match.worker}'s contact`}>

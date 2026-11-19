@@ -16,6 +16,7 @@ import {
   Moon,
   Plus,
   Settings,
+  Lock,
   Sun,
   Trash2,
   Upload,
@@ -95,6 +96,8 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
+import { SwapAnswerSheet } from "./swap-answer-sheet";
+import { NameChangeSheet } from "./name-change-sheet";
 import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type QuickMenuStyle } from "./quick-menu";
 import { ShareSheet, SharedImportSheet, TeamJoinSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
@@ -102,6 +105,13 @@ import { buildShare, describeShare } from "./share-build";
 import type { SharePackage } from "./share-data";
 import {
   createTeam,
+  decideNameRequest,
+  isOwner,
+  postSwapToTeam,
+  removeMember,
+  renameMember,
+  requestNameChange,
+  type NameRequest,
   inviteLink,
   joinTeam,
   leaveTeam,
@@ -113,6 +123,7 @@ import {
   saveTeam,
   teamInLocation,
   teamState,
+  teammates,
   type Team,
   type TeamInvite,
   type TeamPost,
@@ -755,6 +766,10 @@ export default function HomePage() {
   // The team this phone is on, what's been sent to it, and which posts were opened.
   const [team, setTeam] = useState<Team | null>(null);
   const [teamPosts, setTeamPosts] = useState<TeamPost[]>([]);
+  // Name changes waiting on the owner (the owner sees everyone's; a member, their own).
+  const [nameRequests, setNameRequests] = useState<NameRequest[]>([]);
+  const [swapAnswerId, setSwapAnswerId] = useState<string | null>(null);
+  const [nameChangeOpen, setNameChangeOpen] = useState(false);
   const [seenPosts, setSeenPosts] = useState<string[]>([]);
   const [invite, setInvite] = useState<{
     invite: TeamInvite;
@@ -886,7 +901,9 @@ export default function HomePage() {
   const airportNoticeCount = visibleAirportAlerts.length;
   const teamInbox = teamPosts.filter((post) => !post.mine);
   const unseenTeamPosts = teamInbox.filter((post) => !seenPosts.includes(post.id)).length;
-  const notificationCount = airportNoticeCount + unseenSwapAnswers + unseenTeamPosts;
+  const ownerRequests = isOwner(team) ? nameRequests.filter((request) => request.memberId !== team?.memberId) : [];
+  const notificationCount = airportNoticeCount + unseenSwapAnswers + unseenTeamPosts + ownerRequests.length;
+  const nameLocked = Boolean(prefs.person) && !isOwner(team);
   const openNotifications = () => airportAlertsDialog.current?.showModal();
   const [notificationsInfo, setNotificationsInfo] = useState(false);
   const dismissAirportAlert = (text: string) => {
@@ -1501,6 +1518,9 @@ export default function HomePage() {
   }, [notificationProfile]);
   // The names on this phone's schedules, for the team's "pick your name" list.
   const rosterRef = useRef<string[]>([]);
+  // For the team check: the name in use, and a way to update it.
+  const personRef = useRef(prefs.person);
+  const savePrefsRef = useRef<(next: Partial<Preferences>) => void>(() => undefined);
   const teamId = team?.id;
   useEffect(() => {
     if (!teamId) return;
@@ -1512,12 +1532,20 @@ export default function HomePage() {
         const state = await teamState(CALENDAR_SERVICE_ORIGIN, current, profileRef.current, rosterRef.current);
         if (cancelled) return;
         setTeamPosts(state.posts);
+        setNameRequests(state.requests ?? []);
         const people = state.people ?? current.people;
+        const ownerId = state.owner ?? current.ownerId;
+        const roster = state.roster ?? current.roster;
         if (state.name !== current.name ||
           state.members.join("|") !== (current.members ?? []).join("|") ||
-          (people ?? []).map((person) => person.id).join("|") !== (current.people ?? []).map((person) => person.id).join("|")) {
-          updateTeam({ ...current, name: state.name, members: state.members, people });
+          ownerId !== current.ownerId ||
+          (roster ?? []).join("|") !== (current.roster ?? []).join("|") ||
+          (people ?? []).map((person) => `${person.id}:${person.name}`).join("|") !==
+            (current.people ?? []).map((person) => `${person.id}:${person.name}`).join("|")) {
+          updateTeam({ ...current, name: state.name, members: state.members, people, ownerId, roster });
         }
+        // Your name on the team is the one this phone uses; only the owner changes it.
+        if (state.myName && state.myName !== personRef.current) savePrefsRef.current({ person: state.myName });
       } catch (problem) {
         // Removed from the team (or it's gone): forget it here too.
         if (!cancelled && (problem as { status?: number }).status === 403) updateTeam(null);
@@ -1900,6 +1928,10 @@ export default function HomePage() {
       setEvents(eventsFor(baseImportedShifts, next.person));
     }
   };
+  useEffect(() => {
+    personRef.current = prefs.person;
+    savePrefsRef.current = savePrefs;
+  });
 
   const updateNotificationAlert = (
     index: number,
@@ -3139,7 +3171,11 @@ export default function HomePage() {
                   <li key={post.id} className={seenPosts.includes(post.id) ? "" : "is-new"}>
                     <span className="swap-reply-icon"><Users /></span>
                     <div>
-                      <b>{post.from.split(" ")[0]} {post.direct ? "sent you" : "shared"} {post.what}</b>
+                      <b>
+                        {post.kind === "swap"
+                          ? `${post.from.split(" ")[0]} wants to swap shifts`
+                          : `${post.from.split(" ")[0]} ${post.direct ? "sent you" : "shared"} ${post.what}`}
+                      </b>
                       <small>{formatUpdatedAt(post.createdAt)}</small>
                     </div>
                     <button
@@ -3148,17 +3184,58 @@ export default function HomePage() {
                       onClick={() => {
                         markPostsSeen([post.id]);
                         airportAlertsDialog.current?.close();
-                        if (team) openIncomingShare({ id: post.shareId, key: team.key });
+                        if (post.kind === "swap") setSwapAnswerId(post.shareId);
+                        else if (team) openIncomingShare({ id: post.shareId, key: team.key });
                       }}
                     >
-                      Open
+                      {post.kind === "swap" ? "View" : "Open"}
                     </button>
                   </li>
                 ))}
               </ul>
             </section>
           )}
-          {!liveSwapReplies.length && !airportNoticeCount && !teamInbox.length && (
+          {ownerRequests.length > 0 && team && (
+            <section className="notice-group" aria-label="Name changes">
+              <h3>Name changes</h3>
+              <ul className="swap-reply-list team-post-list">
+                {ownerRequests.map((request) => (
+                  <li key={request.id} className="is-new">
+                    <span className="swap-reply-icon"><Users /></span>
+                    <div>
+                      <b>{request.from} asks to be {request.name}</b>
+                      <small>On {team.name} · {formatUpdatedAt(request.createdAt)}</small>
+                    </div>
+                    <span className="name-request-actions">
+                      <button
+                        type="button"
+                        className="airport-alert-dismiss"
+                        onClick={() => {
+                          setNameRequests((current) => current.filter((item) => item.id !== request.id));
+                          void decideNameRequest(CALENDAR_SERVICE_ORIGIN, team, request.id, false).catch(() => undefined);
+                        }}
+                      >
+                        Deny
+                      </button>
+                      <button
+                        type="button"
+                        className="airport-alert-dismiss team-post-open"
+                        onClick={() => {
+                          setNameRequests((current) => current.filter((item) => item.id !== request.id));
+                          decideNameRequest(CALENDAR_SERVICE_ORIGIN, team, request.id, true)
+                            .then(() => setToast(`${request.from.split(" ")[0]} is now ${request.name}`))
+                            .catch((problem: unknown) => setToast(problem instanceof Error ? problem.message : "Couldn’t approve that."));
+                        }}
+                      >
+                        Approve
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {!liveSwapReplies.length && !airportNoticeCount && !teamInbox.length && !ownerRequests.length && (
             <div className="notifications-empty">
               <Bell aria-hidden="true" />
               <p>You’re all caught up</p>
@@ -3311,6 +3388,28 @@ export default function HomePage() {
               prefs.person,
               notificationPermission === "granted" ? notificationProfile : null,
             );
+            updateSentSwaps((current) => [...current.filter((item) => isLiveSwap(item, todayDate)), swap].slice(-60));
+          }}
+          teammateFor={(worker) => {
+            const key = worker.toLowerCase().replace(/[^a-z]/g, "");
+            return teammates(team).find((person) => person.name.toLowerCase().replace(/[^a-z]/g, "") === key)?.id;
+          }}
+          onSendInApp={async (swap, memberId) => {
+            if (!team) throw new Error("Not on a team");
+            // Registered first (the request has to exist before the teammate can open it).
+            const registered = await fetch(`${calendarServiceUrl("")}/api/swaps`, {
+              method: "POST",
+              headers: { "Content-Type": "text/plain" },
+              body: JSON.stringify({
+                id: swap.id, token: swap.token, from: prefs.person, to: swap.worker, give: swap.give, take: swap.take,
+                options: swap.options,
+                ...(notificationPermission === "granted" && notificationProfile
+                  ? { profileId: notificationProfile.id, profileToken: notificationProfile.writeToken }
+                  : {}),
+              }),
+            });
+            if (!registered.ok) throw new Error("Couldn’t send");
+            await postSwapToTeam(CALENDAR_SERVICE_ORIGIN, team, swap.id, memberId);
             updateSentSwaps((current) => [...current.filter((item) => isLiveSwap(item, todayDate)), swap].slice(-60));
           }}
           onCancelSwap={(swap) => {
@@ -3714,9 +3813,32 @@ export default function HomePage() {
               </div>
             </header>
             <div className="settings-name-row">
+              {nameLocked ? (
+                <div className="settings-name-locked">
+                  <span>Your name on the schedule</span>
+                  <b><Lock aria-hidden="true" /> {prefs.person}</b>
+                  <button type="button" onClick={() => {
+                    setSettingsOpen(false);
+                    setNameChangeOpen(true);
+                  }}>
+                    {team && nameRequests.some((request) => request.memberId === team.memberId) ? "Change requested" : "Request a change"}
+                  </button>
+                </div>
+              ) : (
               <label>
                 <span>Your name on the schedule</span>
-                <select value={prefs.person} onChange={(event) => savePrefs({ person: event.target.value })}>
+                <select
+                  value={prefs.person}
+                  onChange={(event) => {
+                    const person = event.target.value;
+                    savePrefs({ person });
+                    // The owner's own name changes on the team too.
+                    if (team && isOwner(team)) {
+                      void renameMember(CALENDAR_SERVICE_ORIGIN, team, team.memberId, person)
+                        .catch((problem: unknown) => setToast(problem instanceof Error ? problem.message : "Your team name didn’t change."));
+                    }
+                  }}
+                >
                   {!prefs.person && <option value="" disabled>Choose your name</option>}
                   {availableWorkers.map((worker) => (
                     <option value={worker} key={worker}>
@@ -3726,6 +3848,7 @@ export default function HomePage() {
                 </select>
                 <ChevronDown />
               </label>
+              )}
               <button
                 type="button"
                 className="button soft settings-merge"
@@ -3896,11 +4019,60 @@ export default function HomePage() {
             if (leaving) void leaveTeam(CALENDAR_SERVICE_ORIGIN, leaving).catch(() => undefined);
           }}
           onSendToTeam={sendToTeam}
+          requests={nameRequests}
+          onRename={async (memberId, name) => {
+            if (!team) return;
+            await renameMember(CALENDAR_SERVICE_ORIGIN, team, memberId, name);
+            if (memberId === team.memberId) savePrefs({ person: name });
+            updateTeam({ ...team, people: team.people?.map((person) => person.id === memberId ? { ...person, name } : person) });
+          }}
+          onRemove={async (memberId) => {
+            if (!team) return;
+            await removeMember(CALENDAR_SERVICE_ORIGIN, team, memberId);
+            updateTeam({ ...team, people: team.people?.filter((person) => person.id !== memberId) });
+          }}
+          onDecide={async (requestId, approve) => {
+            if (!team) return;
+            await decideNameRequest(CALENDAR_SERVICE_ORIGIN, team, requestId, approve);
+            setNameRequests((current) => current.filter((item) => item.id !== requestId));
+          }}
           onOpenInvite={(key) => {
             setShareOpen(false);
             openInvite(key);
           }}
           onClose={() => setShareOpen(false)}
+        />
+      )}
+
+      {swapAnswerId && (
+        <SwapAnswerSheet
+          swapId={swapAnswerId}
+          service={calendarServiceUrl("")}
+          onAnswered={() => undefined}
+          onClose={() => setSwapAnswerId(null)}
+        />
+      )}
+
+      {nameChangeOpen && (
+        <NameChangeSheet
+          current={prefs.person}
+          team={team}
+          pending={team ? nameRequests.find((request) => request.memberId === team.memberId) ?? null : null}
+          names={[...new Set([...(team?.roster ?? []), ...availableWorkers])].sort((a, b) => a.localeCompare(b))}
+          taken={(team?.people ?? []).filter((person) => person.id !== team?.memberId).map((person) => person.name)}
+          onRequest={async (name) => {
+            if (!team) return;
+            const result = await requestNameChange(CALENDAR_SERVICE_ORIGIN, team, name);
+            if (result.name) savePrefs({ person: result.name });
+            const state = await teamState(CALENDAR_SERVICE_ORIGIN, team).catch(() => null);
+            if (state) setNameRequests(state.requests ?? []);
+          }}
+          onWithdraw={async (requestId) => {
+            if (!team) return;
+            await decideNameRequest(CALENDAR_SERVICE_ORIGIN, team, requestId, false);
+            setNameRequests((current) => current.filter((item) => item.id !== requestId));
+          }}
+          onClose={() => setNameChangeOpen(false)}
         />
       )}
 
@@ -3911,12 +4083,14 @@ export default function HomePage() {
           leaving={team && team.id !== invite.invite.id ? team.name : undefined}
           link={invite.link}
           defaultName={prefs.person}
+          lockedName={prefs.person || undefined}
           onJoin={async (name) => {
             const previous = team;
             const joined = await joinTeam(CALENDAR_SERVICE_ORIGIN, invite.invite, { name, profile: notificationProfile });
             if (previous && previous.id !== joined.id) void leaveTeam(CALENDAR_SERVICE_ORIGIN, previous).catch(() => undefined);
             updateTeam({ ...joined, members: [...(invite.preview?.members ?? []), name] });
-            if (!prefs.person) savePrefs({ person: name });
+            // The name joined with is this phone's name from now on (locked).
+            savePrefs({ person: name });
             setInvite(null);
             setToast(notificationProfile
               ? `You joined ${joined.name}`
