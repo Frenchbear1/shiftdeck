@@ -1038,6 +1038,7 @@ export default function HomePage() {
   const [stateChanged, setStateChanged] = useState(0);
   const pushStateSoon = () => setStateChanged((count) => count + 1);
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
+  const notificationsBackdrop = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   // Android's picker hides the gallery and camera when PDFs are also allowed,
   // so it only offers photos there.
@@ -3579,6 +3580,19 @@ export default function HomePage() {
         ref={airportAlertsDialog}
         className="panel-sheet airport-alerts-sheet"
         aria-labelledby="airport-alerts-title"
+        // Like every other popup, a tap outside it closes it (taps on the dim
+        // backdrop land on the dialog itself, outside its box).
+        onPointerDown={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          notificationsBackdrop.current = event.target === event.currentTarget && (
+            event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom);
+        }}
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          const outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+          if (notificationsBackdrop.current && event.target === event.currentTarget && outside) event.currentTarget.close();
+          notificationsBackdrop.current = false;
+        }}
         onClose={() => {
           // Answers shown while the popup was open count as seen.
           updateSentSwaps((current) => current.some((swap) => swap.status !== "waiting" && !swap.seen)
