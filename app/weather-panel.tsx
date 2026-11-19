@@ -10,6 +10,7 @@ import {
   CloudSnow,
   CloudSun,
   Droplets,
+  RefreshCw,
   Moon,
   Navigation,
   Sun,
@@ -22,14 +23,17 @@ import {
   Waves,
   Wind,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Shift } from "./sample-data";
 import {
   compass,
   dayHours,
   Forecast,
   HourWeather,
+  CACHE_MS,
   loadForecast,
+  savedForecast,
+  STALE_MS,
   outlook,
   rampWarnings,
   shiftHours,
@@ -96,10 +100,12 @@ export function WeatherPanel({ shift, date, today }: {
   date: string;
   today: string;
 }) {
-  const [forecast, setForecast] = useState<Forecast | null>(null);
-  const [failed, setFailed] = useState(false);
   // The panel only renders after shifts load (post-hydration), so reading
-  // storage on first render is safe.
+  // storage on first render is safe. Show the last forecast right away, even an old one.
+  const [forecast, setForecast] = useState<Forecast | null>(() => (typeof window !== "undefined" ? savedForecast() : null));
+  const [failed, setFailed] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const [compact, setCompact] = useState(() => {
     try {
       return typeof window !== "undefined" && localStorage.getItem(COMPACT_KEY) === "1";
@@ -118,17 +124,53 @@ export function WeatherPanel({ shift, date, today }: {
   const [picked, setPicked] = useState<{ for: string; day: string } | null>(null);
   const graphDay = picked?.for === date ? picked.day : date;
 
+  const refresh = useRef<(force?: boolean) => void>(() => {});
   useEffect(() => {
     let cancelled = false;
-    loadForecast()
-      .then((value) => {
-        if (!cancelled) setForecast(value);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
+    let busy = false;
+    const update = (force = false) => {
+      if (busy) return;
+      busy = true;
+      if (force) setRefreshing(true);
+      loadForecast(force)
+        .then((value) => {
+          if (cancelled) return;
+          setForecast(value);
+          setFailed(false);
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true);
+        })
+        .finally(() => {
+          busy = false;
+          if (!cancelled) {
+            setRefreshing(false);
+            setClockTick(Date.now());
+          }
+        });
+    };
+    refresh.current = update;
+    update();
+    // While the app stays open: check each minute, and fetch once the forecast is 30 minutes old.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      setClockTick(Date.now());
+      const saved = savedForecast();
+      if (!saved || Date.now() - saved.fetchedAt >= CACHE_MS) update();
+    }, 60_000);
+    // Coming back to the app: catch up right away if it's gone stale.
+    const onShow = () => {
+      if (document.visibilityState !== "visible") return;
+      setClockTick(Date.now());
+      update();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    window.addEventListener("online", onShow);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("online", onShow);
     };
   }, []);
 
@@ -223,11 +265,43 @@ export function WeatherPanel({ shift, date, today }: {
       )}
 
       {forecast && (
-        <a className="wx-credit" href="https://open-meteo.com/" target="_blank" rel="noreferrer">
-          Weather by Open-Meteo
-        </a>
+        <div className="wx-foot">
+          <UpdatedAt fetchedAt={forecast.fetchedAt} now={clockTick} failed={failed} refreshing={refreshing} onRefresh={() => refresh.current(true)} />
+          <a className="wx-credit" href="https://open-meteo.com/" target="_blank" rel="noreferrer">
+            Weather by Open-Meteo
+          </a>
+        </div>
       )}
     </section>
+  );
+}
+
+/** When this forecast came in; amber once it's over an hour old. Tap to get a new one. */
+function UpdatedAt({ fetchedAt, now, failed, refreshing, onRefresh }: {
+  fetchedAt: number;
+  now: number;
+  failed: boolean;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const at = new Date(fetchedAt);
+  const sameDay = at.toDateString() === new Date(now).toDateString();
+  const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const stale = now - fetchedAt > STALE_MS;
+  const label = refreshing
+    ? "Updating…"
+    : `Updated ${sameDay ? time : `${at.toLocaleDateString("en-US", { weekday: "short" })} ${time}`}${failed && stale ? " · offline" : ""}`;
+  return (
+    <button
+      type="button"
+      className={`wx-updated${stale ? " stale" : ""}`}
+      onClick={onRefresh}
+      disabled={refreshing}
+      aria-label={`${label}. Tap to update the weather`}
+    >
+      <RefreshCw className={refreshing ? "spin" : ""} aria-hidden="true" />
+      {label}
+    </button>
   );
 }
 

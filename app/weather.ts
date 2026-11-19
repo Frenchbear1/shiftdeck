@@ -9,7 +9,10 @@ export const ABE_LOCATION = { latitude: 40.652363, longitude: -75.440406, elevat
 const TIME_ZONE = "America/New_York";
 // v2: more of what Open-Meteo gives (humidity, clouds, visibility, UV, pressure, daily summaries).
 const CACHE_KEY = "shiftdeck.weather.abe.v2";
-const CACHE_MS = 30 * 60_000;
+/** How long a forecast counts as fresh (Open-Meteo updates about hourly). */
+export const CACHE_MS = 30 * 60_000;
+/** Past this, the "Updated" time turns amber. */
+export const STALE_MS = 60 * 60_000;
 
 export type Forecast = {
   fetchedAt: number;
@@ -85,13 +88,20 @@ export type ShiftWeather = {
   sun: { kind: "sunrise" | "sunset"; time: string } | null;
 };
 
-export async function loadForecast(): Promise<Forecast> {
+/** The last forecast this phone got, however old (to show while a new one loads, or offline). */
+export function savedForecast(): Forecast | null {
   try {
     const saved = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "null") as Forecast | null;
-    if (saved && Date.now() - saved.fetchedAt < CACHE_MS) return saved;
+    return saved && typeof saved.fetchedAt === "number" && Array.isArray(saved.hourly?.time) ? saved : null;
   } catch {
-    // Ignore a bad or blocked cache.
+    return null; // A bad or blocked cache.
   }
+}
+
+/** A fresh forecast: the saved one if it's under 30 minutes old (unless forced), otherwise a new one. */
+export async function loadForecast(force = false): Promise<Forecast> {
+  const saved = savedForecast();
+  if (!force && saved && Date.now() - saved.fetchedAt < CACHE_MS) return saved;
   const params = new URLSearchParams({
     latitude: String(ABE_LOCATION.latitude),
     longitude: String(ABE_LOCATION.longitude),
