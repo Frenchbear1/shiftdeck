@@ -85,6 +85,11 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+/* Touch or mouse: no focus rings on buttons and links (popups move focus on open). */
+html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"], [role="radio"], [role="checkbox"], [tabindex]):focus-visible {
+  outline: none;
+}
+
 .app-shell {
   min-height: 100dvh;
   background: var(--bg);

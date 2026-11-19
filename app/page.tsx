@@ -1534,6 +1534,27 @@ export default function HomePage() {
     return sendToTeam(share, what, to);
   };
 
+  // Focus rings are for keyboards: a tap that opens a popup (which moves focus
+  // to its first button) shouldn't draw one. Tab brings them back.
+  useEffect(() => {
+    const root = document.documentElement;
+    const pointer = (event: PointerEvent) => {
+      root.dataset.input = event.pointerType === "mouse" ? "mouse" : "touch";
+    };
+    const key = (event: KeyboardEvent) => {
+      if (["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(event.key) &&
+        !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) {
+        root.dataset.input = "keyboard";
+      }
+    };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, []);
+
   // A swap-answer notification opens the app with ?notifications=1.
   useEffect(() => {
     if (!hydrated) return;
