@@ -128,7 +128,7 @@ export function ContactsSheet({
               label="Add emails and numbers"
                 onOpen={() => void warmReader().catch(() => undefined)}
               busy={Boolean(reading)}
-              note="Member list screenshots (like an Outlook group) work: each name with its email below. Read and saved only on this phone."
+              note="Member list screenshots (like an Outlook group) work: each name with its email below. Read and saved only on this device."
               items={[
                 ...(picker ? [{
                   icon: ContactIcon,

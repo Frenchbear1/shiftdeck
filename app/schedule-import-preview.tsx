@@ -235,7 +235,7 @@ export function ScheduleImportPreview({
       {personChoices && (
         <section className="scan-person-picker" aria-labelledby="scan-person-title">
           <h3 id="scan-person-title">Which name is yours?</h3>
-          <p>This locks your name on this phone. Only your team’s owner can change it later, so pick carefully.</p>
+          <p>This locks your name on this device. Only your team’s owner can change it later, so pick carefully.</p>
           <div className="scan-person-names">
             {personChoices.map((name) => (
               <button

@@ -714,6 +714,8 @@ export default function HomePage() {
   }>>({});
   const preparingReview = useRef(false);
   const [viewedDocument, setViewedDocument] = useState<ScheduleDocument | null>(null);
+  /** The live flight of the plane tapped on the map (highlighted in Flights). */
+  const [mapPicked, setMapPicked] = useState<string | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [homeOrder, setHomeOrder] = useState<HomeTile[]>(DEFAULT_HOME_ORDER);
   useEffect(() => {
@@ -1774,7 +1776,7 @@ export default function HomePage() {
   }, [syncedName, notificationProfile?.id]);
 
   const sendToTeam = async (share: SharePackage, what: string, to?: string[]) => {
-    if (!team) throw new Error("This phone is still getting the team key. Try again in a minute.");
+    if (!team) throw new Error("This device is still getting the team key. Try again in a minute.");
     const result = await postToTeam(CALENDAR_SERVICE_ORIGIN, team, share, what, to);
     markPostsSeen([result.id]);
     return result.notified;
@@ -2778,6 +2780,13 @@ export default function HomePage() {
   const syncApplied = useRef<string[] | null>(null);
   const syncUnsendable = useRef(new Set<string>());
   const myPhones = me?.devices ?? 1;
+  // Only while something's happening: "In sync" shows for a moment, then the line goes away.
+  const syncWaiting = Boolean(me) && !teamKey && myPhones > 1 && syncStatus.state === "idle" && (me?.selfPosts?.length ?? 0) > 0;
+  useEffect(() => {
+    if (syncStatus.state !== "synced") return;
+    const timer = window.setTimeout(() => setSyncStatus({ state: "idle" }), 3500);
+    return () => window.clearTimeout(timer);
+  }, [syncStatus]);
   useEffect(() => {
     if (!hydrated || !backgroundHydrated || !me || !prefs.person || importState === "reading" || syncBusy.current) return;
     if (!teamKey) return;
@@ -2815,7 +2824,7 @@ export default function HomePage() {
               hashes: picked.map(({ schedule }) => schedule.hash),
             });
             if (!ok) throw new Error("Not imported");
-            setToast(`Got ${incoming.what} from your other phone`);
+            setToast(`Got ${incoming.what} from your other device`);
           }
           remember([incoming.id]);
         } else {
@@ -2828,7 +2837,7 @@ export default function HomePage() {
             loadFile: (id, straightened) => loadScheduleImage(id, straightened),
           }).catch((problem: unknown) => {
             // Photos no longer on this phone can't be sent: don't keep trying.
-            if (problem instanceof Error && /aren’t on this phone/.test(problem.message)) {
+            if (problem instanceof Error && /aren’t on this device/.test(problem.message)) {
               outgoing.forEach((document) => syncUnsendable.current.add(document.hash));
               return [];
             }
@@ -3538,12 +3547,14 @@ export default function HomePage() {
         live={liveFlights.live}
         onRefresh={liveFlights.refresh}
         refreshing={liveFlights.refreshing}
+        pickedLive={mapPicked}
       />
     ),
     map: (
       <LiveMapPanel
         url={calendarServiceUrl("/api/planes")}
         liveFlights={liveFlights.live?.flights ?? []}
+        onPickFlight={setMapPicked}
       />
     ),
     weather: (
@@ -3746,11 +3757,8 @@ export default function HomePage() {
       </dialog>
 
       <main className="home">
-        {me && (myPhones > 1 || syncStatus.state !== "idle") && (
-          <SyncBar
-            status={!teamKey && myPhones > 1 && syncStatus.state === "idle" && (me.selfPosts?.length ?? 0) > 0 ? { state: "waiting" } : syncStatus}
-            phones={myPhones}
-          />
+        {me && (syncStatus.state !== "idle" || syncWaiting) && (
+          <SyncBar status={syncWaiting ? { state: "waiting" } : syncStatus} devices={myPhones} />
         )}
         <div className={`home-grid ${hydrated ? "is-ready" : ""}${homeOrder.some((tile, index) => tile !== DEFAULT_HOME_ORDER[index]) ? " custom-order" : ""}`}>
           {homeOrder.map((tile) => (
@@ -4273,7 +4281,7 @@ export default function HomePage() {
                     setSettingsOpen(false);
                     setNameChangeOpen(true);
                   }}>
-                    {me?.request ? "Change requested" : "Request a change or add a phone"}
+                    {me?.request ? "Change requested" : "Request a change or add a device"}
                   </button>
                 </div>
               ) : (
@@ -4460,7 +4468,7 @@ export default function HomePage() {
                   <span><Crown /> Owner</span>
                   <b>
                     {(me.people?.length ?? 1)} {(me.people?.length ?? 1) === 1 ? "person" : "people"}
-                    {ownerRequests.length ? ` · ${ownerRequests.length} name ${ownerRequests.length === 1 ? "change" : "changes"} waiting` : " · people, phones, access"}
+                    {ownerRequests.length ? ` · ${ownerRequests.length} name ${ownerRequests.length === 1 ? "change" : "changes"} waiting` : " · people, devices, access"}
                   </b>
                 </button>
               )}
@@ -4534,7 +4542,7 @@ export default function HomePage() {
             const linked = await linkThisPhone(CALENDAR_SERVICE_ORIGIN, nameTaken.name, code, await checkIn());
             setMe(linked);
             setNameTaken(null);
-            setToast(linked.owner ? "This phone is set up as you, with owner access" : "This phone is set up as you");
+            setToast(linked.owner ? "This device is set up as you, with owner access" : "This device is set up as you");
             void refreshMe(linked.name);
           }}
           onRecover={async (key) => {
@@ -4622,7 +4630,7 @@ export default function HomePage() {
           onMovePhone={async (deviceId, name) => {
             await movePhone(CALENDAR_SERVICE_ORIGIN, deviceId, name);
             await refreshMe();
-            setToast(`That phone is now ${name}`);
+            setToast(`That device is now ${name}`);
           }}
           onRemovePhone={async (deviceId) => {
             await removePhone(CALENDAR_SERVICE_ORIGIN, deviceId);

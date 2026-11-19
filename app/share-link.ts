@@ -97,6 +97,6 @@ export async function openShareLink({ id, key }: ShareKey, service: string) {
     throw new Error("This link is incomplete. Copy the whole link and try again.");
   }
   const packed = plain[0] === 1 ? await squeeze(plain.subarray(1), "decompress") : plain.subarray(1);
-  if (!packed) throw new Error("This phone's browser can't open this share. Update it and try again.");
+  if (!packed) throw new Error("This device's browser can't open this share. Update it and try again.");
   return { ...unpackShare(packed), expiresAt: response.headers.get("X-Share-Expires") ?? "" };
 }

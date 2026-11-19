@@ -213,7 +213,7 @@ export function ShareSheet({
               <p>Sent to {team ? recipientsLabel(team, sent.to) : ""}</p>
               <small>
                 {sent.what.charAt(0).toUpperCase() + sent.what.slice(1)} is in {sent.to.length ? "their" : "everyone’s"} Notifications
-                {sent.notified ? `, and ${sent.notified} ${sent.notified === 1 ? "phone" : "phones"} got a ping` : ""}.
+                {sent.notified ? `, and ${sent.notified} ${sent.notified === 1 ? "device" : "devices"} got a ping` : ""}.
                 {sent.to.length ? " Nobody else on the team sees it." : ""} It’s there for a week.
               </small>
               <button type="button" className="share-again" onClick={() => setSent(null)}>Send something else</button>
@@ -228,7 +228,7 @@ export function ShareSheet({
                     {!signedIn
                       ? "Pick your name in Settings to send and get schedules."
                       : !team
-                        ? "Getting the team key from a coworker’s phone. This takes a minute the first time."
+                        ? "Getting the team key from a coworker’s device. This takes a minute the first time."
                         : `${team.people.length} ${team.people.length === 1 ? "person" : "people"}. Send to everyone or pick who.`}
                   </small>
                 </span>
@@ -289,7 +289,7 @@ export function ShareSheet({
                     {state === "sending" ? <><LoaderCircle className="spin" /> Sending…</> : <><Send /> Send to {recipientsLabel(team, to)}</>}
                   </button>
                   <p className="share-note">
-                    Encrypted on this phone first, so only people on Shiftdeck can open it. Their phones keep what they
+                    Encrypted on this device first, so only people on Shiftdeck can open it. Their devices keep what they
                     already have and add only what’s new. Imports also ask if you want to send them here.
                   </p>
                 </>
@@ -374,7 +374,7 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
             <div className="sheet-empty">
               <LoaderCircle className="spin share-loading" />
               <p>Opening…</p>
-              <small>Unlocking it on this phone.</small>
+              <small>Unlocking it on this device.</small>
             </div>
           )}
           {!loading && error && (
@@ -437,7 +437,7 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
                       I’m not on it
                     </button>
                   </div>
-                  <p className="share-note">This locks your name on this phone. Only the owner can change it later.</p>
+                  <p className="share-note">This locks your name on this device. Only the owner can change it later.</p>
                 </>
               )}
               {(directoryMerge || contactsMerge) && <p className="share-section-title">Also shared</p>}
@@ -498,7 +498,7 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
               </button>
               {pickedWeeks.size > 0 && !waitingForName && chosen !== "" && (
                 <p className="share-note">
-                  The schedule is read on your phone, then you check your hours against the photo.
+                  The schedule is read on your device, then you check your hours against the photo.
                 </p>
               )}
               {share?.expiresAt && <p className="share-note">This works until {untilLabel(share.expiresAt)}.</p>}
@@ -536,7 +536,7 @@ export function TeamSendPrompt({ team, what, onSend }: {
         <b>{state === "sent" ? `Sent to ${recipientsLabel(team, to)}` : `Send ${what} to ${to.length ? recipientsLabel(team, to) : "everyone"}?`}</b>
         <small>
           {state === "sent"
-            ? notified ? `${notified} ${notified === 1 ? "phone" : "phones"} got a ping.` : to.length ? "It’s in their Notifications." : "It’s in everyone’s Notifications."
+            ? notified ? `${notified} ${notified === 1 ? "device" : "devices"} got a ping.` : to.length ? "It’s in their Notifications." : "It’s in everyone’s Notifications."
             : state === "error" ? error : to.length ? "Only who you pick gets it." : "Everyone on Shiftdeck gets it in Notifications."}
         </small>
       </span>

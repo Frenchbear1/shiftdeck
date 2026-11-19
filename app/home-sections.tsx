@@ -768,6 +768,7 @@ export function FlightList({
   live = null,
   onRefresh,
   refreshing = false,
+  pickedLive = null,
 }: {
   flights: Flight[];
   shifts: Shift[];
@@ -781,6 +782,8 @@ export function FlightList({
   live?: LiveFlights | null;
   onRefresh?: (emergency: boolean) => Promise<RefreshResult>;
   refreshing?: boolean;
+  /** The live flight of the plane tapped on the map: its row is highlighted. */
+  pickedLive?: string | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [shownFor, setShownFor] = useState(date);
@@ -839,7 +842,17 @@ export function FlightList({
   };
   const inShift = sorted.filter(belongsToShift);
   const canFilter = shifts.length > 0 && inShift.length < sorted.length;
-  const visible = shifts.length && !showAll ? inShift : sorted;
+  // The plane tapped on the map: that exact flight (arriving or leaving), shown even outside "My shift".
+  const pickedRow = pickedLive
+    ? sorted.find((flight) => {
+        const matched = liveById.get(flight.id);
+        return matched?.match?.live.id === pickedLive || matched?.departureMatch?.live.id === pickedLive;
+      })
+    : undefined;
+  const filtered = shifts.length && !showAll ? inShift : sorted;
+  const visible = pickedRow && !filtered.includes(pickedRow)
+    ? sorted.filter((flight) => flight === pickedRow || filtered.includes(flight))
+    : filtered;
   const nowMinutes = minutesOnDayForInstant(now, date);
   const appName = FLIGHT_APP_NAMES[app];
   const [confirmEmergency, setConfirmEmergency] = useState(false);
@@ -1069,7 +1082,8 @@ export function FlightList({
             return (
               <li
                 key={flight.id}
-                className={`flight-card ${expanded ? "expanded" : ""} ${during ? "in-shift" : ""} ${past ? "past" : ""}`}
+                className={`flight-card ${expanded ? "expanded" : ""} ${during ? "in-shift" : ""} ${past ? "past" : ""}${flight === pickedRow ? " map-picked" : ""}`}
+                data-live-flight={[match?.live.id, out?.live.id].filter(Boolean).join(" ") || undefined}
               >
                 <button
                   type="button"

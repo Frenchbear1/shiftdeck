@@ -81,7 +81,7 @@ export async function buildShare({ documents, directory, contacts, person, loadF
   const sendContacts = Boolean(contacts && contactCount(contacts));
   if (!schedules.length && !sendDirectory && !sendContacts) {
     throw new Error(documents.length
-      ? "The schedule photos aren’t on this phone anymore. Import them again to share."
+      ? "The schedule photos aren’t on this device anymore. Import them again to share."
       : "Pick something to send.");
   }
   const manifest: ShareManifest = {

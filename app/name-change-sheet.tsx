@@ -108,9 +108,9 @@ export function NameChangeSheet({ current, ownerName, pending, names, onRequest,
               </button>
             </form>
           )}
-          <p className="share-section-title">Another phone?</p>
+          <p className="share-section-title">Another device?</p>
           <button type="button" className="button soft share-make" onClick={onAddPhone}>
-            <Smartphone /> Add a phone
+            <Smartphone /> Add a device
           </button>
         </div>
       </section>

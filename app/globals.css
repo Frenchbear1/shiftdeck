@@ -9846,7 +9846,8 @@ html {
 .wx-outlook {
   display: grid;
   margin: 0;
-  padding: 4px 0;
+  padding: 0;
+  overflow: hidden;
   list-style: none;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -9948,6 +9949,15 @@ html {
   font-weight: 650;
 }
 
+.sync-bar.is-synced {
+  animation: sync-bar-out 3.5s ease forwards;
+}
+
+@keyframes sync-bar-out {
+  0%, 75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .sync-bar span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -9979,4 +9989,35 @@ html {
 
 .sync-bar svg.spin {
   animation: spin 900ms linear infinite;
+}
+
+/* The plane tapped on the map, in Flights. */
+.flight-card.map-picked {
+  background: color-mix(in srgb, var(--blue) 13%, var(--surface-2));
+  box-shadow: inset 0 0 0 2px var(--blue);
+  animation: flight-picked 1.2s ease 2;
+}
+
+@keyframes flight-picked {
+  50% { box-shadow: inset 0 0 0 2px var(--blue), 0 0 0 5px color-mix(in srgb, var(--blue) 22%, transparent); }
+}
+
+.flights-panel:has(.pill-toggle button:last-child.active) .flight-card.map-picked,
+.flight-card.map-picked.past {
+  opacity: 1;
+}
+
+.map-popup-show {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  padding: 6px 10px;
+  color: #fff;
+  background: var(--blue);
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
 }

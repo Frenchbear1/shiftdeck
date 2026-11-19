@@ -95,8 +95,8 @@ export function LinkPhoneSheet({ name, ownerName, onLink, onRecover, onNotMe, on
         >
           <div className="share-done">
             <span className="share-done-icon"><ShieldCheck /></span>
-            <p>Lost all your phones?</p>
-            <small>Type the 20-digit recovery key you saved. It sets this phone up as you, with owner access, and then stops working.</small>
+            <p>Lost all your devices?</p>
+            <small>Type the 20-digit recovery key you saved. It sets this device up as you, with owner access, and then stops working.</small>
           </div>
           <input
             className="link-code-input long-key-input"
@@ -118,7 +118,7 @@ export function LinkPhoneSheet({ name, ownerName, onLink, onRecover, onNotMe, on
     );
   }
   return (
-    <Sheet title="Set up this phone" onClose={onClose}>
+    <Sheet title="Set up this device" onClose={onClose}>
       <form
         className="team-join"
         onSubmit={async (event) => {
@@ -137,8 +137,8 @@ export function LinkPhoneSheet({ name, ownerName, onLink, onRecover, onNotMe, on
           <span className="share-done-icon"><Smartphone /></span>
           <p>{name} is already set up</p>
           <small>
-            If that’s you on a new phone, open Shiftdeck on your other phone and go to Settings →
-            {ownerName ? " Owner → Add another phone of mine" : " your name → Add a phone"}. Type the 6-digit code here.
+            If that’s you on a new device, open Shiftdeck on your other device and go to Settings →
+            {ownerName ? " Owner → Add another device of mine" : " your name → Add a device"}. Type the 6-digit code here.
           </small>
         </div>
         <input
@@ -153,13 +153,13 @@ export function LinkPhoneSheet({ name, ownerName, onLink, onRecover, onNotMe, on
         />
         {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
         <button type="submit" className="button primary share-make" disabled={busy || code.length !== 6}>
-          {busy ? <LoaderCircle className="spin" /> : <KeyRound />} Set up this phone
+          {busy ? <LoaderCircle className="spin" /> : <KeyRound />} Set up this device
         </button>
         {ownerName && (
           <button type="button" className="share-again" onClick={() => {
             setProblem("");
             setRecovering(true);
-          }}>Lost your other phones? Use your recovery key</button>
+          }}>Lost your other devices? Use your recovery key</button>
         )}
         <button type="button" className="share-again" onClick={onNotMe}>That’s not me, pick another name</button>
       </form>
@@ -192,7 +192,7 @@ export function LinkCodeSheet({ owner, onMakeCode, onClose }: {
   }, []);
   const left = code ? Math.max(0, Math.round((Date.parse(code.expiresAt) - now) / 1000)) : 0;
   return (
-    <Sheet title={owner ? "Add another phone of mine" : "Add a phone"} onClose={onClose}>
+    <Sheet title={owner ? "Add another device of mine" : "Add a device"} onClose={onClose}>
       <div className="share-done">
         <span className="share-done-icon"><Smartphone /></span>
         {code ? (
@@ -200,9 +200,9 @@ export function LinkCodeSheet({ owner, onMakeCode, onClose }: {
             <p className="link-code">{code.code.slice(0, 3)} {code.code.slice(3)}</p>
             <small>
               {left > 0
-                ? `On your other phone, pick your name, then type this code. It works once and expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}.`
+                ? `On your other device, pick your name, then type this code. It works once and expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}.`
                 : "This code expired. Close and open this again for a new one."}
-              {owner ? " That phone gets owner access too." : ""}
+              {owner ? " That device gets owner access too." : ""}
             </small>
           </>
         ) : problem ? (
@@ -211,7 +211,7 @@ export function LinkCodeSheet({ owner, onMakeCode, onClose }: {
           <LoaderCircle className="spin share-loading" />
         )}
       </div>
-      <p className="share-note">Only use this for your own phones. Anyone with the code becomes you in the app.</p>
+      <p className="share-note">Only use this for your own devices. Anyone with the code becomes you in the app.</p>
     </Sheet>
   );
 }
@@ -330,7 +330,7 @@ export function OwnerSheet({
           </small>
         </span>
         <button type="button" className="owner-top-action" onClick={onAddPhone}>
-          <Smartphone aria-hidden="true" /> Add my phone
+          <Smartphone aria-hidden="true" /> Add my device
         </button>
       </div>
 
@@ -411,7 +411,7 @@ export function OwnerSheet({
           )}
         </Section>
 
-        <Section icon={Smartphone} title="New phones" summary={log.length ? timeLabel(log[0].at) : "None yet"} defaultOpen={focus?.section === "log"}>
+        <Section icon={Smartphone} title="New devices" summary={log.length ? timeLabel(log[0].at) : "None yet"} defaultOpen={focus?.section === "log"}>
           {log.length ? (
             <>
             <ul className="owner-rows">
@@ -438,7 +438,7 @@ export function OwnerSheet({
             </div>
             </>
           ) : (
-            <p className="owner-empty">New names and phones show up here.</p>
+            <p className="owner-empty">New names and devices show up here.</p>
           )}
         </Section>
 
@@ -449,7 +449,7 @@ export function OwnerSheet({
                 <li key={person.id} className="owner-row">
                   <span className="owner-row-main">
                     <b>{person.name}</b>
-                    <small>Since {person.blockedAt ? sinceLabel(person.blockedAt) : "—"} · {person.devices} {person.devices === 1 ? "phone" : "phones"}</small>
+                    <small>Since {person.blockedAt ? sinceLabel(person.blockedAt) : "—"} · {person.devices} {person.devices === 1 ? "device" : "devices"}</small>
                   </span>
                   <button type="button" className="owner-pill" onClick={() => void run(() => onUnblock(person.id))}>
                     <Undo2 aria-hidden="true" /> Unblock
@@ -473,7 +473,7 @@ export function OwnerSheet({
             {recoveryKey ? (
               <div className="owner-key-box">
                 <p className="owner-key">{grouped(recoveryKey)}</p>
-                <small>Save it somewhere private. It sets up a new phone as you if all yours are lost. One use; not shown again.</small>
+                <small>Save it somewhere private. It sets up a new device as you if all yours are lost. One use; not shown again.</small>
                 <span className="owner-row-buttons">
                   <button type="button" className="owner-pill" onClick={() => {
                     void navigator.clipboard?.writeText(recoveryKey).catch(() => undefined);
@@ -484,7 +484,7 @@ export function OwnerSheet({
             ) : (
               <div className="owner-row owner-row-flat">
                 <span className="owner-row-main">
-                  <small>{me.recoveryKeyMadeAt ? `Made ${sinceLabel(me.recoveryKeyMadeAt)}` : "Gets you back in if you lose every phone"}</small>
+                  <small>{me.recoveryKeyMadeAt ? `Made ${sinceLabel(me.recoveryKeyMadeAt)}` : "Gets you back in if you lose every device"}</small>
                 </span>
                 <button type="button" className="owner-pill" onClick={() => void run(async () => setRecoveryKey(await onMakeRecoveryKey()))}>
                   {me.recoveryKeyMadeAt ? "Make new" : "Make one"}
@@ -597,7 +597,7 @@ function PersonCard({ person, me, open, onToggle, renameTo, moveTo, confirm, run
             {person.owner && <small className="owner">Owner</small>}
           </span>
           <small>
-            Since {sinceLabel(person.since)} · {person.devices} {person.devices === 1 ? "phone" : "phones"}
+            Since {sinceLabel(person.since)} · {person.devices} {person.devices === 1 ? "device" : "devices"}
           </small>
           {roster && roster.state !== "current" && (
             <small className={`roster-tag roster-${roster.state}`}>
@@ -666,7 +666,7 @@ function PersonCard({ person, me, open, onToggle, renameTo, moveTo, confirm, run
               ))}
             </ul>
           ) : (
-            <p className="share-note">No phones right now.</p>
+            <p className="share-note">No devices right now.</p>
           )}
         </div>
       )}
@@ -703,8 +703,8 @@ function PhoneRow({ phone, moveTo, confirm, run, onRenamePhone, onMovePhone, onR
               autoFocus
               value={label}
               maxLength={30}
-              placeholder={phone.model ?? "Phone name"}
-              aria-label="Phone name"
+              placeholder={phone.model ?? "Device name"}
+              aria-label="Device name"
               onChange={(event) => setLabel(event.target.value)}
               onBlur={save}
             />
@@ -726,7 +726,7 @@ function PhoneRow({ phone, moveTo, confirm, run, onRenamePhone, onMovePhone, onR
               value={newName}
               maxLength={40}
               placeholder="Their full name"
-              aria-label="Whose phone is it?"
+              aria-label="Whose device is it?"
               onChange={(event) => setNewName(event.target.value)}
             />
             <button type="submit" aria-label="Move" disabled={!newName.trim()}><Check /></button>
@@ -749,7 +749,7 @@ function PhoneRow({ phone, moveTo, confirm, run, onRenamePhone, onMovePhone, onR
               }}
               onBlur={() => setMode("")}
             >
-              <option value="" disabled>This phone belongs to…</option>
+              <option value="" disabled>This device belongs to…</option>
               {moveTo.map((name) => <option key={name} value={name}>{name}</option>)}
               <option value={"\u0000new"}>New name…</option>
             </select>
@@ -759,7 +759,7 @@ function PhoneRow({ phone, moveTo, confirm, run, onRenamePhone, onMovePhone, onR
           <>
             <span className="owner-phone-name">
               {phone.label}
-              {phone.current && <small>This phone</small>}
+              {phone.current && <small>This device</small>}
             </span>
             <small>
               {phone.named && phone.model ? `${phone.model} · ` : ""}Added {sinceLabel(phone.since)} · {seenLabel(phone.seen)}
@@ -791,11 +791,11 @@ function PhoneRow({ phone, moveTo, confirm, run, onRenamePhone, onMovePhone, onR
 /* ---------- a new phone or name, in the owner's log ---------- */
 
 const LOG_TEXT: Record<string, string> = {
-  new: "picked their name on a new phone",
-  phone: "added a phone",
-  "owner-phone": "added a phone (yours)",
-  recovered: "used the recovery key on a new phone",
-  "blocked-try": "tried a new phone while blocked",
+  new: "picked their name on a new device",
+  phone: "added a device",
+  "owner-phone": "added a device (yours)",
+  recovered: "used the recovery key on a new device",
+  "blocked-try": "tried a new device while blocked",
   owner: "became the owner",
 };
 
@@ -889,7 +889,7 @@ export function BlockedScreen({ name, onRetry }: { name: string; onRetry: () => 
     <div className="blocked-screen" role="alertdialog" aria-modal="true" aria-label="Blocked">
       <span className="blocked-icon"><Ban /></span>
       <h2>You can’t use Shiftdeck</h2>
-      <p>{name ? `${name} was` : "This phone was"} blocked by the app’s owner. Ask them if this is a mistake.</p>
+      <p>{name ? `${name} was` : "This device was"} blocked by the app’s owner. Ask them if this is a mistake.</p>
       <button type="button" className="button soft" onClick={onRetry}>Check again</button>
     </div>
   );
@@ -934,7 +934,7 @@ export function NamePickScreen({ reset, onTyped, onUseName }: {
   };
   const typedName = `${tidy(first)} ${tidy(last)}`;
   return (
-    <div className="name-gate" role="dialog" aria-modal="true" aria-label="Who’s using this phone?">
+    <div className="name-gate" role="dialog" aria-modal="true" aria-label="Who’s using this device?">
       <form
         className="name-gate-card"
         onSubmit={(event) => {
@@ -943,8 +943,8 @@ export function NamePickScreen({ reset, onTyped, onUseName }: {
         }}
       >
         <span className="blocked-icon name-gate-icon"><Smartphone /></span>
-        <h2>Who’s using this phone?</h2>
-        <p>{reset ? "The owner reset this phone. Type your name to keep using Shiftdeck." : "Type your name the way it is on the schedule."}</p>
+        <h2>Who’s using this device?</h2>
+        <p>{reset ? "The owner reset this device. Type your name to keep using Shiftdeck." : "Type your name the way it is on the schedule."}</p>
         {suggest ? (
           <div className="name-gate-question">
             <b>Did you mean {suggest}?</b>
@@ -990,7 +990,7 @@ export function NamePickScreen({ reset, onTyped, onUseName }: {
                 onChange={(event) => setLast(event.target.value)}
               />
             </div>
-            <small>Your name gets locked to this phone. Only the owner can change it later.</small>
+            <small>Your name gets locked to this device. Only the owner can change it later.</small>
             {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
             <button type="submit" className="button primary share-make" disabled={busy || !ready}>
               {busy ? <LoaderCircle className="spin" /> : <Check />} Continue

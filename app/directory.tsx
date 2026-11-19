@@ -194,7 +194,7 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
                 label="Add to the directory"
                 onOpen={() => void warmReader().catch(() => undefined)}
                 busy={Boolean(reading)}
-                note="Screenshot each page of the directory and pick them all at once. Read and saved only on this phone."
+                note="Screenshot each page of the directory and pick them all at once. Read and saved only on this device."
                 items={[
                   { icon: ImageIcon, label: "Screenshots", onSelect: () => images.current?.click() },
                   { icon: FileText, label: "PDF", onSelect: () => pdf.current?.click() },

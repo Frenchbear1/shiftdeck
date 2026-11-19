@@ -177,7 +177,7 @@ export class NameTakenError extends Error {
   ownerName: boolean;
 
   constructor(takenName: string, ownerName: boolean) {
-    super(`${takenName} is already set up on another phone.`);
+    super(`${takenName} is already set up on another device.`);
     this.takenName = takenName;
     this.ownerName = ownerName;
   }

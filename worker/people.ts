@@ -200,7 +200,7 @@ const blocked = (request: Request) =>
 async function signedIn(request: Request, db: CalendarDatabase): Promise<{ me: Me; body: Body } | Response> {
   const body = await readBody(request);
   const me = body ? await deviceOf(db, body) : null;
-  if (!me || !body) return json(request, { error: "This phone isn't set up yet." }, 403);
+  if (!me || !body) return json(request, { error: "This device isn't set up yet." }, 403);
   if (me.person.blocked_at) return blocked(request);
   return { me, body };
 }
@@ -464,7 +464,7 @@ async function view(db: CalendarDatabase, me: Me) {
       seen: row.seen ? iso(row.seen) : null,
       phones: (phones.results ?? []).filter((phone) => phone.person_id === row.id).map((phone) => ({
         id: phone.id,
-        label: phone.label || phone.model || "Phone",
+        label: phone.label || phone.model || "Device",
         model: phone.model,
         named: Boolean(phone.label),
         current: phone.id === device.id,
@@ -538,10 +538,10 @@ async function sync(request: Request, db: CalendarDatabase, env: PushEnvironment
   if (deviceId && await db.prepare("SELECT id FROM app_reset_devices WHERE id = ?1").bind(deviceId).first()) {
     // The owner took this phone off: it picks its name again (once).
     await db.prepare("DELETE FROM app_reset_devices WHERE id = ?1").bind(deviceId).run();
-    return json(request, { reset: true, error: "The owner reset this phone. Pick your name in Settings." }, 410);
+    return json(request, { reset: true, error: "The owner reset this device. Pick your name in Settings." }, 410);
   }
   if (deviceId && await db.prepare("SELECT id FROM app_devices WHERE id = ?1").bind(deviceId).first()) {
-    return json(request, { error: "This phone's sign-in doesn't match. Reinstall or ask the owner." }, 403);
+    return json(request, { error: "This device's sign-in doesn't match. Reinstall or ask the owner." }, 403);
   }
   // A new phone types a first and last name; it's matched to a name the app
   // knows (people and names on schedules), allowing small typos.
@@ -575,7 +575,7 @@ async function sync(request: Request, db: CalendarDatabase, env: PushEnvironment
       taken: true,
       name: existing.name,
       ownerName: existing.is_owner === 1,
-      error: `${existing.name} is already set up on another phone.`,
+      error: `${existing.name} is already set up on another device.`,
     }, 409);
   }
   const personId = newId();
@@ -617,13 +617,13 @@ async function link(request: Request, db: CalendarDatabase, env: PushEnvironment
   }
   if (person.blocked_at) return blocked(request);
   if (await db.prepare("SELECT id FROM app_devices WHERE id = ?1").bind(deviceId).first()) {
-    return json(request, { error: "This phone is already set up." }, 409);
+    return json(request, { error: "This device is already set up." }, 409);
   }
   const row = await db.prepare("SELECT code_hash, expires_at, tries FROM app_link_codes WHERE person_id = ?1")
     .bind(person.id).first<{ code_hash: string; expires_at: number; tries: number }>();
-  if (!row) return json(request, { error: "That code doesn't work. Make one on your other phone first." }, 403);
+  if (!row) return json(request, { error: "That code doesn't work. Make one on your other device first." }, 403);
   if (row.expires_at < Date.now() || row.tries >= CODE_TRIES) {
-    return json(request, { error: "That code has expired. Make a new one on your other phone." }, 410);
+    return json(request, { error: "That code has expired. Make a new one on your other device." }, 410);
   }
   if (row.code_hash !== await sha256(`${person.id}:${code}`)) {
     await db.prepare("UPDATE app_link_codes SET tries = tries + 1 WHERE person_id = ?1").bind(person.id).run();
@@ -636,8 +636,8 @@ async function link(request: Request, db: CalendarDatabase, env: PushEnvironment
   const model = clean(body.model, 40);
   await log(db, person.is_owner === 1 ? "owner-phone" : "phone", person, model);
   await ping(db, env, { owner: true }, person.is_owner === 1
-    ? `A new phone of yours was added${model ? ` (${model})` : ""}`
-    : `${person.name} added a phone${model ? ` (${model})` : ""}`, "people", `owner:person:${person.id}`);
+    ? `A new device of yours was added${model ? ` (${model})` : ""}`
+    : `${person.name} added a device${model ? ` (${model})` : ""}`, "people", `owner:person:${person.id}`);
   const me = await deviceOf(db, body);
   return json(request, await view(db, me!), 201);
 }
@@ -664,7 +664,7 @@ async function recover(request: Request, db: CalendarDatabase, env: PushEnvironm
     return json(request, { error: "That key doesn't work." }, 403);
   }
   if (await db.prepare("SELECT id FROM app_devices WHERE id = ?1").bind(deviceId).first()) {
-    return json(request, { error: "This phone is already set up." }, 409);
+    return json(request, { error: "This device is already set up." }, 409);
   }
   // One use: the owner makes a new one afterwards.
   await setSetting(db, "recovery_hash", null);
@@ -672,7 +672,7 @@ async function recover(request: Request, db: CalendarDatabase, env: PushEnvironm
   await addDevice(db, owner.id, deviceId, token);
   await remember(request, db, deviceId, body);
   await log(db, "recovered", owner, clean(body.model, 40));
-  await ping(db, env, { owner: true }, "Your recovery key was used to set up a new phone", "people", "owner:log");
+  await ping(db, env, { owner: true }, "Your recovery key was used to set up a new device", "people", "owner:log");
   const me = await deviceOf(db, body);
   return json(request, await view(db, me!), 201);
 }
@@ -684,7 +684,7 @@ async function keys(request: Request, db: CalendarDatabase) {
   const auth = await signedIn(request, db);
   if (auth instanceof Response) return auth;
   const { me, body } = auth;
-  if (!me.device.has_key) return json(request, { error: "This phone doesn't have the key." }, 403);
+  if (!me.device.has_key) return json(request, { error: "This device doesn't have the key." }, 403);
   const wraps = Array.isArray(body.wraps) ? body.wraps.slice(0, 20) : [];
   let saved = 0;
   for (const raw of wraps) {
@@ -923,14 +923,14 @@ async function ownerAction(request: Request, db: CalendarDatabase, env: PushEnvi
 async function deviceAction(request: Request, db: CalendarDatabase, env: PushEnvironment, action: string, body: Body, myDeviceId: string) {
   const id = typeof body.targetDeviceId === "string" && DEVICE.test(body.targetDeviceId) ? body.targetDeviceId : "";
   const phone = id ? await db.prepare("SELECT * FROM app_devices WHERE id = ?1").bind(id).first<DeviceRow>() : null;
-  if (!phone) return json(request, { error: "That phone isn't in the app anymore." }, 404);
+  if (!phone) return json(request, { error: "That device isn't in the app anymore." }, 404);
 
   if (action === "device-rename") {
     const label = clean(body.label, 30);
     await db.prepare("UPDATE app_devices SET label = ?2 WHERE id = ?1").bind(phone.id, label || null).run();
     return json(request, { ok: true });
   }
-  if (phone.id === myDeviceId) return json(request, { error: "That's the phone you're using. Do it from another phone." }, 400);
+  if (phone.id === myDeviceId) return json(request, { error: "That's the device you're using. Do it from another device." }, 400);
   if (action === "device-remove") {
     await dropDevice(db, phone.id, phone.person_id);
     return json(request, { ok: true });
@@ -941,7 +941,7 @@ async function deviceAction(request: Request, db: CalendarDatabase, env: PushEnv
     let to = await personByName(db, name);
     if (to?.id === phone.person_id) return json(request, { ok: true });
     // Owner access only comes with a code from an owner phone.
-    if (to?.is_owner === 1) return json(request, { error: "Your phones are added with a code from Add another phone of mine." }, 400);
+    if (to?.is_owner === 1) return json(request, { error: "Your devices are added with a code from Add another device of mine." }, 400);
     if (to?.blocked_at) return json(request, { error: `${to.name} is blocked.` }, 400);
     if (!to) {
       const personId = newId();
@@ -952,7 +952,7 @@ async function deviceAction(request: Request, db: CalendarDatabase, env: PushEnv
     await db.prepare("UPDATE app_devices SET person_id = ?2 WHERE id = ?1").bind(phone.id, to!.id).run();
     await dropIfEmpty(db, phone.person_id);
     if (phone.profile_id) {
-      await sendProfilePush(db, env, phone.profile_id, { title: "Shiftdeck", body: `This phone is now set up as ${to!.name}`, tag: "names", path: "?open=settings" }).catch(() => 0);
+      await sendProfilePush(db, env, phone.profile_id, { title: "Shiftdeck", body: `This device is now set up as ${to!.name}`, tag: "names", path: "?open=settings" }).catch(() => 0);
     }
     return json(request, { ok: true, name: to!.name });
   }

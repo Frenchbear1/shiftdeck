@@ -10,13 +10,13 @@ export type SyncStatus =
 
 const clock = (at: number) => new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
-/** A slim line at the top: whether your phones are in step. */
-export function SyncBar({ status, phones }: { status: SyncStatus; phones: number }) {
-  const others = phones - 1;
-  const them = others === 1 ? "your other phone" : `your ${others} other phones`;
+/** A slim line at the top while your devices catch up with each other. */
+export function SyncBar({ status, devices }: { status: SyncStatus; devices: number }) {
+  const others = Math.max(1, devices - 1);
+  const them = others === 1 ? "your other device" : `your ${others} other devices`;
   const busy = status.state === "getting" || status.state === "sending";
   const text =
-    status.state === "getting" ? `Getting ${status.what} from ${others > 1 ? "another phone" : "your other phone"}…`
+    status.state === "getting" ? `Getting ${status.what} from ${others > 1 ? "another device" : "your other device"}…`
       : status.state === "sending" ? `Sending ${status.what} to ${them}…`
         : status.state === "waiting" ? `Waiting for ${them} to unlock sync`
           : status.state === "error" ? "Couldn’t sync · trying again in a minute"

@@ -80,10 +80,34 @@ const planeIcon = (plane: Plane, highlight: boolean, showLabel = true) => {
 export function LiveMapPanel({
   url,
   liveFlights,
+  onPickFlight,
 }: {
   url: string;
   liveFlights: LiveFlight[];
+  /** A plane's popup opened (its live flight, if it's one of ABE's) or closed (null). */
+  onPickFlight?: (liveFlightId: string | null) => void;
 }) {
+  const flightOfPlane = useRef(new Map<string, string>());
+  const pick = useRef(onPickFlight);
+  useEffect(() => {
+    pick.current = onPickFlight;
+  });
+  // "Show in Flights" in a plane's popup scrolls to its row (popups stop clicks, so listen early).
+  useEffect(() => {
+    const box = container.current;
+    if (!box) return;
+    const show = (event: MouseEvent) => {
+      const button = event.target instanceof Element ? event.target.closest(".map-popup-show") : null;
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const id = button.getAttribute("data-flight");
+      const row = id ? document.querySelector(`[data-live-flight~="${CSS.escape(id)}"]`) : null;
+      row?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    box.addEventListener("click", show, true);
+    return () => box.removeEventListener("click", show, true);
+  }, []);
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
@@ -266,6 +290,8 @@ export function LiveMapPanel({
     for (const plane of shown) {
       seen.add(plane.hex);
       const flight = plane.callsign ? byCallsign.get(plane.callsign) : undefined;
+      if (flight) flightOfPlane.current.set(plane.hex, flight.id);
+      else flightOfPlane.current.delete(plane.hex);
       const icon = L.divIcon({
         className: "",
         // Labels pile up when zoomed out: others hide first, Allegiant later.
@@ -284,15 +310,20 @@ export function LiveMapPanel({
         [altitudeText(plane), plane.speed !== null ? `${plane.speed} kt` : ""].filter(Boolean).join(" · "),
       ]
         .filter(Boolean)
-        .join("<br>");
+        .join("<br>") + (flight
+          ? `<button type="button" class="map-popup-show" data-flight="${escapeHtml(flight.id)}">Show in Flights</button>`
+          : "");
       const existing = markers.current.get(plane.hex);
       if (existing) {
         existing.setLatLng([plane.lat, plane.lon]);
         existing.setIcon(icon);
         existing.setPopupContent(details);
       } else {
+        const hex = plane.hex;
         const marker = L.marker([plane.lat, plane.lon], { icon, keyboard: false })
           .bindPopup(details, { closeButton: false, className: "map-popup" })
+          .on("popupopen", () => pick.current?.(flightOfPlane.current.get(hex) ?? null))
+          .on("popupclose", () => pick.current?.(null))
           .addTo(map);
         markers.current.set(plane.hex, marker);
       }
