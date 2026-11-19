@@ -47,6 +47,8 @@ import {
   isScheduleRevision,
   ParsedSchedule,
   resolveSchedulePersonName,
+  tidyScheduleShifts,
+  tidyScheduleWorkers,
   SCHEDULE_PARSER_VERSION,
   scanConfidence,
   type ScanMark,
@@ -1045,7 +1047,15 @@ export default function HomePage() {
       let restoredShifts: Shift[] = [];
       if (savedParsedShifts) {
         try {
-          restoredShifts = canonicalizeScheduleShifts(
+          // Misread and clipped names from older scans ("Ody Hermany") become one person.
+          const keepName = (() => {
+            try {
+              return String(JSON.parse(savedPrefs ?? "{}").person ?? "");
+            } catch {
+              return "";
+            }
+          })();
+          restoredShifts = tidyScheduleShifts(canonicalizeScheduleShifts(
             (JSON.parse(savedParsedShifts) as Shift[]).filter(
               (shift) =>
                 shift &&
@@ -1054,7 +1064,7 @@ export default function HomePage() {
                 typeof shift.worker === "string" &&
                 (shift.workerConfirmed === true || isPlausibleWorkerName(shift.worker)),
             ),
-          );
+          ), [keepName]);
         } catch {
           localStorage.removeItem("shiftdeck.parsedShifts");
         }
@@ -1180,7 +1190,14 @@ export default function HomePage() {
                 name: document.name.replace(/^[^’']{1,40}[’']s schedule (?=[A-Z][a-z]{2} \d)/, "Schedule "),
                 shifts: canonicalizeScheduleShifts(document.shifts),
               }));
-            setScheduleDocuments(documents);
+            const keepName = (() => {
+              try {
+                return String(JSON.parse(localStorage.getItem("shiftdeck.preferences") ?? "{}").person ?? "");
+              } catch {
+                return "";
+              }
+            })();
+            setScheduleDocuments(tidyScheduleWorkers(documents, [keepName]));
           } catch {
             localStorage.removeItem("shiftdeck.scheduleDocuments");
           }
@@ -2193,7 +2210,7 @@ export default function HomePage() {
         detectedDateSet.has(todayDate) ? todayDate : upcoming ?? detectedDates[0],
       );
     }
-    setParsedShifts(nextParsedShifts);
+    setParsedShifts(tidyScheduleShifts(nextParsedShifts, [person]));
     setParsedFlights(nextParsedFlights);
     setImportedDates(nextDates);
     localStorage.setItem("shiftdeck.activeDates", JSON.stringify(nextDates));
@@ -2445,7 +2462,7 @@ export default function HomePage() {
       }
 
       const count = loadParsedSchedules(parsedSchedules, confirmedDaysOff, person);
-      nextDocuments = nextDocuments.sort((a, b) =>
+      nextDocuments = tidyScheduleWorkers(nextDocuments, [person]).sort((a, b) =>
         b.updatedAt.localeCompare(a.updatedAt),
       );
       setScheduleDocuments(nextDocuments);

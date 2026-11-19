@@ -78,7 +78,7 @@ export type ParsedSchedule = {
   sourceLayout?: ScheduleSourceLayout;
 };
 
-export const SCHEDULE_PARSER_VERSION = 5;
+export const SCHEDULE_PARSER_VERSION = 6;
 
 const DAY_MS = 86_400_000;
 
@@ -313,8 +313,23 @@ const deriveWeek = (words: OcrWord[]) => {
   };
 };
 
+/**
+ * Two words read without a space ("kodyHermany", "DevinBauer") come apart;
+ * name prefixes that are really written that way (LaBarre, LeCompte,
+ * McDonald, DeLuca) stay together.
+ */
+export const splitGluedWords = (raw: string) =>
+  raw.replace(/([a-z]{3,})(?=[A-Z][a-z])/g, (whole, left: string) =>
+    /^(?:mac|van|von|del|der|den|des|dos|las|los)$/i.test(left) ? whole : `${left} `);
+
 const cleanNameWord = (raw: string) => {
-  const cleaned = raw.replace(/^[^A-Za-z]+|[^A-Za-z'’-]+$/g, "");
+  const cleaned = raw
+    .replace(/^[^A-Za-z]+|[^A-Za-z'’-]+$/g, "")
+    // "Smith-S", "Watson-" : a trailing tag or dash isn't part of the name.
+    .replace(/(?<=[A-Za-z]{3})[-–'’]+[A-Za-z]?$/, "")
+    // Names start with a capital, and a capital I reads as a lowercase l
+    // ("lannelli" is Iannelli, "lan" is Ian); a capital L looks different.
+    .replace(/^l(?=[a-z]+$)/, "I");
   if (!cleaned) return "";
   if (cleaned === cleaned.toLowerCase() || cleaned === cleaned.toUpperCase()) {
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
@@ -386,6 +401,21 @@ const NON_NAME_WORDS = new Set([
   "sat",
 ]);
 
+/** Notes written after a name on the schedule ("Dawn Smith Deice"). */
+const NAME_NOTES = new Set([
+  "deice", "deicing", "training", "trng", "trn", "build", "chtr", "charter", "commissary", "com", "nho", "cbt", "ilt",
+  "new", "hire", "trainee", "lead", "supv", "gsc",
+]);
+
+/** "Dawn Smith Deice" → "Dawn Smith". */
+export const withoutNameNotes = (name: string) => {
+  const parts = name.trim().split(/\s+/);
+  while (parts.length > 2 && NAME_NOTES.has(parts.at(-1)!.toLowerCase().replace(/[^a-z]/g, ""))) parts.pop();
+  return parts.join(" ");
+};
+
+const WEEKDAY = /^(?:sun|mon|tue|wed|thu|fri|sat)/i;
+
 export const isPlausibleWorkerName = (name: string) => {
   const parts = name
     .trim()
@@ -444,7 +474,148 @@ const schedulePersonDistance = (left: string, right: string) => {
 export const isSameSchedulePerson = (left: string, right: string) =>
   Number.isFinite(schedulePersonDistance(left, right));
 
+const firstAndLast = (name: string) => {
+  const tokens = personNameTokens(canonicalSchedulePersonName(name));
+  return tokens.length >= 2 ? { first: tokens[0], last: tokens[tokens.length - 1], middle: tokens.length - 2 } : null;
+};
+
+const typosAllowed = (word: string) => (word.length >= 7 ? 2 : word.length >= 4 ? 1 : 0);
+
+/** One word could be a misread or clipped reading of the other. */
+const wordMatches = (short: string, full: string, clipStart: boolean) => {
+  if (short === full) return true;
+  if (editDistance(short, full) <= typosAllowed(full)) return true;
+  const shorter = full.length - short.length;
+  if (shorter <= 0 || shorter > 4) return false;
+  // The scan cut letters off the start ("ody" → "kody", "ctoria" → "victoria")…
+  if (clipStart && short.length >= 2 && full.endsWith(short)) return true;
+  if (clipStart && short.length >= 2 && shorter <= 2 && full.includes(short)) return true;
+  // …or off the end, or both ("will" → "williams", "annel" → "iannelli").
+  return short.length >= 4 && full.includes(short);
+};
+
+/**
+ * Whether two names read from schedules are the same person, allowing a
+ * misread letter or two and the clipped first letters scans often produce
+ * ("Ody Hermany" and "Kody Hermany", "Devin Baver" and "Devin Bauer").
+ * Middle words are ignored ("Christopher Ris Williams").
+ */
+export const isLikelySamePerson = (left: string, right: string) => {
+  const a = firstAndLast(left);
+  const b = firstAndLast(right);
+  if (!a || !b) return false;
+  const [short, full] = a.first.length + a.last.length <= b.first.length + b.last.length ? [a, b] : [b, a];
+  if (!wordMatches(short.last, full.last, true)) return false;
+  if (wordMatches(short.first, full.first, true)) return true;
+  // Same long last name: the first name can be read a bit worse ("Letrane" for "Coletrane").
+  return short.last === full.last && full.last.length >= 5 && short.first.length >= 4 &&
+    editDistance(short.first, full.first) <= typosAllowed(full.first) + 1;
+};
+
+/** How complete a reading looks: longer first and last names, fewer stray middle words. */
+const completeness = (name: string) => {
+  const parts = firstAndLast(name);
+  return parts ? parts.first.length + parts.last.length - parts.middle * 3 : 0;
+};
+
+/**
+ * Groups the readings of each person and picks one name for each: the most
+ * complete reading, then the one seen most often (`weight`). `keep` names
+ * (yours) always win their group.
+ */
+export function canonicalWorkerNames(
+  readings: Array<{ name: string; weight: number }>,
+  keep: string[] = [],
+): Map<string, string> {
+  const kept = new Set(keep.filter(Boolean).map((name) => name.toLowerCase()));
+  const totals = new Map<string, number>();
+  for (const { name, weight } of readings) totals.set(name, (totals.get(name) ?? 0) + weight);
+  const ordered = [...totals.entries()].sort((a, b) =>
+    Number(kept.has(b[0].toLowerCase())) - Number(kept.has(a[0].toLowerCase())) ||
+    completeness(b[0]) - completeness(a[0]) || b[1] - a[1] || a[0].localeCompare(b[0]));
+  const chosen: string[] = [];
+  const map = new Map<string, string>();
+  for (const [name] of ordered) {
+    const match = chosen.find((candidate) => isLikelySamePerson(name, candidate));
+    if (match) map.set(name, match);
+    else {
+      chosen.push(name);
+      map.set(name, name);
+    }
+  }
+  return map;
+}
+
+/** Two names read as one ("Kody Hermany Devin Bauer") when both are known on their own. */
+export const isTwoNamesGlued = (name: string, others: string[]) => {
+  // Saved before glued words were split: "kodyWermany DevinBaver".
+  const tokens = splitGluedWords(name).trim().split(/\s+/);
+  if (tokens.length < 4) return false;
+  for (let split = 2; split <= tokens.length - 2; split += 1) {
+    const left = tokens.slice(0, split).join(" ");
+    const right = tokens.slice(split).join(" ");
+    const known = (part: string) => others.some((other) => other !== name && isLikelySamePerson(part, other));
+    if (known(left) && known(right)) return true;
+  }
+  return false;
+};
+
+/**
+ * Cleans up the names across saved schedules: clipped and misread readings
+ * of a person become one name, and rows that were two people read as one
+ * are dropped when both people have their own rows.
+ */
+/** tidyScheduleWorkers for one list of shifts. */
+export const tidyScheduleShifts = (shifts: Shift[], keep: string[] = []) =>
+  tidyScheduleWorkers([{ shifts }], keep)[0].shifts;
+
+export function tidyScheduleWorkers<T extends { shifts: Shift[] }>(documents: T[], keep: string[] = []): T[] {
+  // How often a name was read: the days it's on, across every saved week.
+  const readings = documents.flatMap((document) => {
+    const days = new Map<string, Set<string>>();
+    for (const shift of document.shifts) days.set(shift.worker, (days.get(shift.worker) ?? new Set()).add(shift.date));
+    return [...days].map(([name, dates]) => ({ name, weight: dates.size }));
+  });
+  const map = canonicalWorkerNames(readings, keep);
+  return documents.map((document) => {
+    const names = [...new Set(document.shifts.map((shift) => map.get(shift.worker) ?? shift.worker))];
+    const glued = new Set(names.filter((name) => isTwoNamesGlued(name, names)));
+    const shifts = new Map<string, Shift>();
+    for (const shift of document.shifts) {
+      const worker = map.get(shift.worker) ?? shift.worker;
+      if (glued.has(worker)) continue;
+      const key = `${shift.date}|${worker}`;
+      const current = shifts.get(key);
+      if (!current || (current.status !== "working" && shift.status === "working")) {
+        shifts.set(key, {
+          ...shift,
+          worker,
+          id: `${shift.date}-${worker}-${shift.status === "working" ? shift.start : shift.status}`,
+        });
+      }
+    }
+    const changed = shifts.size !== document.shifts.length ||
+      document.shifts.some((shift) => (map.get(shift.worker) ?? shift.worker) !== shift.worker);
+    return changed ? { ...document, shifts: [...shifts.values()] } : document;
+  });
+}
+
 export const resolveSchedulePersonName = (
+  scannedName: string,
+  knownNames: string[],
+) => {
+  const scanned = canonicalSchedulePersonName(scannedName);
+  const exact = resolveByDistance(scannedName, knownNames);
+  // A fuller reading than the one already known ("Kody" after "Ody") is kept;
+  // the saved weeks are tidied to it afterwards.
+  if (exact !== scanned) return completeness(scanned) > completeness(exact) && isLikelySamePerson(scanned, exact) ? scanned : exact;
+  // A clipped reading ("Ody Hermany") of exactly one known person.
+  const clipped = [...new Set(knownNames.map(canonicalSchedulePersonName).filter(Boolean))]
+    .filter((name) => name !== exact && isLikelySamePerson(exact, name) && completeness(name) > completeness(exact));
+  return clipped.length === 1 ? clipped[0] : exact;
+};
+
+const resolveByDistance = (
   scannedName: string,
   knownNames: string[],
 ) => {
@@ -510,10 +681,29 @@ export function mergeScheduleParses(
     (left, right) => parseSignal(right) - parseSignal(left),
   );
 
+  // The passes read names a little differently ("Ody Hermany", "Kody Hermany",
+  // "Devin Baver"): each person gets one name, the most complete reading
+  // (then the most common, then the best pass's).
+  const readings = ranked.flatMap((schedule, rank) =>
+    [...new Set(schedule.shifts.map((shift) => canonicalSchedulePersonName(shift.worker)))]
+      .map((name) => ({ name, weight: 1 + (ranked.length - rank) / 100 })));
+  const names = canonicalWorkerNames(readings);
+  const people = [...new Set(names.values())];
+  const glued = new Set(people.filter((name) => isTwoNamesGlued(name, people)));
+  // A stray bit of another row ("El Smith", all days off): a one- or two-letter
+  // first name with at most one shift is a misread, not a person.
+  for (const name of people) {
+    if ((firstAndLast(name)?.first.length ?? 9) > 2) continue;
+    const working = ranked.flatMap((schedule) => schedule.shifts)
+      .filter((shift) => names.get(canonicalSchedulePersonName(shift.worker)) === name && shift.status === "working");
+    if (new Set(working.map((shift) => shift.date)).size <= 1) glued.add(name);
+  }
+
   const shifts = new Map<string, Shift>();
   ranked.forEach((schedule) => {
     schedule.shifts.forEach((shift) => {
-      const worker = canonicalSchedulePersonName(shift.worker);
+      const worker = names.get(canonicalSchedulePersonName(shift.worker)) ?? canonicalSchedulePersonName(shift.worker);
+      if (glued.has(worker)) return;
       const key = `${shift.date}|${worker}`;
       const current = shifts.get(key);
       if (!current || (current.status !== "working" && shift.status === "working")) {
@@ -659,15 +849,40 @@ const parseShifts = (
       }
     });
 
-  const namedRows = groups
+  // Two tightly packed rows can land in one group. Words on one line never
+  // sit on top of each other, so a group with stacked words is split where
+  // the gap between lines is widest (again, until no words overlap).
+  const overlapping = (a: OcrWord, b: OcrWord) =>
+    Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > Math.min(a.width, b.width) * 0.35;
+  const splitStacked = (group: OcrWord[]): OcrWord[][] => {
+    if (group.length < 2) return [group];
+    const stacked = group.some((word, index) => group.slice(index + 1).some((other) => overlapping(word, other)));
+    if (!stacked) return [group];
+    const sorted = [...group].sort((a, b) => a.rowY - b.rowY);
+    let cut = 1;
+    let widest = -Infinity;
+    for (let index = 1; index < sorted.length; index += 1) {
+      const gap = sorted[index].rowY - sorted[index - 1].rowY;
+      if (gap > widest) {
+        widest = gap;
+        cut = index;
+      }
+    }
+    if (widest < typicalHeight * 0.3) return [group];
+    return [...splitStacked(sorted.slice(0, cut)), ...splitStacked(sorted.slice(cut))];
+  };
+  const lines = groups.flatMap(splitStacked);
+
+  const namedRows = lines
     .map((group) => {
-      const name = group
+      const name = withoutNameNotes(group
         .sort((a, b) => a.x - b.x)
-        .map((word) => cleanNameWord(word.text))
+        .flatMap((word) => splitGluedWords(word.text).split(/\s+/))
+        .map((word) => cleanNameWord(word))
         .filter(Boolean)
         .join(" ")
         .replace(/\s+/g, " ")
-        .trim();
+        .trim());
       const nameParts = name.split(" ");
       const withoutTrailingCode =
         nameParts.length >= 3 && nameParts.at(-1)!.length <= 2
@@ -702,7 +917,12 @@ const parseShifts = (
       word.rowY > week.correctedHeaderY + typicalHeight * 0.7,
   );
 
-  const rows = namedRows.map((row, index) => {
+  // The line under the dates ("*Subject to Change*  Sun  Mon …") isn't anyone's row.
+  const workerRows = namedRows.filter((row) => cellWords
+    .filter((word) => Math.abs(word.rowY - row.y) <= rowTolerance && WEEKDAY.test(word.text.replace(/[^A-Za-z]/g, "")))
+    .length < 3);
+
+  const rows = workerRows.map((row, index) => {
     const cells = cellWords.filter(
       (word) => Math.abs(word.rowY - row.y) <= rowTolerance,
     );
@@ -713,9 +933,9 @@ const parseShifts = (
       y: row.y,
       cells,
       left: Math.min(...row.words.map((word) => word.x)),
-      top: Math.max(band.top, index ? (namedRows[index - 1].y + row.y) / 2 : -Infinity),
-      bottom: Math.min(band.bottom, index + 1 < namedRows.length
-        ? (row.y + namedRows[index + 1].y) / 2 : Infinity),
+      top: Math.max(band.top, index ? (workerRows[index - 1].y + row.y) / 2 : -Infinity),
+      bottom: Math.min(band.bottom, index + 1 < workerRows.length
+        ? (row.y + workerRows[index + 1].y) / 2 : Infinity),
     };
   });
 

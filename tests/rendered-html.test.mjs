@@ -275,7 +275,7 @@ test("reprocesses uploads and records the current schedule parser", async () => 
     readFile(new URL("../app/schedule-parser.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/charter-parser.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(parser, /SCHEDULE_PARSER_VERSION = 5/);
+  assert.match(parser, /SCHEDULE_PARSER_VERSION = 6/);
   const importHandler = page.slice(page.indexOf("  const processFiles ="), page.indexOf("  const onFiles ="));
   assert.doesNotMatch(importHandler, /document\.hash === hash/);
   assert.match(page, /parserVersion: SCHEDULE_PARSER_VERSION/);

@@ -21,7 +21,7 @@ const word = (text, x, y, width = Math.max(8, text.length * 6), height = 10) =>
   [5, 1, 1, 1, 1, 1, x, y, width, height, 90, text].join("\t");
 
 test("imports the employee grid when a document date precedes the seven-day header", () => {
-  assert.equal(SCHEDULE_PARSER_VERSION, 5);
+  assert.equal(SCHEDULE_PARSER_VERSION, 6);
   const rows = [
     [1, 1, 0, 0, 0, 0, 0, 0, 1200, 650, -1, ""].join("\t"),
     word("Morning", 4, 100, 50),
@@ -349,4 +349,79 @@ test("reveals OCR marks from the top left through the last row", () => {
   assert.ok(ordered.get("bottom-right") > ordered.get("top-right"));
   const many = Array.from({ length: 700 }, (_, index) => ({ id: index, x: index, y: index, height: 10 }));
   assert.ok(Math.max(...scanSweepDelays(many).values()) <= 730);
+});
+
+/* ---------- names: misreads, clipped letters, glued rows ---------- */
+
+const week = (rows) => [
+  [1, 1, 0, 0, 0, 0, 0, 0, 1200, 650, -1, ""].join("\t"),
+  ...["11/22/2026", "11/23/2026", "11/24/2026", "11/25/2026", "11/26/2026", "11/27/2026", "11/28/2026"]
+    .map((date, index) => word(date, 188 + index * 145, 100, 61, 13)),
+  ...rows,
+].join("\n");
+
+test("two rows read as one, with the words glued together, come apart", async () => {
+  const { splitGluedWords } = await import("../app/schedule-parser.ts");
+  assert.equal(splitGluedWords("kodyWermany"), "kody Wermany");
+  assert.equal(splitGluedWords("DevinBaver"), "Devin Baver");
+  assert.equal(splitGluedWords("LaBarre"), "LaBarre", "real name prefixes stay");
+  assert.equal(splitGluedWords("LeCompte"), "LeCompte");
+  assert.equal(splitGluedWords("McDonald"), "McDonald");
+  assert.equal(splitGluedWords("MacDonald"), "MacDonald");
+
+  // Kody's and Devin's rows sit so close the reader groups them; their words are stacked.
+  const parsed = parseScheduleTsv(week([
+    word("kodyHermany", 4, 300, 70, 10),
+    word("1900-0000", 188, 300, 61),
+    word("DevinBauer", 4, 307, 64, 10),
+    word("1300-1300", 188, 307, 61),
+  ]), 90);
+  const names = [...new Set(parsed.shifts.map((shift) => shift.worker))];
+  assert.deepEqual(names.sort(), ["Devin Bauer", "Kody Hermany"]);
+});
+
+test("the line under the dates and notes after names aren't people", () => {
+  const parsed = parseScheduleTsv(week([
+    word("*Subject", 4, 120, 50), word("to", 58, 120, 12), word("Change*", 74, 120, 48),
+    ...["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => word(day, 200 + index * 145, 120, 22)),
+    word("Dawn", 4, 200, 30), word("Smith", 38, 200, 32), word("Deice", 74, 200, 32), word("1130-1430", 478, 200, 61),
+    word("Crystal", 4, 230, 42), word("Smith-S", 50, 230, 46), word("0800-1200", 188, 230, 61),
+    word("Antonio", 4, 260, 44), word("lannelli", 52, 260, 46), word("0400-0900", 188, 260, 61),
+  ]), 90);
+  const names = [...new Set(parsed.shifts.map((shift) => shift.worker))].sort();
+  assert.deepEqual(names, ["Antonio Iannelli", "Crystal Smith", "Dawn Smith"]);
+});
+
+test("readings of one person from different passes and weeks become one name", async () => {
+  const { isLikelySamePerson, canonicalWorkerNames, tidyScheduleShifts } = await import("../app/schedule-parser.ts");
+  for (const [a, b] of [
+    ["Ody Hermany", "Kody Hermany"], ["Ohn Snyder", "John Snyder"], ["Ctoria Touma", "Victoria Touma"],
+    ["Chael Smith", "Machael Smith"], ["Ed Plank", "Jared Plank"], ["Devin Baver", "Devin Bauer"],
+    ["Benjamin Iller", "Benjamin Piller"], ["Christopher Will", "Christopher Williams"],
+    ["Christopher Ris Williams", "Christopher Williams"], ["Letrane Steidle", "Coletrane Steidle"],
+    ["Jaden Rush", "Jayden Rush"], ["Ua Delgado", "Juan Delgado"],
+  ]) assert.ok(isLikelySamePerson(a, b), `${a} = ${b}`);
+  for (const [a, b] of [
+    ["Dawn Smith", "Crystal Smith"], ["Dawn Smith", "Machael Smith"], ["Jason Hudak", "Jacob Hoffert"],
+    ["Jared Plank", "Landon Weber"], ["Jeffrey LeCompte", "Jeffrey Porter"], ["Jude Khouri", "Juan Delgado"],
+    ["Kenneth Swain", "Kody Hermany"],
+  ]) assert.ok(!isLikelySamePerson(a, b), `${a} ≠ ${b}`);
+
+  const map = canonicalWorkerNames([
+    { name: "Ody Hermany", weight: 5 }, { name: "Kody Hermany", weight: 2 },
+    { name: "Devin Baver", weight: 1 }, { name: "Devin Bauer", weight: 9 },
+  ]);
+  assert.equal(map.get("Ody Hermany"), "Kody Hermany", "the most complete reading wins");
+  assert.equal(map.get("Devin Baver"), "Devin Bauer", "then the most common");
+
+  const shift = (date, worker, start = "") => ({ id: `${date}-${worker}`, date, worker, start, end: start ? "20:00" : "", status: start ? "working" : "off" });
+  const tidy = tidyScheduleShifts([
+    shift("2026-11-22", "Kody Hermany", "19:00"), shift("2026-11-23", "Ody Hermany", "14:00"),
+    shift("2026-11-22", "Devin Bauer", "13:00"),
+    shift("2026-11-22", "Kody Wermany Devin Baver", "19:00"),
+    shift("2026-11-23", "kodyWermany DevinBaver", "14:00"),
+    shift("2026-11-22", "David LaBarre", "20:00"),
+  ], ["David LaBarre"]);
+  assert.deepEqual([...new Set(tidy.map((item) => item.worker))].sort(), ["David LaBarre", "Devin Bauer", "Kody Hermany"]);
+  assert.equal(tidy.filter((item) => item.worker === "Kody Hermany").length, 2);
 });
