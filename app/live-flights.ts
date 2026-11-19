@@ -71,6 +71,10 @@ const READ_EVERY_MS = 60_000;
  * FlightAware). Only `refresh` asks FlightAware, and the worker limits that
  * for everyone combined.
  */
+/** The last board this phone saw, so the app opens with flights already in place. */
+const LIVE_CACHE_KEY = "shiftdeck.liveFlights";
+const LIVE_CACHE_MS = 12 * 60 * 60 * 1000;
+
 export function useLiveFlights(baseUrl: string) {
   const [live, setLive] = useState<LiveFlights | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -89,7 +93,10 @@ export function useLiveFlights(baseUrl: string) {
     if (!data.enabled || !Array.isArray(data.flights)) return;
     setLive({
       updatedAt: data.updatedAt ?? null,
-      flights: data.flights,
+      // A malformed flight is skipped rather than allowed to break the page.
+      flights: data.flights.filter((flight) =>
+        flight && typeof flight.id === "string" && typeof flight.ident === "string" &&
+        (flight.kind === "arrival" || flight.kind === "departure") && Array.isArray(flight.other)),
       status: data.status ?? null,
       airportBoardUpdatedAt: data.airportBoardUpdatedAt ?? null,
       airportAlerts: data.airportAlerts ?? null,
@@ -99,6 +106,17 @@ export function useLiveFlights(baseUrl: string) {
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    // Show the last board straight away; the fresh one replaces it quietly.
+    try {
+      const cached = JSON.parse(localStorage.getItem(LIVE_CACHE_KEY) ?? "null");
+      if (cached?.url === baseUrl && Date.now() - cached.savedAt < LIVE_CACHE_MS) {
+        queueMicrotask(() => {
+          if (!cancelled) accept(cached.data);
+        });
+      }
+    } catch {
+      // A bad or blocked cache just means waiting for the network.
+    }
     const load = async () => {
       window.clearTimeout(timer);
       if (document.visibilityState === "visible") {
@@ -106,6 +124,13 @@ export function useLiveFlights(baseUrl: string) {
           const response = await fetch(baseUrl, { cache: "no-store" });
           const data = await response.json();
           if (!cancelled) accept(data);
+          if (data?.enabled) {
+            try {
+              localStorage.setItem(LIVE_CACHE_KEY, JSON.stringify({ url: baseUrl, savedAt: Date.now(), data }));
+            } catch {
+              // Storage full: next start just waits for the network.
+            }
+          }
         } catch {
           // Offline or worker not deployed yet: keep schedule times.
         }

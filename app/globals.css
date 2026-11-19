@@ -1612,14 +1612,31 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
   gap: 12px;
 }
 
-.home-grid.is-ready > * {
-  animation: rise 460ms var(--ease-out) both;
+/* Nothing shows until saved data is in (no flash of empty cards), then the
+   cards sweep in top to bottom, quickly. */
+.home-grid:not(.is-ready) {
+  opacity: 0;
 }
 
-.home-grid.is-ready > :nth-child(2) { animation-delay: 50ms; }
-.home-grid.is-ready > :nth-child(3) { animation-delay: 100ms; }
-.home-grid.is-ready > :nth-child(4) { animation-delay: 150ms; }
-.home-grid.is-ready > :nth-child(5) { animation-delay: 200ms; }
+.home-grid.is-ready > * {
+  animation: sweep-in 360ms cubic-bezier(.2, .85, .25, 1) both;
+}
+
+.home-grid.is-ready > :nth-child(2) { animation-delay: 40ms; }
+.home-grid.is-ready > :nth-child(3) { animation-delay: 80ms; }
+.home-grid.is-ready > :nth-child(4) { animation-delay: 120ms; }
+.home-grid.is-ready > :nth-child(5) { animation-delay: 160ms; }
+.home-grid.is-ready > :nth-child(6) { animation-delay: 200ms; }
+.home-grid.is-ready > :nth-child(7) { animation-delay: 240ms; }
+
+@keyframes sweep-in {
+  from { opacity: 0; transform: translateY(16px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-grid.is-ready > * { animation-duration: 1ms; animation-delay: 0ms !important; }
+}
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(10px); }
