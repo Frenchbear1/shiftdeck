@@ -8950,13 +8950,18 @@ html {
   /* Above the app and the quick menu, below sheets (the code sheet can open over it). */
   z-index: 85;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
   background: var(--bg);
 }
 
 .name-gate-card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 12px;
   justify-items: stretch;
   width: min(100%, 380px);
@@ -8989,6 +8994,8 @@ html {
 }
 
 .name-gate-input {
+  width: 100%;
+  min-width: 0;
   height: 48px;
   padding: 0 14px;
   color: var(--text);
@@ -9355,7 +9362,8 @@ html {
 
 .name-gate-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …): inputs have a built-in minimum width that pushed the card off narrow screens. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 
