@@ -373,6 +373,9 @@ function ViewTabs({ value, onChange }: { value: ScheduleRange; onChange: (range:
   const bar = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; moved: boolean; left: number; width: number } | null>(null);
   const [position, setPosition] = useState<number | null>(null);
+  // Only your own taps and slides animate; the saved view loading at start
+  // (or any other change) just appears in place.
+  const [touched, setTouched] = useState(false);
   const shown = position ?? index;
 
   const pick = (next: number) => {
@@ -391,12 +394,13 @@ function ViewTabs({ value, onChange }: { value: ScheduleRange; onChange: (range:
   return (
     <div
       ref={bar}
-      className={`view-tabs${position !== null ? " is-dragging" : ""}`}
+      className={`view-tabs${position !== null ? " is-dragging" : ""}${touched ? " animate" : ""}`}
       role="radiogroup"
       aria-label="Schedule view"
       style={{ ["--at" as string]: shown, ["--count" as string]: VIEW_TABS.length }}
       onPointerDown={(event) => {
         if (event.pointerType === "mouse" && event.button !== 0) return;
+        setTouched(true);
         const rect = bar.current!.getBoundingClientRect();
         drag.current = { id: event.pointerId, x: event.clientX, moved: false, left: rect.left + 3, width: rect.width - 6 };
         bar.current!.setPointerCapture(event.pointerId);
@@ -423,6 +427,7 @@ function ViewTabs({ value, onChange }: { value: ScheduleRange; onChange: (range:
         setPosition(null);
       }}
       onKeyDown={(event) => {
+        setTouched(true);
         if (event.key === "ArrowRight" || event.key === "ArrowDown") pick(index + 1);
         else if (event.key === "ArrowLeft" || event.key === "ArrowUp") pick(index - 1);
         else return;

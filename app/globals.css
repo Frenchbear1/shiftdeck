@@ -7316,6 +7316,9 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
   border-radius: 8px;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--blue) 40%, transparent), inset 0 1px 0 rgba(255, 255, 255, .18);
   transform: translateX(calc(var(--at) * 100%));
+}
+
+.view-tabs.animate .view-tabs-thumb {
   transition: transform 340ms cubic-bezier(.3, 1.35, .45, 1), scale 180ms var(--ease-out);
 }
 
@@ -7342,6 +7345,9 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
   letter-spacing: -.2px;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
+}
+
+.view-tabs.animate button {
   transition: color 180ms ease;
 }
 
