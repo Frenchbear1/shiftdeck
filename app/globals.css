@@ -10845,3 +10845,8 @@ html {
   font-weight: 750;
   cursor: pointer;
 }
+
+.clock-card-foot button.armed {
+  color: #fff;
+  background: var(--danger);
+}

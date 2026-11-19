@@ -59,11 +59,21 @@ export function TimeClockCard({ data, onChange, onOpen, scheduled }: {
   const open = openPunch(data.punches);
   const now = useNow(Boolean(open));
   const [undo, setUndo] = useState<{ data: ClockData; text: string } | null>(null);
+  // Undo takes two taps (a stray tap near Clock out shouldn't undo a punch).
+  const [undoArmed, setUndoArmed] = useState(false);
   useEffect(() => {
     if (!undo) return;
-    const timer = window.setTimeout(() => setUndo(null), 15_000);
+    const timer = window.setTimeout(() => {
+      setUndo(null);
+      setUndoArmed(false);
+    }, 15_000);
     return () => window.clearTimeout(timer);
   }, [undo]);
+  useEffect(() => {
+    if (!undoArmed) return;
+    const timer = window.setTimeout(() => setUndoArmed(false), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [undoArmed]);
 
   const { settings } = data;
   const period = periodFor(todayIso(), settings);
@@ -72,6 +82,7 @@ export function TimeClockCard({ data, onChange, onOpen, scheduled }: {
   const punch = () => {
     const at = new Date().toISOString();
     setUndo({ data, text: open ? "Clocked out" : "Clocked in" });
+    setUndoArmed(false);
     onChange({
       ...data,
       punches: open
@@ -115,11 +126,20 @@ export function TimeClockCard({ data, onChange, onOpen, scheduled }: {
         {undo ? (
           <>
             {undo.text} at {clockText(new Date())}
-            <button type="button" onClick={() => {
-              onChange(undo.data);
-              setUndo(null);
-            }}>
-              <Undo2 aria-hidden="true" /> Undo
+            <button
+              type="button"
+              className={undoArmed ? "armed" : undefined}
+              onClick={() => {
+                if (!undoArmed) {
+                  setUndoArmed(true);
+                  return;
+                }
+                onChange(undo.data);
+                setUndo(null);
+                setUndoArmed(false);
+              }}
+            >
+              <Undo2 aria-hidden="true" /> {undoArmed ? "Tap again to undo" : "Undo"}
             </button>
           </>
         ) : (
