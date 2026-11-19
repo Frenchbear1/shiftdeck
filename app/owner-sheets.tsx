@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Check, ChevronDown, ChevronRight, Copy, Crown, KeyRound, LoaderCircle, ShieldCheck, Smartphone, Undo2, X } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronRight, Copy, Crown, KeyRound, LoaderCircle, Send, ShieldCheck, Smartphone, Undo2, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { backdropClose } from "./home-sections";
 import { recommendedSuccessor, type LogEntry, type Me, type PersonSummary, type PhoneSummary } from "./people";
@@ -223,8 +223,40 @@ export type PhoneActions = {
   onRemovePhone: (deviceId: string) => Promise<void>;
 };
 
+/** A section of the owner screen that opens and closes. */
+function Section({ icon: Icon, title, summary, alert, defaultOpen = false, children }: {
+  icon: typeof Crown;
+  title: string;
+  summary?: React.ReactNode;
+  /** Something's waiting in it. */
+  alert?: boolean;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`owner-section${open ? " open" : ""}${alert ? " alert" : ""}`}>
+      <button type="button" className="owner-section-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon className="owner-section-icon" aria-hidden="true" />
+        <span>{title}</span>
+        {summary !== undefined && <b>{summary}</b>}
+        <ChevronDown className="owner-section-chevron" aria-hidden="true" />
+      </button>
+      {open && <div className="owner-section-body">{children}</div>}
+    </section>
+  );
+}
+
+function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} className={`owner-switch${on ? " on" : ""}`} onClick={() => onChange(!on)}>
+      <i />
+    </button>
+  );
+}
+
 export function OwnerSheet({
-  me, names, onRename, onRemove, onBlock, onUnblock, onRenamePhone, onMovePhone, onRemovePhone, onDecide,
+  me, names, onRename, onRemove, onBlock, onUnblock, onShareAccess, onRenamePhone, onMovePhone, onRemovePhone, onDecide,
   onStartHandover, onCancelHandover, onMakeRecoveryKey, onAddPhone, learning, onClose,
 }: PhoneActions & {
   me: Me;
@@ -234,6 +266,7 @@ export function OwnerSheet({
   onRemove: (personId: string) => Promise<void>;
   onBlock: (personId: string) => Promise<void>;
   onUnblock: (personId: string) => Promise<void>;
+  onShareAccess: (personId: string, allow: boolean) => Promise<void>;
   onDecide: (requestId: string, approve: boolean) => Promise<void>;
   onStartHandover: (personId: string) => Promise<{ key: string; expiresAt: string; name: string }>;
   onCancelHandover: () => Promise<void>;
@@ -246,7 +279,10 @@ export function OwnerSheet({
   const everyone = me.people ?? [];
   const people = everyone.filter((person) => !person.blocked);
   const blocked = everyone.filter((person) => person.blocked);
+  const others = people.filter((person) => person.id !== me.personId);
+  const senders = others.filter((person) => person.canShare);
   const requests = (me.requests ?? []).filter((request) => request.personId !== me.personId);
+  const log = me.log ?? [];
   const recommended = recommendedSuccessor(people, me.personId);
   const [open, setOpen] = useState<string | null>(null);
   const confirm = useConfirm();
@@ -255,7 +291,6 @@ export function OwnerSheet({
   const [confirming, setConfirming] = useState(false);
   const [handoverKey, setHandoverKey] = useState<{ key: string; expiresAt: string; name: string } | null>(null);
   const [recoveryKey, setRecoveryKey] = useState("");
-  const [showAllLog, setShowAllLog] = useState(false);
   const [problem, setProblem] = useState("");
   const key = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
   const run = async (action: () => Promise<void>) => {
@@ -266,232 +301,233 @@ export function OwnerSheet({
       setProblem(failure instanceof Error ? failure.message : "That didn’t work.");
     }
   };
-  const picked = people.find((person) => person.id === successor);
-  const log = me.log ?? [];
-  const shownLog = showAllLog ? log : log.slice(0, 5);
+  const picked = others.find((person) => person.id === successor);
+  const firstOf = (name: string) => name.split(" ")[0];
 
   return (
     <Sheet title="Owner" onClose={onClose}>
-      <div className="owner-head">
-        <span className="share-choice-icon"><Crown /></span>
-        <span className="share-choice-copy">
+      <div className="owner-top">
+        <span className="owner-top-icon"><Crown /></span>
+        <span className="owner-top-copy">
           <b>You own Shiftdeck</b>
           <small>
-            {people.length} {people.length === 1 ? "person uses" : "people use"} it{blocked.length ? `, ${blocked.length} blocked` : ""}.
-            Names are locked; only you change them.
+            {people.length} {people.length === 1 ? "person" : "people"}
+            {blocked.length ? ` · ${blocked.length} blocked` : ""}
           </small>
         </span>
+        <button type="button" className="owner-top-action" onClick={onAddPhone}>
+          <Smartphone aria-hidden="true" /> Add my phone
+        </button>
       </div>
-      <button type="button" className="button soft share-make owner-add-phone" onClick={onAddPhone}>
-        <Smartphone /> Add another phone of mine
-      </button>
 
-      {requests.length > 0 && (
-        <>
-          <p className="share-section-title">Name changes</p>
-          <div className="team-members">
-            {requests.map((request) => (
-              <div key={request.id} className="team-request">
-                <span><b>{request.from}</b> asks to be <b>{request.name}</b></span>
-                <span className="team-request-actions">
-                  <button type="button" className="button soft" onClick={() => void run(() => onDecide(request.id, false))}>Deny</button>
-                  <button type="button" className="button primary" onClick={() => void run(() => onDecide(request.id, true))}>Approve</button>
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
 
-      {log.length > 0 && (
-        <>
-          <p className="share-section-title">New phones</p>
-          <ul className="owner-log">
-            {shownLog.map((entry) => (
-              <LogRow
-                key={entry.id}
-                entry={entry}
-                me={me}
-                confirm={confirm}
-                onBlock={(personId) => void run(() => onBlock(personId))}
-                onUnblock={(personId) => void run(() => onUnblock(personId))}
-              />
-            ))}
-          </ul>
-          {log.length > 5 && (
-            <button type="button" className="share-again owner-log-more" onClick={() => setShowAllLog(!showAllLog)}>
-              {showAllLog ? "Show less" : `Show all ${log.length}`}
-            </button>
-          )}
-        </>
-      )}
-
-      <p className="share-section-title">Everyone, longest first</p>
-      <div className="owner-people">
-        {people.map((person) => (
-          <PersonCard
-            key={person.id}
-            person={person}
-            me={me}
-            open={open === person.id}
-            onToggle={() => setOpen((current) => current === person.id ? null : person.id)}
-            renameTo={names.filter((name) => key(name) === key(person.name) || !people.some((other) => key(other.name) === key(name)))}
-            moveTo={[...new Set([...people.filter((other) => !other.owner).map((other) => other.name), ...names])]
-              .filter((name) => key(name) !== key(person.name) && !people.some((other) => other.owner && key(other.name) === key(name)))
-              .sort((a, b) => a.localeCompare(b))}
-            confirm={confirm}
-            run={run}
-            onRename={onRename}
-            onRemove={onRemove}
-            onBlock={onBlock}
-            onRenamePhone={onRenamePhone}
-            onMovePhone={onMovePhone}
-            onRemovePhone={onRemovePhone}
-          />
-        ))}
-      </div>
-      <p className="share-note">
-        Tap a name to see their phones. Block stops someone using the app on every phone of theirs (you can undo it).
-        Remove frees their name instead.
-      </p>
-
-      {blocked.length > 0 && (
-        <>
-          <p className="share-section-title">Blocked</p>
-          <div className="team-members owner-blocked">
-            <ul>
-              {blocked.map((person) => (
-                <li key={person.id}>
-                  <span className="owner-person">
-                    <span className="team-member-name"><Ban className="owner-blocked-icon" aria-hidden="true" /> {person.name}</span>
-                    <small>
-                      Blocked {person.blockedAt ? sinceLabel(person.blockedAt) : ""} · {person.devices} {person.devices === 1 ? "phone" : "phones"}
-                    </small>
+      <div className="owner-sections">
+        {requests.length > 0 && (
+          <Section icon={KeyRound} title="Name changes" summary={requests.length} alert defaultOpen>
+            <ul className="owner-rows">
+              {requests.map((request) => (
+                <li key={request.id} className="owner-row">
+                  <span className="owner-row-main">
+                    <b>{request.from}</b>
+                    <small>wants to be {request.name}</small>
                   </span>
-                  <span className="team-member-actions">
-                    <button type="button" className="owner-unblock" onClick={() => void run(() => onUnblock(person.id))}>
-                      <Undo2 aria-hidden="true" /> Unblock
-                    </button>
+                  <span className="owner-row-buttons">
+                    <button type="button" className="owner-pill" onClick={() => void run(() => onDecide(request.id, false))}>Deny</button>
+                    <button type="button" className="owner-pill primary" onClick={() => void run(() => onDecide(request.id, true))}>Approve</button>
                   </span>
                 </li>
               ))}
             </ul>
+          </Section>
+        )}
+
+        <Section icon={Users} title="People" summary={people.length}>
+          <div className="owner-people">
+            {people.map((person) => (
+              <PersonCard
+                key={person.id}
+                person={person}
+                me={me}
+                open={open === person.id}
+                onToggle={() => setOpen((current) => current === person.id ? null : person.id)}
+                renameTo={names.filter((name) => key(name) === key(person.name) || !everyone.some((other) => key(other.name) === key(name)))}
+                moveTo={[...new Set([...people.filter((other) => !other.owner).map((other) => other.name), ...names])]
+                  .filter((name) => key(name) !== key(person.name) && !everyone.some((other) => (other.owner || other.blocked) && key(other.name) === key(name)))
+                  .sort((a, b) => a.localeCompare(b))}
+                confirm={confirm}
+                run={run}
+                onRename={onRename}
+                onRemove={onRemove}
+                onBlock={onBlock}
+                onRenamePhone={onRenamePhone}
+                onMovePhone={onMovePhone}
+                onRemovePhone={onRemovePhone}
+              />
+            ))}
           </div>
-        </>
-      )}
+        </Section>
 
-      {learning && (
-        <>
-          <p className="share-section-title">Only you see this</p>
-          {learning}
-        </>
-      )}
+        <Section icon={Send} title="Can send to the team" summary={others.length ? `${senders.length} of ${others.length}` : "Just you"}>
+          {others.length ? (
+            <ul className="owner-rows">
+              {others.map((person) => (
+                <li key={person.id} className="owner-row">
+                  <span className="owner-row-main"><b>{person.name}</b></span>
+                  <Switch
+                    on={Boolean(person.canShare)}
+                    label={`${person.name} can send to the team`}
+                    onChange={(allow) => void run(() => onShareAccess(person.id, allow))}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="owner-empty">Nobody else yet.</p>
+          )}
+        </Section>
 
-      <p className="share-section-title">If you lose your phones</p>
-      {recoveryKey ? (
-        <div className="owner-key-box">
-          <p className="owner-key">{grouped(recoveryKey)}</p>
-          <small>
-            Save this somewhere only you can get to (written down, or a screenshot in a private album). If every phone of
-            yours is lost, pick your name on a new phone and use this key. It works once. You won’t see it again here.
-          </small>
-          <button type="button" className="button soft share-make" onClick={() => {
-            void navigator.clipboard?.writeText(recoveryKey).catch(() => undefined);
-          }}>
-            <Copy /> Copy
-          </button>
-          <button type="button" className="share-again" onClick={() => setRecoveryKey("")}>I saved it</button>
-        </div>
-      ) : (
-        <>
-          <button
-            type="button"
-            className="button soft share-make owner-handover"
-            onClick={() => void run(async () => setRecoveryKey(await onMakeRecoveryKey()))}
-          >
-            <ShieldCheck /> {me.recoveryKeyMadeAt ? "Make a new recovery key" : "Make a recovery key"}
-          </button>
-          <p className="share-note">
-            {me.recoveryKeyMadeAt
-              ? `You made one ${sinceLabel(me.recoveryKeyMadeAt)}. A new one replaces it.`
-              : "A 20-digit key that gets you back in if all your phones are lost. Nobody else can become the owner without you."}
-          </p>
-        </>
-      )}
+        <Section icon={Smartphone} title="New phones" summary={log.length ? timeLabel(log[0].at) : "None yet"}>
+          {log.length ? (
+            <ul className="owner-rows">
+              {log.map((entry) => (
+                <LogRow
+                  key={entry.id}
+                  entry={entry}
+                  me={me}
+                  confirm={confirm}
+                  onBlock={(personId) => void run(() => onBlock(personId))}
+                  onUnblock={(personId) => void run(() => onUnblock(personId))}
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="owner-empty">New names and phones show up here.</p>
+          )}
+        </Section>
 
-      <p className="share-section-title">Leaving the job?</p>
-      {handoverKey ? (
-        <div className="owner-key-box">
-          <p className="owner-key">{grouped(handoverKey.key)}</p>
-          <small>
-            Give this to {handoverKey.name.split(" ")[0]} in person. On their phone, Settings shows “Become the owner”; they type
-            this key. It works for 24 hours. Until then you’re still the owner, and you can cancel.
-          </small>
-          <button type="button" className="share-again" onClick={() => setHandoverKey(null)}>Done</button>
-        </div>
-      ) : me.handover ? (
-        <div className="owner-handover-box">
-          <p className="owner-handover-status">
-            Handing over to <b>{me.handover.name}</b>. Waiting for them to type the key (until {timeLabel(me.handover.expiresAt)}).
-          </p>
-          <span className="owner-card-actions">
-            <button type="button" className="danger" onClick={() => void run(onCancelHandover)}>Cancel handover</button>
-            <button type="button" onClick={() => void run(async () => setHandoverKey(await onStartHandover(me.handover!.personId)))}>
-              New key
-            </button>
-          </span>
-        </div>
-      ) : !handing ? (
-        <button type="button" className="button soft share-make owner-handover" onClick={() => setHanding(true)}>
-          <Crown /> Hand over ownership
-        </button>
-      ) : (
-        <div className="owner-handover-box">
-          <label className="team-join-name">
-            <span>Who takes over?</span>
-            <span className="team-join-select">
-              <select value={successor} onChange={(event) => {
-                setSuccessor(event.target.value);
-                setConfirming(false);
-              }} aria-label="New owner">
-                <option value="" disabled>Pick someone</option>
-                {people.filter((person) => person.id !== me.personId).map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}{recommended?.id === person.id ? " · Recommended (longest here)" : ""}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown aria-hidden="true" />
-            </span>
-            {recommended && <small>Recommended: {recommended.name}, using it since {sinceLabel(recommended.since)}.</small>}
-          </label>
-          {picked && (
-            <button
-              type="button"
-              className={`button share-make ${confirming ? "danger" : "primary"}`}
-              onClick={() => {
-                if (!confirming) setConfirming(true);
-                else {
-                  void run(async () => {
-                    setHandoverKey(await onStartHandover(picked.id));
+        {blocked.length > 0 && (
+          <Section icon={Ban} title="Blocked" summary={blocked.length}>
+            <ul className="owner-rows">
+              {blocked.map((person) => (
+                <li key={person.id} className="owner-row">
+                  <span className="owner-row-main">
+                    <b>{person.name}</b>
+                    <small>Since {person.blockedAt ? sinceLabel(person.blockedAt) : "—"} · {person.devices} {person.devices === 1 ? "phone" : "phones"}</small>
+                  </span>
+                  <button type="button" className="owner-pill" onClick={() => void run(() => onUnblock(person.id))}>
+                    <Undo2 aria-hidden="true" /> Unblock
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+
+        {learning}
+
+        <Section
+          icon={ShieldCheck}
+          title="Ownership"
+          summary={me.handover ? `Handing to ${firstOf(me.handover.name)}` : me.recoveryKeyMadeAt ? "Recovery key saved" : "No recovery key"}
+          alert={!me.recoveryKeyMadeAt && !recoveryKey}
+        >
+          <div className="owner-ownership">
+            <p className="owner-label">Recovery key</p>
+            {recoveryKey ? (
+              <div className="owner-key-box">
+                <p className="owner-key">{grouped(recoveryKey)}</p>
+                <small>Save it somewhere private. It sets up a new phone as you if all yours are lost. One use; not shown again.</small>
+                <span className="owner-row-buttons">
+                  <button type="button" className="owner-pill" onClick={() => {
+                    void navigator.clipboard?.writeText(recoveryKey).catch(() => undefined);
+                  }}><Copy aria-hidden="true" /> Copy</button>
+                  <button type="button" className="owner-pill primary" onClick={() => setRecoveryKey("")}>I saved it</button>
+                </span>
+              </div>
+            ) : (
+              <div className="owner-row owner-row-flat">
+                <span className="owner-row-main">
+                  <small>{me.recoveryKeyMadeAt ? `Made ${sinceLabel(me.recoveryKeyMadeAt)}` : "Gets you back in if you lose every phone"}</small>
+                </span>
+                <button type="button" className="owner-pill" onClick={() => void run(async () => setRecoveryKey(await onMakeRecoveryKey()))}>
+                  {me.recoveryKeyMadeAt ? "Make new" : "Make one"}
+                </button>
+              </div>
+            )}
+
+            <p className="owner-label">Hand over</p>
+            {handoverKey ? (
+              <div className="owner-key-box">
+                <p className="owner-key">{grouped(handoverKey.key)}</p>
+                <small>
+                  Give this to {firstOf(handoverKey.name)} in person. They type it under Settings → Become the owner within 24 hours.
+                  You stay owner until then.
+                </small>
+                <button type="button" className="owner-pill primary" onClick={() => setHandoverKey(null)}>Done</button>
+              </div>
+            ) : me.handover ? (
+              <div className="owner-row owner-row-flat">
+                <span className="owner-row-main">
+                  <b>Waiting on {firstOf(me.handover.name)}</b>
+                  <small>Until {timeLabel(me.handover.expiresAt)}</small>
+                </span>
+                <span className="owner-row-buttons">
+                  <button type="button" className="owner-pill" onClick={() => void run(async () => setHandoverKey(await onStartHandover(me.handover!.personId)))}>New key</button>
+                  <button type="button" className="owner-pill danger" onClick={() => void run(onCancelHandover)}>Cancel</button>
+                </span>
+              </div>
+            ) : !handing ? (
+              <div className="owner-row owner-row-flat">
+                <span className="owner-row-main"><small>Leaving the job? They’ll need a key from you.</small></span>
+                <button type="button" className="owner-pill" onClick={() => setHanding(true)} disabled={!others.length}>Hand over</button>
+              </div>
+            ) : (
+              <div className="owner-handover-box">
+                <span className="team-join-select">
+                  <select value={successor} onChange={(event) => {
+                    setSuccessor(event.target.value);
+                    setConfirming(false);
+                  }} aria-label="New owner">
+                    <option value="" disabled>Who takes over?</option>
+                    {others.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}{recommended?.id === person.id ? " · Recommended (longest here)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown aria-hidden="true" />
+                </span>
+                <span className="owner-row-buttons">
+                  <button type="button" className="owner-pill" onClick={() => {
                     setHanding(false);
                     setConfirming(false);
-                  });
-                }
-              }}
-            >
-              {confirming ? <><Check /> Yes, make a key for {picked.name.split(" ")[0]}</> : <>Hand over to {picked.name.split(" ")[0]}</>}
-            </button>
-          )}
-          {confirming && picked && (
-            <p className="share-note">
-              You’ll get a 16-digit key to give {picked.name.split(" ")[0]} in person. Ownership only moves when they type it in.
-              Then your phones become regular users.
-            </p>
-          )}
-        </div>
-      )}
-      {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
+                    setSuccessor("");
+                  }}>Cancel</button>
+                  {picked && (
+                    <button
+                      type="button"
+                      className={`owner-pill ${confirming ? "danger" : "primary"}`}
+                      onClick={() => {
+                        if (!confirming) setConfirming(true);
+                        else {
+                          void run(async () => {
+                            setHandoverKey(await onStartHandover(picked.id));
+                            setHanding(false);
+                            setConfirming(false);
+                          });
+                        }
+                      }}
+                    >
+                      {confirming ? `Yes, key for ${firstOf(picked.name)}` : `Hand to ${firstOf(picked.name)}`}
+                    </button>
+                  )}
+                </span>
+              </div>
+            )}
+          </div>
+        </Section>
+      </div>
     </Sheet>
   );
 }
@@ -731,7 +767,7 @@ function LogRow({ entry, me, confirm, onBlock, onUnblock }: {
   const canBlock = entry.personId && !entry.owner && entry.personId !== me.personId;
   const first = entry.name.split(" ")[0];
   return (
-    <li className={`owner-log-row${entry.blocked ? " blocked" : ""}`}>
+    <li className={`owner-row owner-log-row${entry.blocked ? " blocked" : ""}`}>
       <span className="owner-phone-icon">{entry.blocked ? <Ban /> : <Smartphone />}</span>
       <span className="owner-phone-main">
         <span className="owner-log-text"><b>{entry.name}</b> {LOG_TEXT[entry.kind] ?? "signed in"}</span>

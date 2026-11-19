@@ -105,6 +105,8 @@ async function ensureSchema(db: CalendarDatabase) {
     ["app_devices", "wrapped_key TEXT"],
     ["app_devices", "has_key INTEGER NOT NULL DEFAULT 0"],
     ["app_people", "blocked_at INTEGER"],
+    // The owner lets picked people send things to the team.
+    ["app_people", "can_share INTEGER NOT NULL DEFAULT 0"],
   ]) {
     await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column}`).run().catch(() => undefined);
   }
@@ -134,7 +136,9 @@ const CHECK = /^[0-9a-f]{64}$/;
 const iso = (at: number) => new Date(at).toISOString();
 
 type Body = Record<string, unknown>;
-type Person = { id: string; name: string; name_key: string; is_owner: number; created_at: number; blocked_at: number | null };
+type Person = {
+  id: string; name: string; name_key: string; is_owner: number; created_at: number; blocked_at: number | null; can_share: number;
+};
 type DeviceRow = {
   id: string; person_id: string; model: string | null; label: string | null; created_at: number; seen_at: number;
   public_key: string | null; wrapped_key: string | null; has_key: number; profile_id: string | null;
@@ -335,10 +339,10 @@ async function view(db: CalendarDatabase, me: Me) {
   const now = Date.now();
   const own = await db.prepare("SELECT id, name, created_at FROM app_name_requests WHERE person_id = ?1")
     .bind(person.id).first<{ id: string; name: string; created_at: number }>();
-  const everyone = await db.prepare(`SELECT p.id, p.name, p.is_owner, p.created_at, p.blocked_at, COUNT(d.id) AS devices,
+  const everyone = await db.prepare(`SELECT p.id, p.name, p.is_owner, p.created_at, p.blocked_at, p.can_share, COUNT(d.id) AS devices,
       MAX(d.seen_at) AS seen FROM app_people p LEFT JOIN app_devices d ON d.person_id = p.id
       GROUP BY p.id ORDER BY p.created_at`)
-    .all<{ id: string; name: string; is_owner: number; created_at: number; blocked_at: number | null; devices: number; seen: number | null }>();
+    .all<{ id: string; name: string; is_owner: number; created_at: number; blocked_at: number | null; can_share: number; devices: number; seen: number | null }>();
   const people = everyone.results ?? [];
   const nameOf = new Map(people.map((row) => [row.id, row.name]));
   const owner = people.find((row) => row.is_owner === 1);
@@ -369,6 +373,8 @@ async function view(db: CalendarDatabase, me: Me) {
     personId: person.id,
     name: person.name,
     owner: person.is_owner === 1,
+    // Sending to the team is up to the owner.
+    canShare: person.is_owner === 1 || person.can_share === 1,
     devices: people.find((row) => row.id === person.id)?.devices ?? 1,
     request: own ? { id: own.id, name: own.name, createdAt: iso(own.created_at) } : null,
     // Everyone on the team, to send things to.
@@ -412,6 +418,7 @@ async function view(db: CalendarDatabase, me: Me) {
       owner: row.is_owner === 1,
       blocked: Boolean(row.blocked_at),
       blockedAt: row.blocked_at ? iso(row.blocked_at) : null,
+      canShare: row.is_owner === 1 || row.can_share === 1,
       devices: row.devices,
       since: iso(row.created_at),
       seen: row.seen ? iso(row.seen) : null,
@@ -639,6 +646,10 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
   if (auth instanceof Response) return auth;
   const { me, body } = auth;
   const swap = body.kind === "swap";
+  // Swap requests are between two people; sending to the team needs the owner's OK.
+  if (!swap && me.person.is_owner !== 1 && me.person.can_share !== 1) {
+    return json(request, { error: "The owner hasn't turned on sending to the team for you." }, 403);
+  }
   const shareId = typeof body.shareId === "string" && ID.test(body.shareId) ? body.shareId : "";
   const share = !shareId
     ? null
@@ -810,6 +821,10 @@ async function ownerAction(request: Request, db: CalendarDatabase, env: PushEnvi
     ]);
     return json(request, { ok: true });
   }
+  if (action === "share-access") {
+    await db.prepare("UPDATE app_people SET can_share = ?2 WHERE id = ?1").bind(target.id, body.allow === true ? 1 : 0).run();
+    return json(request, { ok: true });
+  }
   if (action === "unblock") {
     await db.prepare("UPDATE app_people SET blocked_at = NULL WHERE id = ?1").bind(target.id).run();
     return json(request, { ok: true });
@@ -867,7 +882,7 @@ async function deviceAction(request: Request, db: CalendarDatabase, env: PushEnv
 }
 
 const OWNER_ACTIONS = [
-  "decide", "withdraw", "rename", "remove", "block", "unblock", "handover", "handover-cancel", "recovery-key",
+  "decide", "withdraw", "rename", "remove", "block", "unblock", "share-access", "handover", "handover-cancel", "recovery-key",
   "device-rename", "device-move", "device-remove",
 ];
 

@@ -8998,3 +8998,357 @@ html {
   font: inherit;
   font-size: 16px;
 }
+
+/* ---------- owner screen: compact header and sections ---------- */
+
+.owner-top {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: -4px 0 12px;
+}
+
+.owner-top-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 15%, var(--surface));
+  border-radius: 11px;
+}
+
+.owner-top-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.owner-top-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.owner-top-copy b {
+  font-size: 15.5px;
+}
+
+.owner-top-copy small {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.owner-top-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 12px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
+  border: 0;
+  border-radius: 99px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.owner-top-action svg {
+  width: 15px;
+  height: 15px;
+}
+
+.owner-sections {
+  display: grid;
+  gap: 8px;
+}
+
+.owner-sections > .live-status-setting {
+  margin: 0;
+}
+
+.owner-section {
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.owner-section.alert {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
+}
+
+.owner-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 50px;
+  padding: 0 14px;
+  color: var(--text);
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.owner-section-head span {
+  flex: 1;
+  font-size: 14.5px;
+  font-weight: 750;
+}
+
+.owner-section-head b {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.owner-section.alert .owner-section-head b {
+  color: var(--amber);
+}
+
+.owner-section-icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: var(--blue);
+}
+
+.owner-section-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: transform .18s ease;
+}
+
+.owner-section.open .owner-section-chevron {
+  transform: rotate(180deg);
+}
+
+.owner-section-body {
+  border-top: 1px solid var(--line);
+  animation: owner-card-in .18s ease;
+}
+
+.owner-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.owner-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 8px 14px;
+}
+
+.owner-rows > .owner-row + .owner-row {
+  border-top: 1px solid var(--line);
+}
+
+.owner-row-flat {
+  padding: 4px 0;
+  min-height: 0;
+}
+
+.owner-row-main {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+
+.owner-row-main b {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.owner-row-main small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.owner-row-buttons {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.owner-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  color: var(--blue);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.owner-pill svg {
+  width: 14px;
+  height: 14px;
+}
+
+.owner-pill.primary {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.owner-pill.danger {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.owner-pill:disabled {
+  opacity: .45;
+}
+
+.owner-empty {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* A switch for who can send to the team. */
+.owner-switch {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  background: var(--surface-3, var(--line));
+  border: 0;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: background .18s ease;
+}
+
+.owner-switch i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  transition: transform .2s cubic-bezier(.3, 1.4, .6, 1);
+}
+
+.owner-switch.on {
+  background: var(--blue);
+}
+
+.owner-switch.on i {
+  transform: translateX(18px);
+}
+
+/* People and their phones sit flat inside the section. */
+.owner-section .owner-people {
+  gap: 0;
+  margin: 0;
+}
+
+.owner-section .owner-card {
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.owner-section .owner-card + .owner-card {
+  border-top: 1px solid var(--line);
+}
+
+.owner-section .owner-card.open {
+  background: color-mix(in srgb, var(--blue) 4%, transparent);
+}
+
+.owner-section .owner-card-head {
+  padding: 6px 14px;
+}
+
+.owner-section .owner-card-body {
+  padding: 0 14px 12px;
+}
+
+.owner-section .owner-log-row {
+  padding: 8px 14px;
+}
+
+.owner-ownership {
+  display: grid;
+  gap: 6px;
+  padding: 10px 14px 14px;
+}
+
+.owner-label {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.owner-ownership .owner-key-box {
+  margin: 2px 0 6px;
+  padding: 12px;
+}
+
+.owner-ownership .owner-key-box .owner-row-buttons {
+  justify-content: center;
+}
+
+.owner-ownership .owner-key-box > .owner-pill {
+  justify-self: center;
+}
+
+.owner-ownership .owner-handover-box {
+  display: grid;
+  gap: 8px;
+}
+
+/* Flight learning sits in the owner screen as one more section. */
+.owner-sections > .live-status-setting.collapsible {
+  border-radius: 14px;
+}
+
+.owner-sections > .live-status-setting .collapsible-head {
+  min-height: 50px;
+  padding: 0 14px;
+}
+
+.owner-sections > .live-status-setting .collapsible-head span {
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 750;
+}
+
+.owner-sections > .live-status-setting .collapsible-head b {
+  color: var(--muted);
+  font-size: 12.5px;
+}

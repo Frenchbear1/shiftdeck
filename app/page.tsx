@@ -112,6 +112,7 @@ import {
   recoverOwner,
   sendWrappedKeys,
   startHandover,
+  setShareAccess,
   unblockPerson,
   makeLinkCode,
   NameTakenError,
@@ -840,6 +841,8 @@ export default function HomePage() {
   const team = useMemo<Team | null>(() => me && teamKey
     ? { name: "everyone", key: teamKey, memberId: me.personId, people: me.crew ?? [], ownerId: me.owner ? me.personId : undefined, roster: me.roster }
     : null, [me, teamKey]);
+  // Sending to the team is up to the owner: everyone else only receives.
+  const sendTeam = me?.canShare ? team : null;
   const markPostsSeen = (ids: string[]) => {
     setSeenPosts((current) => {
       const next = [...new Set([...current, ...ids])];
@@ -3017,10 +3020,10 @@ export default function HomePage() {
         </section>
       )}
 
-      {importState === "review" && team && justImported.length > 0 && (
+      {importState === "review" && sendTeam && justImported.length > 0 && (
         <TeamSendPrompt
           key={justImported.join("|")}
-          team={team}
+          team={sendTeam}
           what={describeShare({
             weeks: scheduleDocuments.filter((document) => justImported.includes(document.id)).map((document) => document.dates),
           }) || "this schedule"}
@@ -4080,6 +4083,33 @@ export default function HomePage() {
                         : "Add shifts for Waze"}
                 </b>
               </button>
+              {/* Sending to the team is only for people the owner allows. */}
+              {me?.canShare && (
+                <button
+                  type="button"
+                  className="settings-tile"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setShareOpen(true);
+                  }}
+                >
+                  <span><Users /> Team</span>
+                  <b>{`Send to ${Math.max(0, (me.crew?.length ?? 1) - 1)} ${(me.crew?.length ?? 1) === 2 ? "person" : "people"}`}</b>
+                </button>
+              )}
+              {me?.handoverOffer && (
+                <button
+                  type="button"
+                  className="settings-tile wide owner-tile"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setHandoverOpen(true);
+                  }}
+                >
+                  <span><Crown /> Become the owner</span>
+                  <b>{me.handoverOffer.from.split(" ")[0]} is handing Shiftdeck to you</b>
+                </button>
+              )}
               {me?.owner && (
                 <button
                   type="button"
@@ -4092,36 +4122,8 @@ export default function HomePage() {
                   <span><Crown /> Owner</span>
                   <b>
                     {(me.people?.length ?? 1)} {(me.people?.length ?? 1) === 1 ? "person" : "people"}
-                    {ownerRequests.length ? ` · ${ownerRequests.length} name ${ownerRequests.length === 1 ? "change" : "changes"} waiting` : " · names, phones, handover"}
+                    {ownerRequests.length ? ` · ${ownerRequests.length} name ${ownerRequests.length === 1 ? "change" : "changes"} waiting` : " · people, phones, access"}
                   </b>
-                </button>
-              )}
-              <button
-                type="button"
-                className="settings-tile"
-                onClick={() => {
-                  setSettingsOpen(false);
-                  setShareOpen(true);
-                }}
-              >
-                <span><Users /> Team</span>
-                <b>
-                  {!me
-                    ? "Pick your name first"
-                    : `${me.crew?.length ?? 1} ${(me.crew?.length ?? 1) === 1 ? "person" : "people"} · send schedules & info`}
-                </b>
-              </button>
-              {me?.handoverOffer && (
-                <button
-                  type="button"
-                  className="settings-tile wide owner-tile"
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    setHandoverOpen(true);
-                  }}
-                >
-                  <span><Crown /> Become the owner</span>
-                  <b>{me.handoverOffer.from.split(" ")[0]} is handing Shiftdeck to you</b>
                 </button>
               )}
             </div>
@@ -4147,7 +4149,7 @@ export default function HomePage() {
           contacts={contacts}
           person={prefs.person}
           loadFile={(id) => loadScheduleImage(id)}
-          team={team}
+          team={sendTeam}
           signedIn={Boolean(me)}
           inviteUrl={`${window.location.origin}${window.location.pathname}`}
           onSendToTeam={sendToTeam}
@@ -4242,6 +4244,15 @@ export default function HomePage() {
             await unblockPerson(CALENDAR_SERVICE_ORIGIN, personId);
             await refreshMe();
           }}
+          onShareAccess={async (personId, allow) => {
+            // Flips right away; the check-in confirms it.
+            setMe((current) => current && {
+              ...current,
+              people: current.people?.map((person) => person.id === personId ? { ...person, canShare: allow } : person),
+            });
+            await setShareAccess(CALENDAR_SERVICE_ORIGIN, personId, allow);
+            await refreshMe();
+          }}
           onStartHandover={async (personId) => {
             const started = await startHandover(CALENDAR_SERVICE_ORIGIN, personId);
             await refreshMe();
@@ -4334,7 +4345,7 @@ export default function HomePage() {
           workers={[prefs.person, ...contactWorkers].filter(Boolean)}
           coworkers={contactWorkers}
           contacts={contacts}
-          team={team}
+          team={sendTeam}
           onSendToTeam={(to) => sendImportToTeam({ directory: true }, to)}
           onChange={saveDirectory}
           onClose={() => setDirectoryOpen(false)}
@@ -4349,7 +4360,7 @@ export default function HomePage() {
           onChange={saveContacts}
           directory={directory}
           onDirectoryChange={saveDirectory}
-          team={team}
+          team={sendTeam}
           onSendToTeam={(to) => sendImportToTeam({ contacts: true }, to)}
           onClose={() => setContactsOpen(null)}
         />

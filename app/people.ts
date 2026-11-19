@@ -26,6 +26,8 @@ export type PersonSummary = {
   owner: boolean;
   blocked?: boolean;
   blockedAt?: string | null;
+  /** Can send things to the team (the owner always can). */
+  canShare?: boolean;
   devices: number;
   /** When they started using the app. */
   since: string;
@@ -63,6 +65,8 @@ export type Me = {
   personId: string;
   name: string;
   owner: boolean;
+  /** The owner lets you send things to the team. */
+  canShare?: boolean;
   devices: number;
   /** Your own name change waiting on the owner. */
   request: { id: string; name: string; createdAt: string } | null;
@@ -229,6 +233,9 @@ export const removePerson = (service: string, personId: string) =>
   call<{ ok: boolean }>(service, "remove", { personId });
 
 export const blockPerson = (service: string, personId: string) => call<{ ok: boolean }>(service, "block", { personId });
+/** Lets someone send things to the team, or stops them. */
+export const setShareAccess = (service: string, personId: string, allow: boolean) =>
+  call<{ ok: boolean }>(service, "share-access", { personId, allow });
 export const unblockPerson = (service: string, personId: string) => call<{ ok: boolean }>(service, "unblock", { personId });
 
 /** Starts a handover: the 16-digit key for the person you picked (good for a day). */
