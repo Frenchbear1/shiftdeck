@@ -8,7 +8,7 @@ import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle } from "./sheet-tools";
 import { TeamSendPrompt } from "./share-sheet";
 import type { Team } from "./team";
-import { hasLeft, rosterLabel, type RosterStatus } from "./roster-status";
+import { rosterLabel, type RosterStatus } from "./roster-status";
 import { coolReader, warmReader } from "./ocr-reader";
 import type { ReadProgress } from "./read-progress";
 import {
@@ -72,9 +72,8 @@ export function ContactsSheet({
   const toDirectory = useMemo(() => addPeopleToDirectory(directory, unmatched), [directory, unmatched]);
   const directoryCount = toDirectory.added + toDirectory.updated;
 
-  // People who've left go last, under their own heading; their numbers are kept.
-  const sorted = useMemo(() => [...workers].sort((a, b) =>
-    Number(hasLeft(statuses?.get(a))) - Number(hasLeft(statuses?.get(b))) || a.localeCompare(b)), [statuses, workers]);
+  // People who've left aren't passed in (their numbers are kept for if they come back).
+  const sorted = useMemo(() => [...workers].sort((a, b) => a.localeCompare(b)), [workers]);
   const shown = sorted.filter((worker) =>
     !query.trim() || worker.toLowerCase().includes(query.trim().toLowerCase()));
   const saved = workers.filter((worker) => {
@@ -281,15 +280,13 @@ export function ContactsSheet({
 
           {searching && query.trim() && !shown.length && <p className="contacts-notice">Nobody matches that search.</p>}
           <ul className="contacts-list">
-            {shown.map((worker, index) => {
+            {shown.map((worker) => {
               const contact = contacts[contactKey(worker)] ?? {};
               const status = statuses?.get(worker);
               const label = rosterLabel(status);
-              const firstLeft = hasLeft(status) && !hasLeft(statuses?.get(shown[index - 1] ?? ""));
               return (
                 <Fragment key={worker}>
-                {firstLeft && <li className="contacts-left-heading" aria-hidden="true">No longer on the schedule</li>}
-                <li className={hasLeft(status) ? "contact-left" : undefined}>
+                <li>
                   <b>
                     {worker}
                     {label && <small className={`roster-tag roster-${status!.state}`}>{label}</small>}

@@ -84,17 +84,21 @@ function EntryForm({ draft, departments, onSave, onCancel }: {
  * this phone), or typed in. Search, department tabs, and one-tap calls
  * (the extension is dialed after a pause) and texts.
  */
-export function DirectorySheet({ entries, workers, coworkers, contacts, team, onSendToTeam, onChange, onClose }: {
+export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, contacts, team, onSendToTeam, onChange, onClear, onClose }: {
   entries: DirectoryEntry[];
   /** Names on your schedules, for spelling ("LABARRE" → "LaBarre"). */
   workers: string[];
   /** Everyone you work with; they're always in the directory. */
   coworkers: string[];
+  /** People hidden because they've left the schedule. */
+  hiddenCount?: number;
   contacts: Contacts;
   /** After an import, offers to send the directory to this team. */
   team?: Team | null;
   onSendToTeam?: (to: string[]) => Promise<number>;
   onChange: (entries: DirectoryEntry[]) => void;
+  /** Clear everything, hidden people too. */
+  onClear?: () => void;
   onClose: () => void;
 }) {
   const [offerTeam, setOfferTeam] = useState(0);
@@ -362,6 +366,11 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, team, on
                     })}
                   </ul>
                   {!shown.length && <p className="contacts-notice">Nobody matches that search.</p>}
+                  {hiddenCount > 0 && (
+                    <p className="directory-hidden-note">
+                      {hiddenCount === 1 ? "1 person who left the schedule is hidden." : `${hiddenCount} people who left the schedule are hidden.`} They come back if they're on a new schedule.
+                    </p>
+                  )}
                   <button
                     type="button"
                     className="button danger subtle upload-clear-all"
@@ -370,7 +379,8 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, team, on
                         setConfirmClear(true);
                         return;
                       }
-                      onChange([]);
+                      if (onClear) onClear();
+                      else onChange([]);
                       setConfirmClear(false);
                       setNotice("");
                     }}

@@ -151,7 +151,7 @@ import { devicePair, keyCheck, keyProof, loadTeamKey, newTeamKey, publicKeyText,
 import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
 import { DirectorySheet } from "./directory";
-import { DIRECTORY_KEY, contactsWithDirectory, type DirectoryEntry } from "./directory-data";
+import { DIRECTORY_KEY, contactsWithDirectory, entryKey, findPerson, type DirectoryEntry } from "./directory-data";
 import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
 import {
   cancelSwap,
@@ -1860,6 +1860,25 @@ export default function HomePage() {
   // (The React compiler memoizes this.)
   const rosterStatus = new Map([...rosterStatuses(baseImportedShifts, todayDate)]
     .filter(([name]) => nameKey(name) !== nameKey(prefs.person) && !isSameSchedulePerson(name, prefs.person)));
+
+  const statusOf = (name: string) => {
+    const exact = [...rosterStatus].find(([worker]) => nameKey(worker) === nameKey(name));
+    return (exact ?? [...rosterStatus].find(([worker]) => isSameSchedulePerson(worker, name)))?.[1];
+  };
+  // People who've left (a goodbye note, or missing from 2 schedules in a row) drop out of
+  // Coworkers and the Directory. Their details stay on the phone: back on a schedule, back in the lists.
+  const currentCoworkers = contactWorkers.filter((worker) => !hasLeft(statusOf(worker)));
+  const leftCoworkers = contactWorkers.filter((worker) => hasLeft(statusOf(worker)));
+  const keptIds = new Set(currentCoworkers.map((worker) => findPerson(directory, worker, contacts[contactKey(worker)]?.email)?.id));
+  const hiddenIds = new Set(leftCoworkers
+    .map((worker) => findPerson(directory, worker, contacts[contactKey(worker)]?.email)?.id)
+    .filter((id): id is string => Boolean(id) && !keptIds.has(id)));
+  const shownDirectory = hiddenIds.size ? directory.filter((entry) => !hiddenIds.has(entry.id)) : directory;
+  const saveShownDirectory = (next: DirectoryEntry[]) => {
+    // Keep the hidden people, unless the edit brought them back in (a re-import).
+    const keys = new Set(next.map(entryKey));
+    saveDirectory([...next, ...directory.filter((entry) => hiddenIds.has(entry.id) && !keys.has(entryKey(entry)))]);
+  };
 
   // People who've left the schedule aren't offered as names anymore.
   const activeWorkers = Array.from(new Set(importedShifts.map((shift) => shift.worker)))
@@ -4492,20 +4511,22 @@ export default function HomePage() {
 
       {directoryOpen && (
         <DirectorySheet
-          entries={directory}
+          entries={shownDirectory}
           workers={[prefs.person, ...contactWorkers].filter(Boolean)}
-          coworkers={contactWorkers}
+          coworkers={currentCoworkers}
+          hiddenCount={hiddenIds.size + leftCoworkers.filter((worker) => !findPerson(directory, worker)).length}
           contacts={contacts}
           team={sendTeam}
           onSendToTeam={(to) => sendImportToTeam({ directory: true }, to)}
-          onChange={saveDirectory}
+          onChange={saveShownDirectory}
+          onClear={() => saveDirectory([])}
           onClose={() => setDirectoryOpen(false)}
         />
       )}
 
       {contactsOpen && (
         <ContactsSheet
-          workers={contactWorkers}
+          workers={currentCoworkers}
           statuses={rosterStatus}
           contacts={contacts}
           focus={contactsOpen.focus}

@@ -7132,6 +7132,13 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
   height: 16px;
 }
 
+.directory-hidden-note {
+  margin: 4px 2px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .directory-from-schedule {
   margin: 0 0 8px;
   color: var(--muted);
@@ -9413,23 +9420,6 @@ html {
 .roster-tag.roster-left {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
-}
-
-.contacts-list > li.contacts-left-heading {
-  display: block;
-  padding: 0;
-  background: none;
-  border: 0;
-  margin: 12px 2px 2px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.contacts-list li.contact-left > b {
-  color: var(--muted);
 }
 
 /* ---------- compact weather ---------- */
