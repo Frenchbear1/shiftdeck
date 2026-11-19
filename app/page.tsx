@@ -912,7 +912,8 @@ export default function HomePage() {
   const [shiftEditor, setShiftEditor] = useState<{
     mode: "add" | "edit";
     eventId?: string;
-    imported?: { hash: string; shift: Shift };
+    /** A shift on an uploaded schedule: fixing one it read, or adding one it missed. */
+    imported?: { hash: string; shift: Shift; adding?: boolean };
   } | null>(null);
   const [shiftDraft, setShiftDraft] = useState<ShiftDraft>({
     date: "2026-07-26",
@@ -2320,6 +2321,27 @@ export default function HomePage() {
     setShiftEditor({ mode: "edit", eventId: event?.id, imported: { hash: photo.hash, shift: original } });
   };
 
+  /** A shift the scanner missed: added to that schedule, at your usual hours on it. */
+  const addImportedShift = (photo: ImportComparison, date: string) => {
+    const mine = photo.shifts.filter((shift) =>
+      nameKey(resolveMergedName(shift.worker, nameMerges)) === nameKey(prefs.person));
+    const usual = [...mine.filter((shift) => shift.status === "working").reduce((counts, shift) => {
+      const key = `${shift.start}|${shift.end}`;
+      return counts.set(key, (counts.get(key) ?? 0) + 1);
+    }, new Map<string, number>())].sort((a, b) => b[1] - a[1])[0]?.[0].split("|");
+    const [start, end] = usual ?? ["09:00", "17:00"];
+    const worker = mine[0]?.worker ?? prefs.person;
+    setShiftDraft({ date, start, end, title: DEFAULT_SHIFT_TITLE });
+    setShiftEditor({
+      mode: "add",
+      imported: {
+        hash: photo.hash,
+        adding: true,
+        shift: { id: `${date}-${worker}-added`, date, worker, start, end, status: "working", workerConfirmed: true },
+      },
+    });
+  };
+
   const hashFile = async (file: File) => {
     const bytes = await file.arrayBuffer();
     const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -2950,8 +2972,12 @@ export default function HomePage() {
     };
 
     if (imported && correctedShift) {
-      const replaceShift = (shifts: Shift[]) =>
-        shifts.map((shift) => shift.id === imported.shift.id ? correctedShift : shift);
+      // Adding one it missed takes the place of that day's "off" for you, if it read one.
+      const sameDay = (shift: Shift) => imported.adding && shift.date === correctedShift.date &&
+        nameKey(resolveMergedName(shift.worker, nameMerges)) === nameKey(resolveMergedName(correctedShift.worker, nameMerges));
+      const replaceShift = (shifts: Shift[]) => imported.adding
+        ? [...shifts.filter((shift) => !sameDay(shift)), correctedShift]
+        : shifts.map((shift) => shift.id === imported.shift.id ? correctedShift : shift);
       setImportComparisons((current) => current.map((photo) =>
         photo.hash === imported.hash ? {
           ...photo, shifts: replaceShift(photo.shifts),
@@ -2968,7 +2994,7 @@ export default function HomePage() {
         } : document,
       ));
       setParsedShifts((current) => [
-        ...current.filter((shift) => shift.id !== imported.shift.id && shift.id !== editing?.id),
+        ...current.filter((shift) => shift.id !== imported.shift.id && shift.id !== editing?.id && !sameDay(shift)),
         correctedShift,
       ]);
     }
@@ -2991,7 +3017,7 @@ export default function HomePage() {
     );
     setSelectedDate(workdayFor(eventCalendarDate(nextEvent), nextEvent.start));
     setShiftEditor(null);
-    setToast(imported || editing || existingOnDate ? "Shift updated" : "Shift added");
+    setToast(imported?.adding ? "Shift added" : imported || editing || existingOnDate ? "Shift updated" : "Shift added");
   };
 
   const deleteShift = () => {
@@ -3267,6 +3293,7 @@ export default function HomePage() {
       person={prefs.person}
       nameMerges={nameMerges}
       onEdit={(shift) => openImportedShift(photo, shift)}
+      onAdd={(date) => addImportedShift(photo, date)}
     />
   );
 

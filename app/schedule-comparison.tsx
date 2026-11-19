@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDate, formatTime } from "./home-sections";
 import type { Shift } from "./sample-data";
@@ -19,6 +20,8 @@ type Props = {
   person: string;
   nameMerges: NameMerges;
   onEdit: (shift: Shift) => void;
+  /** Add a shift the scanner missed, on one of the empty days. */
+  onAdd?: (date: string) => void;
 };
 
 function getSourceView(layout: ScheduleSourceLayout, person: string, merges: NameMerges) {
@@ -72,7 +75,7 @@ function drawSourceRows(canvas: HTMLCanvasElement, image: HTMLImageElement, view
 }
 
 export function ScheduleComparison({
-  image, dates, shifts, sourceLayout, sourceLoading, uncertainShifts, person, nameMerges, onEdit,
+  image, dates, shifts, sourceLayout, sourceLoading, uncertainShifts, person, nameMerges, onEdit, onAdd,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [displayedSource, setDisplayedSource] = useState<SourceView | null>(null);
@@ -123,6 +126,14 @@ export function ScheduleComparison({
     };
   }, [image, source]);
 
+  // Every day of the week: the shifts read, and a + under each empty day (an X on the photo)
+  // in case the scanner missed one.
+  const working = new Set(days.map(([date]) => date));
+  const entries: Array<[string, Shift[]]> = [
+    ...days,
+    ...(onAdd && person ? dates.filter((date) => !working.has(date)).map((date): [string, Shift[]] => [date, []]) : []),
+  ].sort(([a], [b]) => a.localeCompare(b));
+
   const displayed = source && displayedSource === source && failedSource !== source ? source : null;
   const aligned = displayed && days.every(([date]) => dates.includes(date)) ? displayed : null;
   return (
@@ -162,19 +173,27 @@ export function ScheduleComparison({
             aria-label={"Date header and uploaded schedule row for " + person}
             hidden={!displayed}
           />
-          {days.length > 0 && (
+          {entries.length > 0 && (
             <ul className={"schedule-shift-cards" + (aligned ? " aligned" : "")}>
-              {days.map(([date, shiftsForDay]) => {
+              {entries.map(([date, shiftsForDay]) => {
                 const column = aligned?.columns[dates.indexOf(date)];
                 const columnWidth = aligned ? aligned.layout.spacing * aligned.scale : 0;
+                const style = column === undefined ? undefined : {
+                  width: columnWidth - 8,
+                  marginInlineStart: column - columnWidth / 2 + 4,
+                };
+                if (!shiftsForDay.length) {
+                  return (
+                    <li key={date} className="add-day" style={style}>
+                      <button type="button" onClick={() => onAdd?.(date)} aria-label={`Add a shift on ${formatDate(date)}`}>
+                        <Plus aria-hidden="true" />
+                        {!aligned && <small>{formatDate(date)}</small>}
+                      </button>
+                    </li>
+                  );
+                }
                 return (
-                  <li
-                    key={date}
-                    style={column === undefined ? undefined : {
-                      width: columnWidth - 8,
-                      marginInlineStart: column - columnWidth / 2 + 4,
-                    }}
-                  >
+                  <li key={date} style={style}>
                     {shiftsForDay.map((shift) => (
                       <button type="button" key={shift.id} onClick={() => onEdit(shift)}>
                         <time dateTime={date}>{formatDate(date)}</time>
