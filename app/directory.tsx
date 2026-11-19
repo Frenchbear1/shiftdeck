@@ -21,6 +21,8 @@ import {
 import type { Contacts } from "./contacts-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle } from "./sheet-tools";
+import { TeamSendPrompt } from "./share-sheet";
+import type { Team } from "./team";
 import { coolReader, warmReader } from "./ocr-reader";
 import type { ReadProgress } from "./read-progress";
 
@@ -82,16 +84,20 @@ function EntryForm({ draft, departments, onSave, onCancel }: {
  * this phone), or typed in. Search, department tabs, and one-tap calls
  * (the extension is dialed after a pause) and texts.
  */
-export function DirectorySheet({ entries, workers, coworkers, contacts, onChange, onClose }: {
+export function DirectorySheet({ entries, workers, coworkers, contacts, team, onSendToTeam, onChange, onClose }: {
   entries: DirectoryEntry[];
   /** Names on your schedules, for spelling ("LABARRE" → "LaBarre"). */
   workers: string[];
   /** Everyone you work with; they're always in the directory. */
   coworkers: string[];
   contacts: Contacts;
+  /** After an import, offers to send the directory to this team. */
+  team?: Team | null;
+  onSendToTeam?: () => Promise<number>;
   onChange: (entries: DirectoryEntry[]) => void;
   onClose: () => void;
 }) {
+  const [offerTeam, setOfferTeam] = useState(0);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [department, setDepartment] = useState<string | null>(null);
@@ -130,6 +136,7 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, onChange
       }
       const { entries: next, added, updated } = mergeDirectory(entries, found);
       onChange(next);
+      if (added || updated) setOfferTeam((count) => count + 1);
       const toCheck = found.filter((entry) => entry.check?.length).length;
       setNotice(
         `Added ${added}${updated ? ` · updated ${updated}` : ""}` +
@@ -245,6 +252,9 @@ export function DirectorySheet({ entries, workers, coworkers, contacts, onChange
                 </div>
               )}
               {notice && <p className="contacts-notice" role="status">{notice}</p>}
+              {team && onSendToTeam && offerTeam > 0 && !reading && (
+                <TeamSendPrompt key={offerTeam} team={team} what="the directory" onSend={onSendToTeam} />
+              )}
 
               {everyone.length > 0 && (
                 <>

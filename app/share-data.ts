@@ -22,6 +22,8 @@ export type ShareManifest = {
   schedules?: SharedSchedule[];
   directory?: DirectoryEntry[];
   contacts?: Contacts;
+  /** Everyone on the shared schedules, so a new phone can say who it belongs to up front. */
+  people?: string[];
 };
 
 export type SharePackage = { manifest: ShareManifest; files: Blob[] };

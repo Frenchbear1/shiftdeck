@@ -4,7 +4,7 @@
  * which is never sent to any server. Opening the link downloads the
  * scrambled copy and unlocks it on the coworker's phone.
  */
-import { packShare, unpackShare, type SharePackage } from "./share-data";
+import { packShare, unpackShare, type SharePackage } from "./share-data.ts";
 
 const b64url = (bytes: Uint8Array) => {
   let text = "";
@@ -52,10 +52,11 @@ export async function shareableSchedule(file: Blob): Promise<Blob> {
 
 export type CreatedShare = { url: string; expiresAt: string };
 
-export async function createShareLink(
+/** Encrypts and uploads; a team's key is reused so every member can open it. */
+export async function uploadShare(
   share: SharePackage,
-  { service, appUrl, days }: { service: string; appUrl: string; days: 1 | 7 },
-): Promise<CreatedShare> {
+  { service, days, key: givenKey }: { service: string; days: 1 | 7; key?: string },
+) {
   const packed = await packShare(share);
   const compressed = await squeeze(packed, "compress");
   // First byte says whether the rest is gzipped.
@@ -63,7 +64,7 @@ export async function createShareLink(
   plain[0] = compressed ? 1 : 0;
   plain.set(compressed ?? packed, 1);
 
-  const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+  const keyBytes = givenKey ? fromB64url(givenKey) : crypto.getRandomValues(new Uint8Array(32));
   const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plain));
@@ -79,12 +80,22 @@ export async function createShareLink(
   });
   const result = await response.json().catch(() => ({})) as { id?: string; expiresAt?: string; error?: string };
   if (!response.ok || !result.id) throw new Error(result.error ?? "The link couldn't be made. Check your connection.");
+  return { id: result.id, expiresAt: result.expiresAt ?? "", key: b64url(keyBytes) };
+}
+
+export async function createShareLink(
+  share: SharePackage,
+  { service, appUrl, days }: { service: string; appUrl: string; days: 1 | 7 },
+): Promise<CreatedShare> {
+  const { id, expiresAt, key } = await uploadShare(share, { service, days });
   const url = new URL(appUrl);
   url.search = "";
-  url.searchParams.set("share", result.id);
-  url.hash = `k=${b64url(keyBytes)}`;
-  return { url: url.href, expiresAt: result.expiresAt ?? "" };
+  url.searchParams.set("share", id);
+  url.hash = `k=${key}`;
+  return { url: url.href, expiresAt };
 }
+
+export const randomKey = (length = 32) => b64url(crypto.getRandomValues(new Uint8Array(length)));
 
 export type ShareKey = { id: string; key: string };
 

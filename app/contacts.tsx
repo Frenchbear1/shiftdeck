@@ -6,6 +6,8 @@ import { backdropClose } from "./home-sections";
 import { addPeopleToDirectory, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle } from "./sheet-tools";
+import { TeamSendPrompt } from "./share-sheet";
+import type { Team } from "./team";
 import { coolReader, warmReader } from "./ocr-reader";
 import type { ReadProgress } from "./read-progress";
 import {
@@ -37,19 +39,23 @@ const contactPicker = () =>
  * person can also be typed in. Everything stays on this device.
  */
 export function ContactsSheet({
-  workers, contacts, focus, onChange, directory, onDirectoryChange, onClose,
+  workers, contacts, focus, onChange, directory, onDirectoryChange, team, onSendToTeam, onClose,
 }: {
   workers: string[];
   contacts: Contacts;
   /** People who aren't on your schedules can go to the Directory instead. */
   directory: DirectoryEntry[];
   onDirectoryChange: (entries: DirectoryEntry[]) => void;
+  /** After an import, offers to send coworker contacts to this team. */
+  team?: Team | null;
+  onSendToTeam?: () => Promise<number>;
   /** Opened from a swap match: show just this person first. */
   focus?: string;
   onChange: (contacts: Contacts) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState(focus ?? "");
+  const [offerTeam, setOfferTeam] = useState(0);
   const [searching, setSearching] = useState(Boolean(focus));
   const [pasting, setPasting] = useState(false);
   const [pasted, setPasted] = useState("");
@@ -79,7 +85,10 @@ export function ContactsSheet({
       if (worker) matched.push({ worker, email: entry.email, phone: entry.phone });
       else leftover.push(entry);
     }
-    if (matched.length) onChange(mergeContacts(contacts, matched));
+    if (matched.length) {
+      onChange(mergeContacts(contacts, matched));
+      setOfferTeam((count) => count + 1);
+    }
     setUnmatched(leftover);
     setNotice(
       `Added ${matched.length} ${matched.length === 1 ? "person" : "people"}` +
@@ -215,6 +224,9 @@ export function ContactsSheet({
           )}
           {reading && <ReadingBar progress={reading} />}
           {notice && <p className="contacts-notice" role="status">{notice}</p>}
+          {team && onSendToTeam && offerTeam > 0 && !reading && (
+            <TeamSendPrompt key={offerTeam} team={team} what="coworker contacts" onSend={onSendToTeam} />
+          )}
 
           {unmatched.length > 0 && (
             <div className="contacts-unmatched">

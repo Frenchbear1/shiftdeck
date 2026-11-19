@@ -96,8 +96,27 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
-import { ShareSheet, SharedImportSheet, type OpenedShare, type SharedImport } from "./share-sheet";
+import { ShareSheet, SharedImportSheet, TeamJoinSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, shareInLocation, type ShareKey } from "./share-link";
+import { buildShare, describeShare } from "./share-build";
+import type { SharePackage } from "./share-data";
+import {
+  createTeam,
+  inviteLink,
+  joinTeam,
+  leaveTeam,
+  loadSeenPosts,
+  loadTeam,
+  postToTeam,
+  previewTeam,
+  saveSeenPosts,
+  saveTeam,
+  teamInLocation,
+  teamState,
+  type Team,
+  type TeamInvite,
+  type TeamPost,
+} from "./team";
 import { useLiveFlights } from "./live-flights";
 import { ContactsSheet } from "./contacts";
 import { DirectorySheet } from "./directory";
@@ -699,6 +718,8 @@ export default function HomePage() {
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // Schedules imported just now (by this phone, not from a share), for "Send to the team?".
+  const [justImported, setJustImported] = useState<string[]>([]);
   // A share link being opened: loading, then what it holds (or why it couldn't).
   const [incoming, setIncoming] = useState<{ share: OpenedShare | null; error: string; link?: string } | null>(null);
   useEffect(() => {
@@ -716,6 +737,31 @@ export default function HomePage() {
     } catch {
       // Kept for this visit.
     }
+  };
+  // The team this phone is on, what's been sent to it, and which posts were opened.
+  const [team, setTeam] = useState<Team | null>(null);
+  const [teamPosts, setTeamPosts] = useState<TeamPost[]>([]);
+  const [seenPosts, setSeenPosts] = useState<string[]>([]);
+  const [invite, setInvite] = useState<{ invite: TeamInvite; preview: { name: string; members: string[] } | null; error: string } | null>(null);
+  useEffect(() => {
+    const saved = loadTeam();
+    const seen = loadSeenPosts();
+    queueMicrotask(() => {
+      setTeam(saved);
+      setSeenPosts(seen);
+    });
+  }, []);
+  const updateTeam = (next: Team | null) => {
+    setTeam(next);
+    saveTeam(next);
+    if (!next) setTeamPosts([]);
+  };
+  const markPostsSeen = (ids: string[]) => {
+    setSeenPosts((current) => {
+      const next = [...new Set([...current, ...ids])];
+      saveSeenPosts(next);
+      return next;
+    });
   };
   // Swap requests sent by email or text, and their answers.
   const [sentSwaps, setSentSwaps] = useState<SentSwap[]>([]);
@@ -813,7 +859,9 @@ export default function HomePage() {
   );
   const unseenSwapAnswers = sentSwaps.filter((swap) => swap.status !== "waiting" && !swap.seen).length;
   const airportNoticeCount = visibleAirportAlerts.length;
-  const notificationCount = airportNoticeCount + unseenSwapAnswers;
+  const teamInbox = teamPosts.filter((post) => !post.mine);
+  const unseenTeamPosts = teamInbox.filter((post) => !seenPosts.includes(post.id)).length;
+  const notificationCount = airportNoticeCount + unseenSwapAnswers + unseenTeamPosts;
   const openNotifications = () => airportAlertsDialog.current?.showModal();
   const [notificationsInfo, setNotificationsInfo] = useState(false);
   const dismissAirportAlert = (text: string) => {
@@ -1407,15 +1455,85 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 
-  const importShared = ({ directory: nextDirectory, contacts: nextContacts, files, summary }: SharedImport) => {
-    if (nextDirectory) saveDirectory(nextDirectory);
-    if (nextContacts) saveContacts(nextContacts);
-    setIncoming(null);
-    if (summary.length) setToast(summary.join(" · "));
-    if (files.length) {
-      openSheet("import");
-      void processFiles(files);
+  // Team invites open the app with ?team=<id>#t=<key>&j=<join secret>.
+  const openInvite = (key: TeamInvite) => {
+    setInvite({ invite: key, preview: null, error: "" });
+    previewTeam(CALENDAR_SERVICE_ORIGIN, key)
+      .then((preview) => setInvite((current) => current && { ...current, preview }))
+      .catch((problem: unknown) => setInvite((current) => current && {
+        ...current,
+        error: problem instanceof Error ? problem.message : "This invite couldn’t be opened.",
+      }));
+  };
+  useEffect(() => {
+    if (!hydrated) return;
+    const key = teamInLocation(window.location);
+    if (!key) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("team");
+    url.hash = "";
+    window.history.replaceState(null, "", url.href);
+    if (loadTeam()?.id === key.id) {
+      queueMicrotask(() => setToast("You’re already on this team"));
+      return;
     }
+    queueMicrotask(() => openInvite(key));
+    // Runs once, when saved data is back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
+  // Checks the team for new posts every minute while the app is open (and links notifications).
+  const profileRef = useRef(notificationProfile);
+  useEffect(() => {
+    profileRef.current = notificationProfile;
+  }, [notificationProfile]);
+  const teamId = team?.id;
+  useEffect(() => {
+    if (!teamId) return;
+    let cancelled = false;
+    const check = async () => {
+      const current = loadTeam();
+      if (!current || document.visibilityState !== "visible") return;
+      try {
+        const state = await teamState(CALENDAR_SERVICE_ORIGIN, current, profileRef.current);
+        if (cancelled) return;
+        setTeamPosts(state.posts);
+        if (state.name !== current.name || state.members.join("|") !== (current.members ?? []).join("|")) {
+          updateTeam({ ...current, name: state.name, members: state.members });
+        }
+      } catch (problem) {
+        // Removed from the team (or it's gone): forget it here too.
+        if (!cancelled && (problem as { status?: number }).status === 403) updateTeam(null);
+      }
+    };
+    void check();
+    const timer = window.setInterval(check, 60_000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+    // updateTeam only uses state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, notificationProfile?.id]);
+
+  const sendToTeam = async (share: SharePackage, what: string) => {
+    if (!team) throw new Error("Join or start a team first.");
+    const result = await postToTeam(CALENDAR_SERVICE_ORIGIN, team, share, what);
+    markPostsSeen([result.id]);
+    return result.notified;
+  };
+  /** After an import: sends just that (schedule weeks, the directory, or contacts) to the team. */
+  const sendImportToTeam = async (part: { documentIds?: string[]; directory?: boolean; contacts?: boolean }) => {
+    const { share, what } = await buildShare({
+      documents: scheduleDocuments.filter((document) => part.documentIds?.includes(document.id)),
+      directory: part.directory ? directory : undefined,
+      contacts: part.contacts ? contacts : undefined,
+      person: prefs.person,
+      loadFile: (id) => loadScheduleImage(id),
+    });
+    return sendToTeam(share, what);
   };
 
   // A swap-answer notification opens the app with ?notifications=1.
@@ -1906,8 +2024,10 @@ export default function HomePage() {
     return matching.length;
   };
 
-  const processFiles = async (files: File[]) => {
+  const processFiles = async (files: File[], options?: { person?: string; fromShare?: boolean }) => {
     if (!files.length || importState === "reading") return;
+    setJustImported([]);
+    const importedIds: string[] = [];
     setImportState("reading");
     setImportMessage("");
     setImportWarnings([]);
@@ -1925,7 +2045,7 @@ export default function HomePage() {
     let nextDocuments = [...scheduleDocuments];
     let updatedDocuments = 0;
     // Whose schedule this is. A new device asks once, during the first photo.
-    let person = prefs.person;
+    let person = options?.person ?? prefs.person;
     let personSkipped = false;
     const knownNames = [
       prefs.person,
@@ -2108,6 +2228,7 @@ export default function HomePage() {
             mimeType: isPdf ? "application/pdf" : file.type,
             review: isPdf ? undefined : { sourceLayout, deskewed: Boolean(reviewImage), uncertainShifts },
           };
+          importedIds.push(documentId);
           if (replacement) {
             nextDocuments[replacementIndex] = nextDocument;
             updatedDocuments += 1;
@@ -2192,6 +2313,8 @@ export default function HomePage() {
         ],
       );
       if (sheetRef.current === "import") setImportComparisons(comparisons);
+      // Offer to send what was just imported to the team (not what came from it).
+      if (!options?.fromShare) setJustImported([...new Set(importedIds)]);
       setImportState("review");
       setToast("Schedule imported");
     } catch {
@@ -2203,6 +2326,20 @@ export default function HomePage() {
     } finally {
       setScanFile(null);
       if (sheetRef.current !== "import") void releaseScheduleReader();
+    }
+  };
+
+
+  const importShared = ({ directory: nextDirectory, contacts: nextContacts, files, summary, person }: SharedImport) => {
+    if (nextDirectory) saveDirectory(nextDirectory);
+    if (nextContacts) saveContacts(nextContacts);
+    if (person) savePrefs({ person });
+    setIncoming(null);
+    if (summary.length) setToast(summary.join(" · "));
+    if (files.length) {
+      openSheet("import");
+      // The normal import, ending on "Your shifts vs. the photo".
+      void processFiles(files, { person: person || undefined, fromShare: true });
     }
   };
 
@@ -2701,6 +2838,17 @@ export default function HomePage() {
         </section>
       )}
 
+      {importState === "review" && team && justImported.length > 0 && (
+        <TeamSendPrompt
+          key={justImported.join("|")}
+          team={team}
+          what={describeShare({
+            weeks: scheduleDocuments.filter((document) => justImported.includes(document.id)).map((document) => document.dates),
+          }) || "this schedule"}
+          onSend={() => sendImportToTeam({ documentIds: justImported })}
+        />
+      )}
+
       {importState === "review" && importComparisons.length > 0 && (
         <section className="schedule-comparisons">
           <h3>Your shifts vs. the photo</h3>
@@ -2937,6 +3085,7 @@ export default function HomePage() {
             ? current.map((swap) => swap.status !== "waiting" ? { ...swap, seen: true } : swap)
             : current);
           setNotificationsInfo(false);
+          markPostsSeen(teamInbox.map((post) => post.id));
           airportAlertsButton.current?.focus();
         }}
       >
@@ -2960,6 +3109,10 @@ export default function HomePage() {
                 <b>Swap replies</b> show up here when a coworker answers a swap you sent by email or text.
               </p>
               <p>
+                <b>{team ? team.name : "Your team"}</b>: schedules and info your teammates send. Start or join a
+                team in Settings → Share with coworkers.
+              </p>
+              <p>
                 <b>ABE airport alerts</b> come from the airport’s website
                 {airportAlerts ? `, last checked ${formatUpdatedAt(airportAlerts.updatedAt)}` : ""}.
               </p>
@@ -2968,7 +3121,34 @@ export default function HomePage() {
               </a>
             </div>
           )}
-          {!liveSwapReplies.length && !airportNoticeCount && (
+          {teamInbox.length > 0 && (
+            <section className="notice-group" aria-label={team?.name ?? "Team"}>
+              <h3>{team?.name ?? "Team"}</h3>
+              <ul className="swap-reply-list team-post-list">
+                {teamInbox.map((post) => (
+                  <li key={post.id} className={seenPosts.includes(post.id) ? "" : "is-new"}>
+                    <span className="swap-reply-icon"><Users /></span>
+                    <div>
+                      <b>{post.from.split(" ")[0]} shared {post.what}</b>
+                      <small>{formatUpdatedAt(post.createdAt)}</small>
+                    </div>
+                    <button
+                      type="button"
+                      className="airport-alert-dismiss team-post-open"
+                      onClick={() => {
+                        markPostsSeen([post.id]);
+                        airportAlertsDialog.current?.close();
+                        if (team) openIncomingShare({ id: post.shareId, key: team.key });
+                      }}
+                    >
+                      Open
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {!liveSwapReplies.length && !airportNoticeCount && !teamInbox.length && (
             <div className="notifications-empty">
               <Bell aria-hidden="true" />
               <p>You’re all caught up</p>
@@ -3639,11 +3819,51 @@ export default function HomePage() {
           service={CALENDAR_SERVICE_ORIGIN}
           appUrl={`${window.location.origin}${window.location.pathname}`}
           loadFile={(id) => loadScheduleImage(id)}
+          team={team}
+          inviteUrl={team ? inviteLink(team, `${window.location.origin}${window.location.pathname}`) : ""}
+          onCreateTeam={async (teamName) => {
+            updateTeam(await createTeam(CALENDAR_SERVICE_ORIGIN, {
+              teamName,
+              name: prefs.person || "Me",
+              profile: notificationProfile,
+            }));
+          }}
+          onLeaveTeam={() => {
+            const leaving = team;
+            updateTeam(null);
+            if (leaving) void leaveTeam(CALENDAR_SERVICE_ORIGIN, leaving).catch(() => undefined);
+          }}
+          onSendToTeam={sendToTeam}
           onOpenLink={(key) => {
             setShareOpen(false);
             openIncomingShare(key);
           }}
+          onOpenInvite={(key) => {
+            setShareOpen(false);
+            openInvite(key);
+          }}
           onClose={() => setShareOpen(false)}
+        />
+      )}
+
+      {invite && (
+        <TeamJoinSheet
+          preview={invite.preview}
+          error={invite.error}
+          leaving={team && team.id !== invite.invite.id ? team.name : undefined}
+          defaultName={prefs.person}
+          onJoin={async (name) => {
+            const previous = team;
+            const joined = await joinTeam(CALENDAR_SERVICE_ORIGIN, invite.invite, { name, profile: notificationProfile });
+            if (previous && previous.id !== joined.id) void leaveTeam(CALENDAR_SERVICE_ORIGIN, previous).catch(() => undefined);
+            updateTeam({ ...joined, members: [...(invite.preview?.members ?? []), name] });
+            if (!prefs.person) savePrefs({ person: name });
+            setInvite(null);
+            setToast(notificationProfile
+              ? `You joined ${joined.name}`
+              : `You joined ${joined.name}. Turn on notifications in Settings to get pinged.`);
+          }}
+          onClose={() => setInvite(null)}
         />
       )}
 
@@ -3653,6 +3873,7 @@ export default function HomePage() {
           error={incoming.error}
           loading={!incoming.share && !incoming.error}
           link={incoming.link}
+          person={prefs.person}
           haveWeek={(schedule) => scheduleDocuments.some((document) =>
             document.hash === schedule.hash || isScheduleRevision(document.dates, schedule.dates))}
           directory={directory}
@@ -3668,6 +3889,8 @@ export default function HomePage() {
           workers={[prefs.person, ...contactWorkers].filter(Boolean)}
           coworkers={contactWorkers}
           contacts={contacts}
+          team={team}
+          onSendToTeam={() => sendImportToTeam({ directory: true })}
           onChange={saveDirectory}
           onClose={() => setDirectoryOpen(false)}
         />
@@ -3681,6 +3904,8 @@ export default function HomePage() {
           onChange={saveContacts}
           directory={directory}
           onDirectoryChange={saveDirectory}
+          team={team}
+          onSendToTeam={() => sendImportToTeam({ contacts: true })}
           onClose={() => setContactsOpen(null)}
         />
       )}

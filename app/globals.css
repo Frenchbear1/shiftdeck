@@ -7666,3 +7666,153 @@ select:focus-visible {
 .share-note + .share-note {
   margin-top: -6px;
 }
+
+/* ---------- teams ---------- */
+
+.team-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--blue) 7%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--line));
+  border-radius: 14px;
+}
+
+.team-card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.team-card .share-paste {
+  margin: 0;
+}
+
+.button.team-invite {
+  flex: none;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.team-invite svg {
+  width: 16px;
+  height: 16px;
+}
+
+.team-leave {
+  justify-self: start;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.team-leave.confirm {
+  color: var(--danger);
+}
+
+.share-mode {
+  display: block;
+  margin: 10px auto 0;
+}
+
+.share-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share-names button {
+  height: 38px;
+  padding: 0 14px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.share-names button.on {
+  color: white;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.share-names .share-names-none {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.team-join {
+  display: grid;
+  gap: 12px;
+}
+
+.team-join-name {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.team-join-name input {
+  height: 44px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 15px;
+}
+
+.team-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 11px;
+  margin: 0 0 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--blue) 9%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--blue) 40%, var(--line));
+  border-radius: 14px;
+  animation: rise 220ms var(--ease-out) both;
+}
+
+.team-prompt .share-choice-copy {
+  flex: 1 1 160px;
+}
+
+.team-prompt-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.team-prompt-actions .button {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+.team-prompt-actions .spin {
+  width: 16px;
+  height: 16px;
+  animation: spin 900ms linear infinite;
+}
+
+.team-post-open {
+  color: var(--blue);
+  font-weight: 750;
+}

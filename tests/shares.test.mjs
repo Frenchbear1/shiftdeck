@@ -65,3 +65,23 @@ test("week labels read naturally", () => {
   assert.equal(data.weekLabel(["2026-11-21", "2026-11-15", "2026-11-18"]), "Nov 15 – 21");
   assert.equal(data.weekLabel(["2026-11-29", "2026-12-05"]), "Nov 29 – Dec 5");
 });
+
+test("team invites keep their keys in the link's fragment", async () => {
+  const team = await import("../app/team.ts");
+  const link = team.inviteLink(
+    { id: "AbCdEfGhIjKlMnOpQrSt12", name: "ABE Ramp", key: "secret-key_123", joinSecret: "join-secret_456", memberId: "m", memberToken: "t" },
+    "https://frenchbear1.github.io/shiftdeck/",
+  );
+  const url = new URL(link);
+  assert.equal(url.searchParams.get("team"), "AbCdEfGhIjKlMnOpQrSt12");
+  assert.ok(!url.search.includes("secret"), "keys never go in the part servers see");
+  assert.deepEqual(team.teamInLocation(url), { id: "AbCdEfGhIjKlMnOpQrSt12", key: "secret-key_123", joinSecret: "join-secret_456" });
+  assert.deepEqual(team.teamInText(`David invited you to ABE Ramp. Open this:\n${link}`)?.joinSecret, "join-secret_456");
+  assert.equal(team.teamInText("no link here"), null);
+});
+
+test("what's being sent reads naturally", async () => {
+  const { describeShare } = await import("../app/share-build.ts");
+  assert.equal(describeShare({ weeks: [["2026-11-22", "2026-11-28"]] }), "the Nov 22 – 28 schedule");
+  assert.equal(describeShare({ weeks: [["2026-11-22"], ["2026-11-29"]], directory: true, contacts: true }), "2 schedules, the directory and coworker contacts");
+});
