@@ -816,3 +816,66 @@ export function BlockedScreen({ name, onRetry }: { name: string; onRetry: () => 
     </div>
   );
 }
+
+/* ---------- the owner reset this phone: pick a name before using the app ---------- */
+
+const TYPE_NAME = "__type__";
+
+export function NamePickScreen({ names, onPick }: {
+  /** Names on this phone's schedules and the team's list. */
+  names: string[];
+  onPick: (name: string) => Promise<void>;
+}) {
+  const [choice, setChoice] = useState(names.length ? "" : TYPE_NAME);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const name = (choice === TYPE_NAME ? typed : choice).replace(/\s+/g, " ").trim();
+  return (
+    <div className="name-gate" role="dialog" aria-modal="true" aria-label="Pick your name">
+      <form
+        className="name-gate-card"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (name.replace(/[^a-z]/gi, "").length < 2) return;
+          setBusy(true);
+          setProblem("");
+          try {
+            await onPick(name);
+          } catch (failure) {
+            setProblem(failure instanceof Error ? failure.message : "That didn’t work. Try again.");
+          }
+          setBusy(false);
+        }}
+      >
+        <span className="blocked-icon name-gate-icon"><Smartphone /></span>
+        <h2>Who’s using this phone?</h2>
+        <p>The owner reset this phone. Pick your name to keep using Shiftdeck.</p>
+        <span className="team-join-select">
+          <select value={choice} onChange={(event) => setChoice(event.target.value)} aria-label="Your name">
+            <option value="" disabled>Pick your name</option>
+            {names.map((option) => <option key={option} value={option}>{option}</option>)}
+            <option value={TYPE_NAME}>Someone else…</option>
+          </select>
+          <ChevronDown aria-hidden="true" />
+        </span>
+        {choice === TYPE_NAME && (
+          <input
+            className="name-gate-input"
+            value={typed}
+            maxLength={40}
+            autoComplete="name"
+            placeholder="Your full name"
+            aria-label="Type your name"
+            onChange={(event) => setTyped(event.target.value)}
+          />
+        )}
+        <small>Your name gets locked to this phone. Only the owner can change it later.</small>
+        {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
+        <button type="submit" className="button primary share-make" disabled={busy || name.replace(/[^a-z]/gi, "").length < 2}>
+          {busy ? <LoaderCircle className="spin" /> : <Check />} {name ? `I’m ${name.split(" ")[0]}` : "Continue"}
+        </button>
+      </form>
+    </div>
+  );
+}

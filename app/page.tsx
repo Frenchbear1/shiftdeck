@@ -99,7 +99,7 @@ import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { SwapAnswerSheet } from "./swap-answer-sheet";
 import { NameChangeSheet } from "./name-change-sheet";
-import { AcceptHandoverSheet, BlockedScreen, LinkCodeSheet, LinkPhoneSheet, OwnerSheet } from "./owner-sheets";
+import { AcceptHandoverSheet, BlockedScreen, LinkCodeSheet, LinkPhoneSheet, NamePickScreen, OwnerSheet } from "./owner-sheets";
 import {
   acceptHandover,
   askForName,
@@ -284,6 +284,10 @@ const DEFAULT_ALERT_MINUTES = 120;
 const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
 const HOME_VIEW_KEY = "shiftdeck.homeView";
 const BLOCKED_KEY = "shiftdeck.blocked";
+// The owner reset this phone: it can't be used until a name is picked.
+const PICK_NAME_KEY = "shiftdeck.pickName";
+// The team's names, kept for picking a name after a reset.
+const ROSTER_KEY = "shiftdeck.roster";
 const NAME_MERGES_KEY = "shiftdeck.nameMerges";
 const NAME_MERGE_DISMISSED_KEY = "shiftdeck.nameMergeDismissed";
 
@@ -782,6 +786,17 @@ export default function HomePage() {
   // The owner blocked this person: the app stays covered until they're unblocked.
   const [blockedHere, setBlockedHere] = useState(false);
   const [handoverOpen, setHandoverOpen] = useState(false);
+  const [mustPickName, setMustPickNameState] = useState(false);
+  const [savedRoster, setSavedRoster] = useState<string[]>([]);
+  const setMustPickName = (value: boolean) => {
+    setMustPickNameState(value);
+    try {
+      if (value) localStorage.setItem(PICK_NAME_KEY, "1");
+      else localStorage.removeItem(PICK_NAME_KEY);
+    } catch {
+      // Asked again if the server resets it again.
+    }
+  };
   const [swapAnswerId, setSwapAnswerId] = useState<string | null>(null);
   const [nameChangeOpen, setNameChangeOpen] = useState(false);
   // Who this phone is in the app (its locked name, and owner access).
@@ -794,8 +809,13 @@ export default function HomePage() {
     const seen = loadSeenPosts();
     const key = loadTeamKey();
     let wasBlocked = false;
+    let pickName = false;
+    let roster: string[] = [];
     try {
       wasBlocked = localStorage.getItem(BLOCKED_KEY) === "1";
+      pickName = localStorage.getItem(PICK_NAME_KEY) === "1";
+      const saved = JSON.parse(localStorage.getItem(ROSTER_KEY) ?? "[]");
+      if (Array.isArray(saved)) roster = saved.filter((name): name is string => typeof name === "string");
     } catch {
       // Checked again with the server below.
     }
@@ -803,6 +823,8 @@ export default function HomePage() {
       setSeenPosts(seen);
       setTeamKey(key);
       setBlockedHere(wasBlocked);
+      setMustPickNameState(pickName);
+      setSavedRoster(roster);
     });
   }, []);
   const setBlocked = (value: boolean) => {
@@ -1583,11 +1605,12 @@ export default function HomePage() {
     }
     return { fresh, badWrap };
   };
-  const refreshMe = async (known?: string) => {
+  /** Checks in. Says how it went: "ok", "taken" (someone else's name), or "failed". */
+  const refreshMe = async (known?: string): Promise<"ok" | "taken" | "failed"> => {
     const name = known ?? personRef.current;
     if (!name) {
       setMe(null);
-      return;
+      return "failed";
     }
     try {
       let result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, await checkIn());
@@ -1596,10 +1619,22 @@ export default function HomePage() {
       if (fresh || badWrap) result = await syncMe(CALENDAR_SERVICE_ORIGIN, name, await checkIn(badWrap ? { badWrap: true } : undefined));
       setMe(result);
       setBlocked(false);
+      setMustPickName(false);
       setNameTaken(null);
+      if (result.roster?.length) {
+        try {
+          localStorage.setItem(ROSTER_KEY, JSON.stringify(result.roster));
+        } catch {
+          // Only used after a reset.
+        }
+      }
       if (result.name && result.name !== personRef.current) savePrefsRef.current({ person: result.name });
+      return "ok";
     } catch (problem) {
-      if (problem instanceof NameTakenError) setNameTaken({ name: problem.takenName, ownerName: problem.ownerName });
+      if (problem instanceof NameTakenError) {
+        setNameTaken({ name: problem.takenName, ownerName: problem.ownerName });
+        return "taken";
+      }
       if (problem instanceof BlockedError) {
         setMe(null);
         setBlocked(true);
@@ -1607,11 +1642,12 @@ export default function HomePage() {
         setTeamKey(null);
       }
       if (problem instanceof PhoneResetError) {
-        // The owner took this phone off the app: pick a name again.
+        // The owner took this phone off the app: nothing until a name is picked.
         setMe(null);
         savePrefsRef.current({ person: "" });
-        setToast(problem.message || "Pick your name again.");
+        setMustPickName(true);
       }
+      return "failed";
     }
   };
   const refreshMeRef = useRef(refreshMe);
@@ -4172,6 +4208,8 @@ export default function HomePage() {
           onNotMe={() => {
             setNameTaken(null);
             savePrefs({ person: "" });
+            // After a reset the name screen is still up; otherwise pick in Settings.
+            if (mustPickName) return;
             setSettingsSnapshot(JSON.stringify({ ...prefs, person: "" }));
             setSettingsOpen(true);
           }}
@@ -4255,6 +4293,19 @@ export default function HomePage() {
             setToast("You’re the owner now. Settings → Owner");
           }}
           onClose={() => setHandoverOpen(false)}
+        />
+      )}
+
+      {mustPickName && !me && !blockedHere && (
+        <NamePickScreen
+          names={[...new Set([...savedRoster, ...availableWorkers])].sort((a, b) => a.localeCompare(b))}
+          onPick={async (name) => {
+            savePrefs({ person: name });
+            if (await refreshMe(name) === "failed") {
+              savePrefs({ person: "" });
+              throw new Error("Couldn’t reach Shiftdeck. Check your connection and try again.");
+            }
+          }}
         />
       )}
 
