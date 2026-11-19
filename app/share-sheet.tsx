@@ -609,12 +609,16 @@ export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJo
   const [typed, setTyped] = useState(defaultName);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
-  const roster = preview?.roster ?? [];
   const key = (name: string) => name.toLowerCase().replace(/[^a-z]/g, "");
+  // The name already in this phone's Settings goes first and is picked, even
+  // if the schedules spell it a little differently.
+  const listed = preview?.roster ?? [];
+  const fromSettings = defaultName.trim()
+    ? listed.find((name) => key(name) === key(defaultName)) ?? defaultName.trim()
+    : "";
+  const roster = fromSettings ? [fromSettings, ...listed.filter((name) => key(name) !== key(fromSettings))] : listed;
   const joined = new Set((preview?.members ?? []).map(key));
-  // The name in Settings is picked when it's on the list.
-  const fromSettings = roster.find((name) => key(name) === key(defaultName));
-  const selected = choice ?? (roster.length ? fromSettings ?? "" : SOMEONE_ELSE);
+  const selected = choice ?? (roster.length ? fromSettings : SOMEONE_ELSE);
   const typing = selected === SOMEONE_ELSE;
   const name = typing ? typed.trim() : selected;
 
