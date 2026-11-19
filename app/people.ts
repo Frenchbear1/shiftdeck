@@ -5,6 +5,19 @@
  * and a person adds more phones with a one-time code from one they have.
  */
 
+export type PhoneSummary = {
+  id: string;
+  /** The owner's name for it, or what kind of phone it is. */
+  label: string;
+  model: string | null;
+  /** The owner gave it a name. */
+  named: boolean;
+  /** The phone you're holding. */
+  current: boolean;
+  since: string;
+  seen: string;
+};
+
 export type PersonSummary = {
   id: string;
   name: string;
@@ -13,6 +26,7 @@ export type PersonSummary = {
   /** When they started using the app. */
   since: string;
   seen: string | null;
+  phones?: PhoneSummary[];
 };
 
 export type AppNameRequest = { id: string; personId: string; from: string; name: string; createdAt: string };
@@ -59,6 +73,34 @@ export function thisDevice(): Device {
   return device;
 }
 
+/** The owner took this phone off the app: pick a name again. */
+export class PhoneResetError extends Error {}
+
+/** What kind of phone this is ("iPhone · app", "Pixel 8 · Chrome"), so the owner can tell them apart. */
+export async function deviceModel(): Promise<string> {
+  if (typeof navigator === "undefined") return "";
+  const agent = navigator.userAgent;
+  let kind = /iPhone/.test(agent) ? "iPhone"
+    : /iPad/.test(agent) || (/Macintosh/.test(agent) && navigator.maxTouchPoints > 1) ? "iPad"
+    : /Android/.test(agent) ? "Android phone"
+    : /Macintosh/.test(agent) ? "Mac"
+    : /Windows/.test(agent) ? "Windows PC"
+    : "Computer";
+  if (kind === "Android phone") {
+    // Chrome hides the model in the user agent but gives it when asked.
+    const hints = (navigator as Navigator & { userAgentData?: { getHighEntropyValues: (keys: string[]) => Promise<{ model?: string }> } }).userAgentData;
+    const model = await hints?.getHighEntropyValues(["model"]).then((value) => value.model ?? "").catch(() => "");
+    const fromAgent = agent.match(/Android [\d.]+; ([^;)]+?)(?: Build|\))/)?.[1] ?? "";
+    const named = model || (fromAgent && fromAgent !== "K" ? fromAgent : "");
+    if (named) kind = named;
+  }
+  const app = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches
+    || (navigator as Navigator & { standalone?: boolean }).standalone === true);
+  const browser = /EdgA?\//.test(agent) ? "Edge" : /CriOS|Chrome\//.test(agent) ? "Chrome" : /FxiOS|Firefox\//.test(agent) ? "Firefox"
+    : /SamsungBrowser/.test(agent) ? "Samsung Internet" : /Safari\//.test(agent) ? "Safari" : "";
+  return `${kind}${app ? " · app" : browser ? ` · ${browser}` : ""}`.slice(0, 40);
+}
+
 export class NameTakenError extends Error {
   /** The name as it's registered. */
   takenName: string;
@@ -80,26 +122,28 @@ async function call<T>(service: string, path: string, body: object): Promise<T> 
     body: JSON.stringify({ ...thisDevice(), ...body }),
   });
   const result = await response.json().catch(() => ({})) as T & { error?: string; taken?: boolean; name?: string; ownerName?: boolean };
+  if (response.status === 410 && (result as { reset?: boolean }).reset) throw new PhoneResetError(result.error ?? "");
   if (response.status === 409 && result.taken) throw new NameTakenError(result.name ?? "", Boolean(result.ownerName));
   if (!response.ok) throw Object.assign(new Error(result.error ?? "Couldn’t reach Shiftdeck. Check your connection."), { status: response.status });
   return result;
 }
 
-const extras = (teams: TeamCredentials[], profile: Profile) => ({
+const extras = async (teams: TeamCredentials[], profile: Profile) => ({
   teams,
+  model: await deviceModel(),
   ...(profile ? { profileId: profile.id, profileToken: profile.writeToken } : {}),
 });
 
 /** Checks in (registering the name the first time). Throws NameTakenError if it's someone else's. */
-export const syncMe = (service: string, name: string, teams: TeamCredentials[], profile: Profile) =>
-  call<Me>(service, "sync", { name, ...extras(teams, profile) });
+export const syncMe = async (service: string, name: string, teams: TeamCredentials[], profile: Profile) =>
+  call<Me>(service, "sync", { name, ...await extras(teams, profile) });
 
 /** A 6-digit code (10 minutes, one use) to set up another phone as you. */
 export const makeLinkCode = (service: string) => call<{ code: string; expiresAt: string }>(service, "link-code", {});
 
 /** On the new phone: your name and the code from your other phone. */
-export const linkThisPhone = (service: string, name: string, code: string, teams: TeamCredentials[], profile: Profile) =>
-  call<Me>(service, "link", { name, code, ...extras(teams, profile) });
+export const linkThisPhone = async (service: string, name: string, code: string, teams: TeamCredentials[], profile: Profile) =>
+  call<Me>(service, "link", { name, code, ...await extras(teams, profile) });
 
 export const askForName = (service: string, name: string) =>
   call<{ ok: boolean; pending?: boolean; name?: string }>(service, "name-request", { name });
@@ -120,6 +164,16 @@ export const removePerson = (service: string, personId: string) =>
 
 export const handOver = (service: string, personId: string) =>
   call<{ ok: boolean }>(service, "transfer", { personId });
+
+export const renamePhone = (service: string, targetDeviceId: string, label: string) =>
+  call<{ ok: boolean }>(service, "device-rename", { targetDeviceId, label });
+
+/** Puts one phone under another name (made if it's new). */
+export const movePhone = (service: string, targetDeviceId: string, name: string) =>
+  call<{ ok: boolean; name: string }>(service, "device-move", { targetDeviceId, name });
+
+export const removePhone = (service: string, targetDeviceId: string) =>
+  call<{ ok: boolean }>(service, "device-remove", { targetDeviceId });
 
 /** Who's used the app longest (besides you), suggested for handing over. */
 export const recommendedSuccessor = (people: PersonSummary[], myId: string) =>

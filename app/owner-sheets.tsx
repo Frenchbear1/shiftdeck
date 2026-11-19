@@ -1,12 +1,35 @@
 "use client";
 
-import { Check, ChevronDown, Crown, KeyRound, LoaderCircle, Smartphone, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Crown, KeyRound, LoaderCircle, Smartphone, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { backdropClose } from "./home-sections";
-import { recommendedSuccessor, type Me } from "./people";
+import { recommendedSuccessor, type Me, type PersonSummary, type PhoneSummary } from "./people";
 
 const sinceLabel = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+const seenLabel = (iso: string) => {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  if (minutes < 5) return "active now";
+  if (minutes < 60) return `active ${minutes}m ago`;
+  if (minutes < 48 * 60) return `active ${Math.round(minutes / 60)}h ago`;
+  return `active ${Math.round(minutes / 1440)}d ago`;
+};
+
+/** Two taps to do something you can't undo. */
+function useConfirm() {
+  const [armed, setArmed] = useState<string | null>(null);
+  const tap = (id: string, action: () => void) => {
+    if (armed === id) {
+      setArmed(null);
+      action();
+    } else {
+      setArmed(id);
+      window.setTimeout(() => setArmed((current) => current === id ? null : current), 3500);
+    }
+  };
+  return { armed, tap };
+}
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -132,7 +155,13 @@ export function LinkCodeSheet({ owner, onMakeCode, onClose }: {
 
 /* ---------- the owner's screen ---------- */
 
-export function OwnerSheet({ me, names, onRename, onRemove, onDecide, onHandOver, onAddPhone, onClose }: {
+export type PhoneActions = {
+  onRenamePhone: (deviceId: string, label: string) => Promise<void>;
+  onMovePhone: (deviceId: string, name: string) => Promise<void>;
+  onRemovePhone: (deviceId: string) => Promise<void>;
+};
+
+export function OwnerSheet({ me, names, onRename, onRemove, onRenamePhone, onMovePhone, onRemovePhone, onDecide, onHandOver, onAddPhone, onClose }: PhoneActions & {
   me: Me;
   /** Names to rename people to (from schedules). */
   names: string[];
@@ -146,8 +175,8 @@ export function OwnerSheet({ me, names, onRename, onRemove, onDecide, onHandOver
   const people = me.people ?? [];
   const requests = (me.requests ?? []).filter((request) => request.personId !== me.personId);
   const recommended = recommendedSuccessor(people, me.personId);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const confirm = useConfirm();
   const [handing, setHanding] = useState(false);
   const [successor, setSuccessor] = useState<string>("");
   const [confirming, setConfirming] = useState(false);
@@ -194,68 +223,29 @@ export function OwnerSheet({ me, names, onRename, onRemove, onDecide, onHandOver
       )}
 
       <p className="share-section-title">Everyone, longest first</p>
-      <div className="team-members">
-        <ul>
-          {people.map((person) => (
-            <li key={person.id}>
-              {editing === person.id ? (
-                <span className="team-join-select team-member-rename">
-                  <select
-                    autoFocus
-                    defaultValue=""
-                    aria-label={`New name for ${person.name}`}
-                    onChange={(event) => {
-                      const name = event.target.value;
-                      setEditing(null);
-                      if (name) void run(() => onRename(person.id, name));
-                    }}
-                    onBlur={() => setEditing(null)}
-                  >
-                    <option value="" disabled>Rename {person.name.split(" ")[0]} to…</option>
-                    {names.filter((name) => key(name) === key(person.name) || !people.some((other) => key(other.name) === key(name)))
-                      .map((name) => <option key={name} value={name}>{name}</option>)}
-                  </select>
-                  <ChevronDown aria-hidden="true" />
-                </span>
-              ) : (
-                <span className="owner-person">
-                  <span className="team-member-name">
-                    {person.name}
-                    {person.id === me.personId && <small>You</small>}
-                    {person.owner && <small className="owner">Owner</small>}
-                  </span>
-                  <small>
-                    Since {sinceLabel(person.since)} · {person.devices} {person.devices === 1 ? "phone" : "phones"}
-                  </small>
-                </span>
-              )}
-              {editing !== person.id && (
-                <span className="team-member-actions">
-                  <button type="button" onClick={() => setEditing(person.id)}>Rename</button>
-                  {person.id !== me.personId && (
-                    <button
-                      type="button"
-                      className={removing === person.id ? "confirm" : ""}
-                      onClick={() => {
-                        if (removing === person.id) {
-                          setRemoving(null);
-                          void run(() => onRemove(person.id));
-                        } else {
-                          setRemoving(person.id);
-                          window.setTimeout(() => setRemoving((current) => current === person.id ? null : current), 3500);
-                        }
-                      }}
-                    >
-                      {removing === person.id ? "Tap to remove" : "Remove"}
-                    </button>
-                  )}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+      <div className="owner-people">
+        {people.map((person) => (
+          <PersonCard
+            key={person.id}
+            person={person}
+            me={me}
+            open={open === person.id}
+            onToggle={() => setOpen((current) => current === person.id ? null : person.id)}
+            renameTo={names.filter((name) => key(name) === key(person.name) || !people.some((other) => key(other.name) === key(name)))}
+            moveTo={[...new Set([...people.filter((other) => !other.owner).map((other) => other.name), ...names])]
+              .filter((name) => key(name) !== key(person.name) && !people.some((other) => other.owner && key(other.name) === key(name)))
+              .sort((a, b) => a.localeCompare(b))}
+            confirm={confirm}
+            run={run}
+            onRename={onRename}
+            onRemove={onRemove}
+            onRenamePhone={onRenamePhone}
+            onMovePhone={onMovePhone}
+            onRemovePhone={onRemovePhone}
+          />
+        ))}
       </div>
-      <p className="share-note">Removing someone frees their name; their phone picks a name again next time it opens.</p>
+      <p className="share-note">Tap a name to see their phones. Removing someone frees their name; their phones pick a name again next time they open.</p>
 
       <p className="share-section-title">Leaving the job?</p>
       {!handing ? (
@@ -301,5 +291,209 @@ export function OwnerSheet({ me, names, onRename, onRemove, onDecide, onHandOver
       )}
       {problem && <p className="contacts-notice share-error" role="alert">{problem}</p>}
     </Sheet>
+  );
+}
+
+/* ---------- one person, and their phones ---------- */
+
+function PersonCard({ person, me, open, onToggle, renameTo, moveTo, confirm, run, onRename, onRemove, onRenamePhone, onMovePhone, onRemovePhone }: PhoneActions & {
+  person: PersonSummary;
+  me: Me;
+  open: boolean;
+  onToggle: () => void;
+  renameTo: string[];
+  moveTo: string[];
+  confirm: ReturnType<typeof useConfirm>;
+  run: (action: () => Promise<void>) => Promise<void>;
+  onRename: (personId: string, name: string) => Promise<void>;
+  onRemove: (personId: string) => Promise<void>;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const phones = person.phones ?? [];
+  const first = person.name.split(" ")[0];
+  return (
+    <div className={`owner-card${open ? " open" : ""}`}>
+      <button type="button" className="owner-card-head" aria-expanded={open} onClick={onToggle}>
+        <span className="owner-person">
+          <span className="team-member-name">
+            {person.name}
+            {person.id === me.personId && <small>You</small>}
+            {person.owner && <small className="owner">Owner</small>}
+          </span>
+          <small>
+            Since {sinceLabel(person.since)} · {person.devices} {person.devices === 1 ? "phone" : "phones"}
+          </small>
+        </span>
+        <ChevronRight className="owner-card-chevron" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="owner-card-body">
+          {renaming ? (
+            <span className="team-join-select team-member-rename">
+              <select
+                autoFocus
+                defaultValue=""
+                aria-label={`New name for ${person.name}`}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setRenaming(false);
+                  if (name) void run(() => onRename(person.id, name));
+                }}
+                onBlur={() => setRenaming(false)}
+              >
+                <option value="" disabled>Rename {first} to…</option>
+                {renameTo.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <ChevronDown aria-hidden="true" />
+            </span>
+          ) : (
+            <span className="owner-card-actions">
+              <button type="button" onClick={() => setRenaming(true)}>Rename {person.id === me.personId ? "me" : first}</button>
+              {person.id !== me.personId && (
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => confirm.tap(`person:${person.id}`, () => void run(() => onRemove(person.id)))}
+                >
+                  {confirm.armed === `person:${person.id}` ? `Tap to remove ${first}` : `Remove ${first}`}
+                </button>
+              )}
+            </span>
+          )}
+          {phones.length > 0 ? (
+            <ul className="owner-phones">
+              {phones.map((phone) => (
+                <PhoneRow
+                  key={phone.id}
+                  phone={phone}
+                  moveTo={moveTo}
+                  confirm={confirm}
+                  run={run}
+                  onRenamePhone={onRenamePhone}
+                  onMovePhone={onMovePhone}
+                  onRemovePhone={onRemovePhone}
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="share-note">No phones right now.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PhoneRow({ phone, moveTo, confirm, run, onRenamePhone, onMovePhone, onRemovePhone }: PhoneActions & {
+  phone: PhoneSummary;
+  moveTo: string[];
+  confirm: ReturnType<typeof useConfirm>;
+  run: (action: () => Promise<void>) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"" | "label" | "move" | "newname">("");
+  const [label, setLabel] = useState(phone.named ? phone.label : "");
+  const [newName, setNewName] = useState("");
+  const save = () => {
+    setMode("");
+    if (label.trim() !== (phone.named ? phone.label : "")) void run(() => onRenamePhone(phone.id, label.trim()));
+  };
+  return (
+    <li className="owner-phone">
+      <span className="owner-phone-icon"><Smartphone /></span>
+      <span className="owner-phone-main">
+        {mode === "label" ? (
+          <form
+            className="owner-phone-label"
+            onSubmit={(event) => {
+              event.preventDefault();
+              save();
+            }}
+          >
+            <input
+              autoFocus
+              value={label}
+              maxLength={30}
+              placeholder={phone.model ?? "Phone name"}
+              aria-label="Phone name"
+              onChange={(event) => setLabel(event.target.value)}
+              onBlur={save}
+            />
+            <button type="submit" aria-label="Save"><Check /></button>
+          </form>
+        ) : mode === "newname" ? (
+          <form
+            className="owner-phone-label"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const name = newName.trim();
+              setMode("");
+              setNewName("");
+              if (name) void run(() => onMovePhone(phone.id, name));
+            }}
+          >
+            <input
+              autoFocus
+              value={newName}
+              maxLength={40}
+              placeholder="Their full name"
+              aria-label="Whose phone is it?"
+              onChange={(event) => setNewName(event.target.value)}
+            />
+            <button type="submit" aria-label="Move" disabled={!newName.trim()}><Check /></button>
+            <button type="button" className="ghost" aria-label="Cancel" onClick={() => setMode("")}><X /></button>
+          </form>
+        ) : mode === "move" ? (
+          <span className="team-join-select team-member-rename">
+            <select
+              autoFocus
+              defaultValue=""
+              aria-label={`Move ${phone.label} to`}
+              onChange={(event) => {
+                const name = event.target.value;
+                if (name === "\u0000new") {
+                  setMode("newname");
+                  return;
+                }
+                setMode("");
+                if (name) void run(() => onMovePhone(phone.id, name));
+              }}
+              onBlur={() => setMode("")}
+            >
+              <option value="" disabled>This phone belongs to…</option>
+              {moveTo.map((name) => <option key={name} value={name}>{name}</option>)}
+              <option value={"\u0000new"}>New name…</option>
+            </select>
+            <ChevronDown aria-hidden="true" />
+          </span>
+        ) : (
+          <>
+            <span className="owner-phone-name">
+              {phone.label}
+              {phone.current && <small>This phone</small>}
+            </span>
+            <small>
+              {phone.named && phone.model ? `${phone.model} · ` : ""}Added {sinceLabel(phone.since)} · {seenLabel(phone.seen)}
+            </small>
+          </>
+        )}
+        {mode === "" && (
+          <span className="owner-card-actions">
+            <button type="button" onClick={() => setMode("label")}>Rename</button>
+            {!phone.current && (
+              <>
+                <button type="button" onClick={() => setMode("move")}>Move to…</button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => confirm.tap(`phone:${phone.id}`, () => void run(() => onRemovePhone(phone.id)))}
+                >
+                  {confirm.armed === `phone:${phone.id}` ? "Tap to remove" : "Remove"}
+                </button>
+              </>
+            )}
+          </span>
+        )}
+      </span>
+    </li>
   );
 }

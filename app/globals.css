@@ -8570,3 +8570,195 @@ html {
   letter-spacing: .3em;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- owner: people and their phones ---------- */
+
+.owner-people {
+  display: grid;
+  gap: 8px;
+  margin: -6px 0 10px;
+}
+
+.owner-card {
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  transition: border-color 0.18s ease;
+}
+
+.owner-card.open {
+  border-color: color-mix(in srgb, var(--blue) 35%, var(--line));
+}
+
+.owner-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 12px;
+  color: inherit;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.owner-card-chevron {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+}
+
+.owner-card.open .owner-card-chevron {
+  transform: rotate(90deg);
+}
+
+.owner-card-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+  animation: owner-card-in 0.18s ease;
+}
+
+@keyframes owner-card-in {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+
+.owner-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.owner-card-actions button {
+  padding: 0;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.owner-card-actions button.danger {
+  color: var(--danger);
+}
+
+.owner-phones {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+.owner-phone {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+}
+
+.owner-phone + .owner-phone {
+  border-top: 1px solid var(--line);
+}
+
+.owner-phone-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
+  border-radius: 9px;
+}
+
+.owner-phone-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.owner-phone-main {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+  min-width: 0;
+}
+
+.owner-phone-main > small {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.owner-phone-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.owner-phone-name small {
+  padding: 2px 7px;
+  color: var(--blue);
+  border: 1px solid color-mix(in srgb, var(--blue) 40%, var(--line));
+  border-radius: 99px;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.owner-phone-label {
+  display: flex;
+  gap: 6px;
+}
+
+.owner-phone-label input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 16px;
+}
+
+.owner-phone-label button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: #fff;
+  background: var(--blue);
+  border: 0;
+  border-radius: 9px;
+}
+
+.owner-phone-label button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.owner-phone-label button.ghost {
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.owner-phone-label button:disabled {
+  opacity: 0.45;
+}

@@ -107,8 +107,12 @@ import {
   linkThisPhone,
   makeLinkCode,
   NameTakenError,
+  movePhone,
+  PhoneResetError,
   removePerson,
+  removePhone,
   renamePerson,
+  renamePhone,
   syncMe,
   withdrawNameRequest,
   type Me,
@@ -1596,6 +1600,12 @@ export default function HomePage() {
       if (result.name && result.name !== personRef.current) savePrefsRef.current({ person: result.name });
     } catch (problem) {
       if (problem instanceof NameTakenError) setNameTaken({ name: problem.takenName, ownerName: problem.ownerName });
+      if (problem instanceof PhoneResetError) {
+        // The owner took this phone off the app: pick a name again.
+        setMe(null);
+        savePrefsRef.current({ person: "" });
+        setToast(problem.message || "Pick your name again.");
+      }
     }
   };
   const refreshMeRef = useRef(refreshMe);
@@ -4164,14 +4174,6 @@ export default function HomePage() {
         />
       )}
 
-      {linkCodeOpen && (
-        <LinkCodeSheet
-          owner={Boolean(me?.owner)}
-          onMakeCode={() => makeLinkCode(CALENDAR_SERVICE_ORIGIN)}
-          onClose={() => setLinkCodeOpen(false)}
-        />
-      )}
-
       {ownerOpen && me?.owner && (
         <OwnerSheet
           me={me}
@@ -4195,8 +4197,30 @@ export default function HomePage() {
             await refreshMe();
             setToast("Ownership handed over");
           }}
+          onRenamePhone={async (deviceId, label) => {
+            await renamePhone(CALENDAR_SERVICE_ORIGIN, deviceId, label);
+            await refreshMe();
+          }}
+          onMovePhone={async (deviceId, name) => {
+            await movePhone(CALENDAR_SERVICE_ORIGIN, deviceId, name);
+            await refreshMe();
+            setToast(`That phone is now ${name}`);
+          }}
+          onRemovePhone={async (deviceId) => {
+            await removePhone(CALENDAR_SERVICE_ORIGIN, deviceId);
+            await refreshMe();
+          }}
           onAddPhone={() => setLinkCodeOpen(true)}
           onClose={() => setOwnerOpen(false)}
+        />
+      )}
+
+      {/* After the owner screen, so the code shows on top of it. */}
+      {linkCodeOpen && (
+        <LinkCodeSheet
+          owner={Boolean(me?.owner)}
+          onMakeCode={() => makeLinkCode(CALENDAR_SERVICE_ORIGIN)}
+          onClose={() => setLinkCodeOpen(false)}
         />
       )}
 
