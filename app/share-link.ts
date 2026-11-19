@@ -1,8 +1,7 @@
 /**
- * Share links. Everything is encrypted on this phone (AES-GCM, a new random
- * key per link) before it's uploaded; the key goes in the link's #fragment,
- * which is never sent to any server. Opening the link downloads the
- * scrambled copy and unlocks it on the coworker's phone.
+ * What's sent to a team: encrypted on this phone (AES-GCM with the team
+ * key, which only travels in invite links' #fragment) before it's uploaded,
+ * and unlocked on each teammate's phone when they open it.
  */
 import { packShare, unpackShare, type SharePackage } from "./share-data.ts";
 
@@ -50,8 +49,6 @@ export async function shareableSchedule(file: Blob): Promise<Blob> {
   }
 }
 
-export type CreatedShare = { url: string; expiresAt: string };
-
 /** Encrypts and uploads; a team's key is reused so every member can open it. */
 export async function uploadShare(
   share: SharePackage,
@@ -83,41 +80,9 @@ export async function uploadShare(
   return { id: result.id, expiresAt: result.expiresAt ?? "", key: b64url(keyBytes) };
 }
 
-export async function createShareLink(
-  share: SharePackage,
-  { service, appUrl, days }: { service: string; appUrl: string; days: 1 | 7 },
-): Promise<CreatedShare> {
-  const { id, expiresAt, key } = await uploadShare(share, { service, days });
-  const url = new URL(appUrl);
-  url.search = "";
-  url.searchParams.set("share", id);
-  url.hash = `k=${key}`;
-  return { url: url.href, expiresAt };
-}
-
 export const randomKey = (length = 32) => b64url(crypto.getRandomValues(new Uint8Array(length)));
 
 export type ShareKey = { id: string; key: string };
-
-/** The share id and key in an address (this page's, or a pasted link). */
-export function shareInLocation(location: { search: string; hash: string }): ShareKey | null {
-  const id = new URLSearchParams(location.search).get("share");
-  const key = new URLSearchParams(location.hash.slice(1)).get("k");
-  return id && key && /^[A-Za-z0-9_-]{16,40}$/.test(id) ? { id, key } : null;
-}
-
-/** Finds a share link anywhere in pasted text (like a whole forwarded message). */
-export function shareInText(text: string): ShareKey | null {
-  for (const match of text.match(/https?:\/\/\S+/g) ?? []) {
-    try {
-      const found = shareInLocation(new URL(match.replace(/[).,]+$/, "")));
-      if (found) return found;
-    } catch {
-      // Not a link.
-    }
-  }
-  return null;
-}
 
 export async function openShareLink({ id, key }: ShareKey, service: string) {
   const response = await fetch(`${service}/api/shares/${id}`, { cache: "no-store" });

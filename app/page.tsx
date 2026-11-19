@@ -16,7 +16,6 @@ import {
   Moon,
   Plus,
   Settings,
-  Share2,
   Sun,
   Trash2,
   Upload,
@@ -97,7 +96,7 @@ import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
 import { ShareSheet, SharedImportSheet, TeamJoinSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
-import { openShareLink, shareInLocation, type ShareKey } from "./share-link";
+import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
 import type { SharePackage } from "./share-data";
 import {
@@ -721,7 +720,7 @@ export default function HomePage() {
   // Schedules imported just now (by this phone, not from a share), for "Send to the team?".
   const [justImported, setJustImported] = useState<string[]>([]);
   // A share link being opened: loading, then what it holds (or why it couldn't).
-  const [incoming, setIncoming] = useState<{ share: OpenedShare | null; error: string; link?: string } | null>(null);
+  const [incoming, setIncoming] = useState<{ share: OpenedShare | null; error: string } | null>(null);
   useEffect(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(DIRECTORY_KEY) ?? "[]");
@@ -742,7 +741,13 @@ export default function HomePage() {
   const [team, setTeam] = useState<Team | null>(null);
   const [teamPosts, setTeamPosts] = useState<TeamPost[]>([]);
   const [seenPosts, setSeenPosts] = useState<string[]>([]);
-  const [invite, setInvite] = useState<{ invite: TeamInvite; preview: { name: string; members: string[] } | null; error: string } | null>(null);
+  const [invite, setInvite] = useState<{
+    invite: TeamInvite;
+    preview: { name: string; members: string[] } | null;
+    error: string;
+    /** Opened in iPhone Safari: the invite to paste into the Home Screen app. */
+    link?: string;
+  } | null>(null);
   useEffect(() => {
     const saved = loadTeam();
     const seen = loadSeenPosts();
@@ -1427,8 +1432,8 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLiveSwaps, todayDate]);
 
-  const openIncomingShare = (key: ShareKey, link?: string) => {
-    setIncoming({ share: null, error: "", link });
+  const openIncomingShare = (key: ShareKey) => {
+    setIncoming({ share: null, error: "" });
     openShareLink(key, CALENDAR_SERVICE_ORIGIN)
       .then((share) => setIncoming((current) => current && { ...current, share }))
       .catch((problem: unknown) => setIncoming((current) => current && {
@@ -1437,27 +1442,9 @@ export default function HomePage() {
       }));
   };
 
-  // A share link opens the app with ?share=<id>#k=<key>; the key never leaves this phone.
-  useEffect(() => {
-    if (!hydrated) return;
-    const key = shareInLocation(window.location);
-    if (!key) return;
-    const link = window.location.href;
-    const url = new URL(link);
-    url.searchParams.delete("share");
-    url.hash = "";
-    window.history.replaceState(null, "", url.href);
-    const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
-      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-    queueMicrotask(() => openIncomingShare(key, isAppleMobile && !isStandalone ? link : undefined));
-    // Runs once, when saved data is back.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated]);
-
   // Team invites open the app with ?team=<id>#t=<key>&j=<join secret>.
-  const openInvite = (key: TeamInvite) => {
-    setInvite({ invite: key, preview: null, error: "" });
+  const openInvite = (key: TeamInvite, link?: string) => {
+    setInvite({ invite: key, preview: null, error: "", link });
     previewTeam(CALENDAR_SERVICE_ORIGIN, key)
       .then((preview) => setInvite((current) => current && { ...current, preview }))
       .catch((problem: unknown) => setInvite((current) => current && {
@@ -1469,7 +1456,8 @@ export default function HomePage() {
     if (!hydrated) return;
     const key = teamInLocation(window.location);
     if (!key) return;
-    const url = new URL(window.location.href);
+    const link = window.location.href;
+    const url = new URL(link);
     url.searchParams.delete("team");
     url.hash = "";
     window.history.replaceState(null, "", url.href);
@@ -1477,7 +1465,10 @@ export default function HomePage() {
       queueMicrotask(() => setToast("You’re already on this team"));
       return;
     }
-    queueMicrotask(() => openInvite(key));
+    const isAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    queueMicrotask(() => openInvite(key, isAppleMobile && !isStandalone ? link : undefined));
     // Runs once, when saved data is back.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
@@ -3110,7 +3101,7 @@ export default function HomePage() {
               </p>
               <p>
                 <b>{team ? team.name : "Your team"}</b>: schedules and info your teammates send. Start or join a
-                team in Settings → Share with coworkers.
+                team in Settings → Team.
               </p>
               <p>
                 <b>ABE airport alerts</b> come from the airport’s website
@@ -3792,8 +3783,8 @@ export default function HomePage() {
                   setShareOpen(true);
                 }}
               >
-                <span><Share2 /> Share with coworkers</span>
-                <b>Send schedules, the directory & contacts</b>
+                <span><Users /> Team</span>
+                <b>{team ? `${team.name} · ${team.members?.length ?? 1} ${(team.members?.length ?? 1) === 1 ? "member" : "members"}` : "Start or join a team"}</b>
               </button>
             </div>
             {liveFlights.live?.status && (
@@ -3816,8 +3807,6 @@ export default function HomePage() {
           directory={directory}
           contacts={contacts}
           person={prefs.person}
-          service={CALENDAR_SERVICE_ORIGIN}
-          appUrl={`${window.location.origin}${window.location.pathname}`}
           loadFile={(id) => loadScheduleImage(id)}
           team={team}
           inviteUrl={team ? inviteLink(team, `${window.location.origin}${window.location.pathname}`) : ""}
@@ -3834,10 +3823,6 @@ export default function HomePage() {
             if (leaving) void leaveTeam(CALENDAR_SERVICE_ORIGIN, leaving).catch(() => undefined);
           }}
           onSendToTeam={sendToTeam}
-          onOpenLink={(key) => {
-            setShareOpen(false);
-            openIncomingShare(key);
-          }}
           onOpenInvite={(key) => {
             setShareOpen(false);
             openInvite(key);
@@ -3851,6 +3836,7 @@ export default function HomePage() {
           preview={invite.preview}
           error={invite.error}
           leaving={team && team.id !== invite.invite.id ? team.name : undefined}
+          link={invite.link}
           defaultName={prefs.person}
           onJoin={async (name) => {
             const previous = team;
@@ -3872,7 +3858,6 @@ export default function HomePage() {
           share={incoming.share}
           error={incoming.error}
           loading={!incoming.share && !incoming.error}
-          link={incoming.link}
           person={prefs.person}
           haveWeek={(schedule) => scheduleDocuments.some((document) =>
             document.hash === schedule.hash || isScheduleRevision(document.dates, schedule.dates))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { BookUser, CalendarDays, Check, Copy, Link2, LoaderCircle, Send, Share2, UserPlus, Users, X } from "lucide-react";
+import { BookUser, CalendarDays, Check, Copy, LoaderCircle, Send, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { backdropClose } from "./home-sections";
 import type { Contacts } from "./contacts-data";
@@ -15,7 +15,6 @@ import {
   type ShareManifest,
   type SharePackage,
 } from "./share-data";
-import { createShareLink, shareInText, type CreatedShare, type ShareKey } from "./share-link";
 import { teamInText, type Team, type TeamInvite } from "./team";
 
 export type { ShareableDocument };
@@ -176,19 +175,17 @@ function TeamCard({ team, person, inviteUrl, onCreateTeam, onLeaveTeam }: {
   );
 }
 
-/* ---------- sending ---------- */
+/* ---------- the team sheet: start/join, invite, send ---------- */
 
 export function ShareSheet({
-  schedules, today, directory, contacts, person, service, appUrl, loadFile,
-  team, inviteUrl, onCreateTeam, onLeaveTeam, onSendToTeam, onOpenLink, onOpenInvite, onClose,
+  schedules, today, directory, contacts, person, loadFile,
+  team, inviteUrl, onCreateTeam, onLeaveTeam, onSendToTeam, onOpenInvite, onClose,
 }: {
   schedules: ShareableDocument[];
   today: string;
   directory: DirectoryEntry[];
   contacts: Contacts;
   person: string;
-  service: string;
-  appUrl: string;
   loadFile: (id: string) => Promise<Blob | undefined>;
   team: Team | null;
   inviteUrl: string;
@@ -196,14 +193,12 @@ export function ShareSheet({
   onLeaveTeam: () => void;
   /** Resolves with how many teammates got a notification. */
   onSendToTeam: (share: SharePackage, what: string) => Promise<number>;
-  /** A share link someone sent, pasted here (iPhone links open in Safari, not the app). */
-  onOpenLink: (share: ShareKey) => void;
+  /** An invite someone sent, pasted here (iPhone links open in Safari, not the app). */
   onOpenInvite: (invite: TeamInvite) => void;
   onClose: () => void;
 }) {
   const [pasted, setPasted] = useState("");
-  const pastedShare = shareInText(pasted);
-  const pastedInvite = pastedShare ? null : teamInText(pasted);
+  const pastedInvite = teamInText(pasted);
   const sorted = useMemo(() =>
     [...schedules].sort((a, b) => ([...b.dates].sort()[0] ?? "").localeCompare([...a.dates].sort()[0] ?? "")),
   [schedules]);
@@ -214,20 +209,15 @@ export function ShareSheet({
   });
   const [withDirectory, setWithDirectory] = useState(directory.length > 0);
   const [withContacts, setWithContacts] = useState(contactCount(contacts) > 0);
-  const [days, setDays] = useState<1 | 7>(7);
-  const [linkMode, setLinkMode] = useState(false);
-  const [state, setState] = useState<"idle" | "making" | "error">("idle");
+  const [state, setState] = useState<"idle" | "sending" | "error">("idle");
   const [error, setError] = useState("");
-  const [made, setMade] = useState<CreatedShare | null>(null);
   const [sent, setSent] = useState<{ what: string; notified: number } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const toTeam = Boolean(team) && !linkMode;
 
   const picked = sorted.filter((document) => weeks.has(document.id));
   const nothing = !picked.length && !withDirectory && !withContacts;
 
-  const make = async () => {
-    setState("making");
+  const send = async () => {
+    setState("sending");
     setError("");
     try {
       const { share, what } = await buildShare({
@@ -237,11 +227,7 @@ export function ShareSheet({
         person,
         loadFile,
       });
-      if (toTeam) {
-        setSent({ what, notified: await onSendToTeam(share, what) });
-      } else {
-        setMade(await createShareLink(share, { service, appUrl, days }));
-      }
+      setSent({ what, notified: await onSendToTeam(share, what) });
       setState("idle");
     } catch (problem) {
       setState("error");
@@ -249,15 +235,13 @@ export function ShareSheet({
     }
   };
 
-  const message = `${firstName(person) || "A coworker"} shared Shiftdeck info with you. Open this on your phone to add it:`;
-
   return (
     <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
-      <section className="panel-sheet share-sheet" role="dialog" aria-modal="true" aria-label="Share with coworkers">
+      <section className="panel-sheet share-sheet" role="dialog" aria-modal="true" aria-label="Team">
         <header className="sheet-head sheet-head-tools">
-          <h2>Share with coworkers</h2>
+          <h2>Team</h2>
           <div className="sheet-tools">
-            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close sharing"><X /></button>
+            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close team"><X /></button>
           </div>
         </header>
         <div className="sheet-scroll">
@@ -272,146 +256,84 @@ export function ShareSheet({
               </small>
               <button type="button" className="share-again" onClick={() => setSent(null)}>Send something else</button>
             </div>
-          ) : made ? (
-            <div className="share-done">
-              <span className="share-done-icon"><Link2 /></span>
-              <p>Your link is ready</p>
-              <small>
-                Works until {untilLabel(made.expiresAt)}. It’s locked with a key that’s only in the link,
-                so anyone you send it to can open it, and nobody else.
-              </small>
-              <code>{made.url}</code>
-              <div className="share-done-actions">
-                {typeof navigator !== "undefined" && "share" in navigator && (
-                  <button
-                    type="button"
-                    className="button primary"
-                    onClick={() => void navigator.share({ title: "Shiftdeck", text: message, url: made.url }).catch(() => undefined)}
-                  >
-                    <Share2 /> Send
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="button soft"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(`${message}\n${made.url}`);
-                      setCopied(true);
-                      window.setTimeout(() => setCopied(false), 1800);
-                    } catch {
-                      setCopied(false);
-                    }
-                  }}
-                >
-                  {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy link"}
-                </button>
-              </div>
-              <button type="button" className="share-again" onClick={() => setMade(null)}>Make a different link</button>
-            </div>
           ) : (
             <>
               <TeamCard team={team} person={person} inviteUrl={inviteUrl} onCreateTeam={onCreateTeam} onLeaveTeam={onLeaveTeam} />
-              <p className="share-section-title">Schedules</p>
-              {sorted.length ? (
-                <div className="share-weeks">
-                  {sorted.map((document) => {
-                    const on = weeks.has(document.id);
-                    return (
-                      <button
-                        key={document.id}
-                        type="button"
-                        role="checkbox"
-                        aria-checked={on}
-                        className={`share-week${on ? " on" : ""}`}
-                        onClick={() => setWeeks((current) => {
-                          const next = new Set(current);
-                          if (next.has(document.id)) next.delete(document.id);
-                          else next.add(document.id);
-                          return next;
-                        })}
-                      >
-                        <CalendarDays aria-hidden="true" />
-                        {weekLabel(document.dates)}
-                        <span className="share-check" aria-hidden="true">{on && <Check />}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="quiet-line">Import a schedule to share it.</p>
-              )}
-              <p className="share-section-title">Also send</p>
-              <div className="share-choices">
-                <Choice
-                  on={withDirectory}
-                  onToggle={() => setWithDirectory(!withDirectory)}
-                  icon={BookUser}
-                  title="Directory"
-                  detail={directory.length ? `${directory.length} people & lines` : "Nothing saved yet"}
-                  disabled={!directory.length}
-                />
-                <Choice
-                  on={withContacts}
-                  onToggle={() => setWithContacts(!withContacts)}
-                  icon={Users}
-                  title="Coworker contacts"
-                  detail={contactCount(contacts) ? `${contactCount(contacts)} emails & numbers` : "Nothing saved yet"}
-                  disabled={!contactCount(contacts)}
-                />
-              </div>
-              {!toTeam && (
-                <div className="share-expiry">
-                  <span>Link works for</span>
-                  <div role="radiogroup" aria-label="Link works for">
-                    {([1, 7] as const).map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        role="radio"
-                        aria-checked={days === value}
-                        className={days === value ? "active" : ""}
-                        onClick={() => setDays(value)}
-                      >
-                        {value === 1 ? "1 day" : "1 week"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {state === "error" && <p className="contacts-notice share-error" role="alert">{error}</p>}
-              <button type="button" className="button primary share-make" disabled={nothing || state === "making"} onClick={() => void make()}>
-                {state === "making"
-                  ? <><LoaderCircle className="spin" /> {toTeam ? "Sending…" : "Locking & uploading…"}</>
-                  : toTeam ? <><Send /> Send to {team!.name}</> : <><Link2 /> Make link</>}
-              </button>
               {team && (
-                <button type="button" className="share-again share-mode" onClick={() => setLinkMode(!linkMode)}>
-                  {linkMode ? `Send to ${team.name} instead` : "Make a link instead"}
-                </button>
+                <>
+                  <p className="share-section-title">Schedules</p>
+                  {sorted.length ? (
+                    <div className="share-weeks">
+                      {sorted.map((document) => {
+                        const on = weeks.has(document.id);
+                        return (
+                          <button
+                            key={document.id}
+                            type="button"
+                            role="checkbox"
+                            aria-checked={on}
+                            className={`share-week${on ? " on" : ""}`}
+                            onClick={() => setWeeks((current) => {
+                              const next = new Set(current);
+                              if (next.has(document.id)) next.delete(document.id);
+                              else next.add(document.id);
+                              return next;
+                            })}
+                          >
+                            <CalendarDays aria-hidden="true" />
+                            {weekLabel(document.dates)}
+                            <span className="share-check" aria-hidden="true">{on && <Check />}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="quiet-line">Import a schedule to send it.</p>
+                  )}
+                  <p className="share-section-title">Also send</p>
+                  <div className="share-choices">
+                    <Choice
+                      on={withDirectory}
+                      onToggle={() => setWithDirectory(!withDirectory)}
+                      icon={BookUser}
+                      title="Directory"
+                      detail={directory.length ? `${directory.length} people & lines` : "Nothing saved yet"}
+                      disabled={!directory.length}
+                    />
+                    <Choice
+                      on={withContacts}
+                      onToggle={() => setWithContacts(!withContacts)}
+                      icon={Users}
+                      title="Coworker contacts"
+                      detail={contactCount(contacts) ? `${contactCount(contacts)} emails & numbers` : "Nothing saved yet"}
+                      disabled={!contactCount(contacts)}
+                    />
+                  </div>
+                  {state === "error" && <p className="contacts-notice share-error" role="alert">{error}</p>}
+                  <button type="button" className="button primary share-make" disabled={nothing || state === "sending"} onClick={() => void send()}>
+                    {state === "sending" ? <><LoaderCircle className="spin" /> Sending…</> : <><Send /> Send to {team.name}</>}
+                  </button>
+                  <p className="share-note">
+                    Encrypted on this phone first, so only your team can open it. Their phones keep what they
+                    already have and add only what’s new. Imports also ask if you want to send them here.
+                  </p>
+                </>
               )}
-              <p className="share-note">
-                Everything is encrypted on this phone first. When it’s opened, their phone keeps what it
-                already has and adds only what’s new.
-              </p>
-              <p className="share-section-title">Got a link from someone?</p>
+              <p className="share-section-title">{team ? "Got an invite to another team?" : "Got an invite?"}</p>
               <div className="share-paste">
                 <input
                   type="url"
                   inputMode="url"
                   value={pasted}
                   onChange={(event) => setPasted(event.target.value)}
-                  placeholder="Paste a share or team invite link"
-                  aria-label="Paste a share link"
+                  placeholder="Paste the invite link"
+                  aria-label="Paste a team invite link"
                 />
                 <button
                   type="button"
                   className="button soft"
-                  disabled={!pastedShare && !pastedInvite}
-                  onClick={() => {
-                    if (pastedShare) onOpenLink(pastedShare);
-                    else if (pastedInvite) onOpenInvite(pastedInvite);
-                  }}
+                  disabled={!pastedInvite}
+                  onClick={() => pastedInvite && onOpenInvite(pastedInvite)}
                 >
                   Open
                 </button>
@@ -437,12 +359,10 @@ export type SharedImport = {
   person?: string;
 };
 
-export function SharedImportSheet({ share, error, loading, link, person, haveWeek, directory, contacts, onImport, onClose }: {
+export function SharedImportSheet({ share, error, loading, person, haveWeek, directory, contacts, onImport, onClose }: {
   share: OpenedShare | null;
   error: string;
   loading: boolean;
-  /** On an iPhone in Safari: the link to paste into the Home Screen app instead. */
-  link?: string;
   /** The name in Settings; when there isn't one, it's asked here, before reading. */
   person: string;
   /** Whether this phone already has that week (the same photo or the same dates). */
@@ -493,18 +413,6 @@ export function SharedImportSheet({ share, error, loading, link, person, haveWee
             <div className="sheet-empty">
               <p>Couldn’t open this</p>
               <small>{error}</small>
-            </div>
-          )}
-          {!loading && link && (
-            <div className="share-iphone">
-              <b>Use Shiftdeck from your Home Screen?</b>
-              <small>
-                iPhone opens links in Safari, which keeps its own copy of the app. Copy this link, open
-                Shiftdeck from its icon, then paste it in Settings → Share with coworkers.
-              </small>
-              <button type="button" className="button soft" onClick={() => void navigator.clipboard?.writeText(link).catch(() => undefined)}>
-                <Copy /> Copy link
-              </button>
             </div>
           )}
           {!loading && manifest && (
@@ -631,11 +539,13 @@ export function SharedImportSheet({ share, error, loading, link, person, haveWee
 
 /* ---------- joining a team ---------- */
 
-export function TeamJoinSheet({ preview, error, leaving, defaultName, onJoin, onClose }: {
+export function TeamJoinSheet({ preview, error, leaving, link, defaultName, onJoin, onClose }: {
   preview: { name: string; members: string[] } | null;
   error: string;
   /** The other team this phone is on, which joining would leave. */
   leaving?: string;
+  /** On an iPhone in Safari: the invite to paste into the Home Screen app instead. */
+  link?: string;
   defaultName: string;
   onJoin: (name: string) => Promise<void>;
   onClose: () => void;
@@ -663,6 +573,18 @@ export function TeamJoinSheet({ preview, error, leaving, defaultName, onJoin, on
             <div className="sheet-empty">
               <p>Couldn’t open this invite</p>
               <small>{error}</small>
+            </div>
+          )}
+          {link && (
+            <div className="share-iphone">
+              <b>Join from your Home Screen app</b>
+              <small>
+                iPhone opened this in Safari, which keeps its own copy of Shiftdeck. Copy the invite, open
+                Shiftdeck from its icon, then paste it in Settings → Team.
+              </small>
+              <button type="button" className="button soft" onClick={() => void navigator.clipboard?.writeText(link).catch(() => undefined)}>
+                <Copy /> Copy invite
+              </button>
             </div>
           )}
           {preview && (
