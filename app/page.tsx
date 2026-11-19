@@ -290,6 +290,7 @@ const DEFAULT_ALERT_MINUTES = 120;
 const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
 const HOME_VIEW_KEY = "shiftdeck.homeView";
 const BLOCKED_KEY = "shiftdeck.blocked";
+const DISMISSED_POSTS_KEY = "shiftdeck.teamDismissed";
 // The owner reset this phone: it can't be used until a name is picked.
 const PICK_NAME_KEY = "shiftdeck.pickName";
 const NAME_MERGES_KEY = "shiftdeck.nameMerges";
@@ -768,7 +769,8 @@ export default function HomePage() {
   // Schedules imported just now (by this phone, not from a share), for "Send to the team?".
   const [justImported, setJustImported] = useState<string[]>([]);
   // A share link being opened: loading, then what it holds (or why it couldn't).
-  const [incoming, setIncoming] = useState<{ share: OpenedShare | null; error: string } | null>(null);
+  /** The share being opened, and the team notification it came from. */
+  const [incoming, setIncoming] = useState<{ share: OpenedShare | null; error: string; postId?: string } | null>(null);
   useEffect(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(DIRECTORY_KEY) ?? "[]");
@@ -841,6 +843,30 @@ export default function HomePage() {
     : null, [me, teamKey]);
   // Sending to the team is up to the owner: everyone else only receives.
   const sendTeam = me?.canShare ? team : null;
+  // Team notifications you've dealt with (imported, already had, or answered) leave the bell.
+  const [dismissedPosts, setDismissedPosts] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(DISMISSED_POSTS_KEY) ?? "[]");
+      if (Array.isArray(saved)) {
+        const ids = saved.filter((id): id is string => typeof id === "string");
+        queueMicrotask(() => setDismissedPosts(ids));
+      }
+    } catch {
+      // Shown again; nothing lost.
+    }
+  }, []);
+  const dismissPosts = (ids: string[]) => {
+    setDismissedPosts((current) => {
+      const next = [...new Set([...current, ...ids])].slice(-300);
+      try {
+        localStorage.setItem(DISMISSED_POSTS_KEY, JSON.stringify(next));
+      } catch {
+        // Kept for this visit.
+      }
+      return next;
+    });
+  };
   const markPostsSeen = (ids: string[]) => {
     setSeenPosts((current) => {
       const next = [...new Set([...current, ...ids])];
@@ -950,7 +976,7 @@ export default function HomePage() {
   );
   const unseenSwapAnswers = sentSwaps.filter((swap) => swap.status !== "waiting" && !swap.seen).length;
   const airportNoticeCount = visibleAirportAlerts.length;
-  const teamInbox = teamPosts.filter((post) => !post.mine);
+  const teamInbox = teamPosts.filter((post) => !post.mine && !dismissedPosts.includes(post.id));
   const unseenTeamPosts = teamInbox.filter((post) => !seenPosts.includes(post.id)).length;
   const ownerRequests = me?.owner ? (me.requests ?? []).filter((request) => request.personId !== me.personId) : [];
   const notificationCount = airportNoticeCount + unseenSwapAnswers + unseenTeamPosts + ownerRequests.length;
@@ -1537,8 +1563,8 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLiveSwaps, todayDate]);
 
-  const openIncomingShare = (key: ShareKey) => {
-    setIncoming({ share: null, error: "" });
+  const openIncomingShare = (key: ShareKey, postId?: string) => {
+    setIncoming({ share: null, error: "", postId });
     openShareLink(key, CALENDAR_SERVICE_ORIGIN)
       .then((share) => setIncoming((current) => current && { ...current, share }))
       .catch((problem: unknown) => setIncoming((current) => current && {
@@ -1772,13 +1798,9 @@ export default function HomePage() {
     [contactWorkers, contacts, directory]);
 
   // Who's new, leaving or gone, from the weeks imported (never you).
-  const rosterStatus = useMemo(() => {
-    const statuses = rosterStatuses(baseImportedShifts, todayDate);
-    for (const name of statuses.keys()) {
-      if (nameKey(name) === nameKey(prefs.person) || isSameSchedulePerson(name, prefs.person)) statuses.delete(name);
-    }
-    return statuses;
-  }, [baseImportedShifts, prefs.person, todayDate]);
+  // (The React compiler memoizes this.)
+  const rosterStatus = new Map([...rosterStatuses(baseImportedShifts, todayDate)]
+    .filter(([name]) => nameKey(name) !== nameKey(prefs.person) && !isSameSchedulePerson(name, prefs.person)));
 
   const availableWorkers = useMemo(() => {
     // People who've left the schedule aren't offered as names anymore.
@@ -2564,6 +2586,8 @@ export default function HomePage() {
 
 
   const importShared = ({ directory: nextDirectory, contacts: nextContacts, files, reads, summary, person }: SharedImport) => {
+    // Imported: its team notification is done.
+    if (incoming?.postId) dismissPosts([incoming.postId]);
     if (nextDirectory) saveDirectory(nextDirectory);
     if (nextContacts) saveContacts(nextContacts);
     if (person) savePrefs({ person });
@@ -3352,7 +3376,7 @@ export default function HomePage() {
                         markPostsSeen([post.id]);
                         airportAlertsDialog.current?.close();
                         if (post.kind === "swap") setSwapAnswerId(post.shareId);
-                        else if (team) openIncomingShare({ id: post.shareId, key: team.key });
+                        else if (team) openIncomingShare({ id: post.shareId, key: team.key }, post.id);
                       }}
                     >
                       {post.kind === "swap" ? "View" : "Open"}
@@ -4214,7 +4238,7 @@ export default function HomePage() {
         <SwapAnswerSheet
           swapId={swapAnswerId}
           service={calendarServiceUrl("")}
-          onAnswered={() => undefined}
+          onAnswered={() => dismissPosts(teamPosts.filter((post) => post.kind === "swap" && post.shareId === swapAnswerId).map((post) => post.id))}
           onClose={() => setSwapAnswerId(null)}
         />
       )}
@@ -4388,6 +4412,7 @@ export default function HomePage() {
           directory={directory}
           contacts={contacts}
           onImport={importShared}
+          onAlreadyHave={() => incoming.postId && dismissPosts([incoming.postId])}
           onClose={() => setIncoming(null)}
         />
       )}

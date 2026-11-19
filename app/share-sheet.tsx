@@ -318,7 +318,9 @@ export type SharedImport = {
   person?: string;
 };
 
-export function SharedImportSheet({ share, error, loading, person, haveWeek, directory, contacts, onImport, onClose }: {
+export function SharedImportSheet({ share, error, loading, person, haveWeek, directory, contacts, onImport, onAlreadyHave, onClose }: {
+  /** Opened and there's nothing new in it: whatever pointed here can be cleared. */
+  onAlreadyHave?: () => void;
   share: OpenedShare | null;
   error: string;
   loading: boolean;
@@ -346,6 +348,13 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
   const useDirectory = Boolean(directoryMerge && (directoryMerge.added || directoryMerge.updated) && !skipDirectory);
   const useContacts = Boolean(contactsMerge && (contactsMerge.added || contactsMerge.updated) && !skipContacts);
   const nothing = !pickedWeeks.size && !useDirectory && !useContacts;
+  // Nothing in it this phone doesn't already have (before anything was toggled).
+  const alreadyHad = Boolean(manifest) && weeks === null && !skipDirectory && !skipContacts && nothing;
+  useEffect(() => {
+    if (alreadyHad) onAlreadyHave?.();
+    // Once, when it's opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alreadyHad]);
   const from = manifest?.from || "A coworker";
   const people = manifest?.people ?? [];
   const askName = !person && pickedWeeks.size > 0 && people.length > 0;
