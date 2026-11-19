@@ -118,6 +118,7 @@ import {
   SuggestNameError,
   UnknownNameError,
   unblockPerson,
+  clearLog,
   makeLinkCode,
   NameTakenError,
   movePhone,
@@ -3272,9 +3273,16 @@ export default function HomePage() {
           <button
             type="button"
             className="button danger subtle upload-clear-all"
-            onClick={() => setClearConfirmOpen(true)}
+            onClick={() => {
+              if (!clearConfirmOpen) {
+                setClearConfirmOpen(true);
+                return;
+              }
+              clearAllImports();
+            }}
+            onBlur={() => setClearConfirmOpen(false)}
           >
-            <Trash2 /> Clear all imports
+            <Trash2 /> {clearConfirmOpen ? "Tap again to clear all imports" : "Clear all imports"}
           </button>
         </section>
       )}
@@ -3349,7 +3357,7 @@ export default function HomePage() {
       />
     ),
     weather: (
-      <WeatherPanel shift={myShift} />
+      <WeatherPanel shift={myShift} date={selectedDate} today={todayDate} />
     ),
     crew: (
       <CrewPanel
@@ -4377,6 +4385,11 @@ export default function HomePage() {
             await unblockPerson(CALENDAR_SERVICE_ORIGIN, personId);
             await refreshMe();
           }}
+          onClearLog={async () => {
+            setMe((current) => current && { ...current, log: [] });
+            await clearLog(CALENDAR_SERVICE_ORIGIN);
+            await refreshMe();
+          }}
           onShareAccess={async (personId, allow) => {
             // Flips right away; the check-in confirms it.
             setMe((current) => current && {
@@ -4529,20 +4542,6 @@ export default function HomePage() {
             setSettingsOpen(true);
           }}
         />
-      )}
-
-      {clearConfirmOpen && (
-        <div className="modal-layer" role="presentation" {...backdropClose(() => setClearConfirmOpen(false))}>
-          <section className="confirm-card" role="alertdialog" aria-modal="true">
-            <span className="confirm-icon danger"><Trash2 /></span>
-            <h2>Clear all imports?</h2>
-            <p>This deletes every uploaded schedule and the shifts and flights imported from them on this device. Your settings stay.</p>
-            <div>
-              <button className="button soft" onClick={() => setClearConfirmOpen(false)}>Cancel</button>
-              <button className="button danger" onClick={clearAllImports}>Clear imports</button>
-            </div>
-          </section>
-        </div>
       )}
 
       {toast && <div className="toast"><Check /> {toast}</div>}

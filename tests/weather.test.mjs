@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compass, shiftWeather } from "../app/weather.ts";
+import { compass, dayHours, outlook, rampWarnings, shiftHours, shiftWeather } from "../app/weather.ts";
 
 // 24 hours from Nov 13 12:00 to Nov 14 11:00 (local time strings, like Open-Meteo).
 const times = Array.from({ length: 24 }, (_, i) => {
@@ -49,4 +49,58 @@ test("finds a sunset during an afternoon shift", () => {
   const weather = shiftWeather(forecast, "2026-11-13", "14:00", "18:30");
   assert.equal(weather.hours.length, 5); // 2, 3, 4, 5 and 6 PM
   assert.deepEqual(weather.sun, { kind: "sunset", time: "2026-11-13T16:46" });
+});
+
+const detailed = {
+  ...forecast,
+  hourly_units: { visibility: "ft" },
+  hourly: {
+    ...forecast.hourly,
+    temperature_2m: times.map((_, i) => (i >= 14 ? 31 : 45 - i)),
+    dew_point_2m: times.map((_, i) => (i >= 14 ? 30 : 20)),
+    precipitation: times.map(() => 0),
+    snowfall: times.map(() => 0),
+    visibility: times.map((_, i) => (i === 15 ? 5280 : 52800)),
+    pressure_msl: times.map(() => 1013.25),
+    uv_index: times.map(() => 0),
+    relative_humidity_2m: times.map(() => 80),
+    cloud_cover: times.map(() => 50),
+  },
+  daily: {
+    ...forecast.daily,
+    temperature_2m_max: [52.4, 41],
+    temperature_2m_min: [33.6, 28],
+    precipitation_sum: [0.123, 0],
+    precipitation_probability_max: [70, 5],
+  },
+};
+
+test("reads a whole day and converts units", () => {
+  const hours = dayHours(detailed, "2026-11-14");
+  assert.equal(hours.length, 12);
+  assert.equal(hours[0].time, "2026-11-14T00:00");
+  assert.equal(hours[3].visibility, 1); // 5280 ft
+  assert.equal(hours[0].visibility, 10);
+  assert.equal(hours[0].pressure, 29.92);
+});
+
+test("keeps a missing field from reading as zero visibility", () => {
+  const hours = dayHours(forecast, "2026-11-13");
+  assert.ok(hours.every((hour) => hour.visibility === 10));
+  assert.deepEqual(rampWarnings(hours).map((warning) => warning.kind).includes("visibility"), false);
+});
+
+test("lists the days ahead from a date", () => {
+  const days = outlook(detailed, "2026-11-13");
+  assert.deepEqual(days.map((day) => [day.date, day.high, day.low]), [["2026-11-13", 52, 34], ["2026-11-14", 41, 28]]);
+  assert.equal(days[0].precip, 0.12);
+  assert.equal(outlook(detailed, "2026-11-14").length, 1);
+});
+
+test("warns about storms, frost, fog and gusts on the ramp", () => {
+  const hours = shiftHours(detailed, "2026-11-13", "20:00", "04:00");
+  const kinds = rampWarnings(hours).map((warning) => warning.kind);
+  assert.deepEqual(kinds, ["storm", "ice", "visibility", "wind"]);
+  const ice = rampWarnings(hours).find((warning) => warning.kind === "ice");
+  assert.equal(ice.at, "2026-11-14T02:00");
 });

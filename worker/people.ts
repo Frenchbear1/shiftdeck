@@ -806,6 +806,10 @@ async function ownerAction(request: Request, db: CalendarDatabase, env: PushEnvi
     await db.prepare("DELETE FROM app_handover WHERE id = 'offer'").run();
     return json(request, { ok: true });
   }
+  if (action === "log-clear") {
+    await db.prepare("DELETE FROM app_log").run();
+    return json(request, { ok: true });
+  }
 
   const target = typeof body.personId === "string"
     ? await db.prepare("SELECT * FROM app_people WHERE id = ?1").bind(body.personId).first<Person>()
@@ -909,7 +913,7 @@ async function deviceAction(request: Request, db: CalendarDatabase, env: PushEnv
 }
 
 const OWNER_ACTIONS = [
-  "decide", "withdraw", "rename", "remove", "block", "unblock", "share-access", "handover", "handover-cancel", "recovery-key",
+  "decide", "withdraw", "rename", "remove", "block", "unblock", "share-access", "handover", "handover-cancel", "recovery-key", "log-clear",
   "device-rename", "device-move", "device-remove",
 ];
 

@@ -7,11 +7,14 @@
 /** FAA airport reference point for ABE (Lehigh Valley International), 120 m MSL. */
 export const ABE_LOCATION = { latitude: 40.652363, longitude: -75.440406, elevation: 120 };
 const TIME_ZONE = "America/New_York";
-const CACHE_KEY = "shiftdeck.weather.abe";
+// v2: more of what Open-Meteo gives (humidity, clouds, visibility, UV, pressure, daily summaries).
+const CACHE_KEY = "shiftdeck.weather.abe.v2";
 const CACHE_MS = 30 * 60_000;
 
 export type Forecast = {
   fetchedAt: number;
+  /** Units Open-Meteo used (visibility comes back in feet with imperial units). */
+  hourly_units?: Record<string, string>;
   hourly: {
     time: string[];
     apparent_temperature: number[];
@@ -22,8 +25,32 @@ export type Forecast = {
     precipitation_probability: number[];
     weather_code: number[];
     is_day: number[];
+    precipitation: number[];
+    snowfall: number[];
+    relative_humidity_2m: number[];
+    dew_point_2m: number[];
+    cloud_cover: number[];
+    visibility: number[];
+    uv_index: number[];
+    pressure_msl: number[];
   };
-  daily: { time: string[]; sunrise: string[]; sunset: string[] };
+  daily: {
+    time: string[];
+    sunrise: string[];
+    sunset: string[];
+    weather_code: number[];
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    apparent_temperature_max: number[];
+    apparent_temperature_min: number[];
+    precipitation_sum: number[];
+    precipitation_probability_max: number[];
+    wind_speed_10m_max: number[];
+    wind_gusts_10m_max: number[];
+    wind_direction_10m_dominant: number[];
+    uv_index_max: number[];
+    daylight_duration: number[];
+  };
 };
 
 export type HourWeather = {
@@ -69,11 +96,19 @@ export async function loadForecast(): Promise<Forecast> {
     latitude: String(ABE_LOCATION.latitude),
     longitude: String(ABE_LOCATION.longitude),
     elevation: String(ABE_LOCATION.elevation),
-    hourly:
-      "apparent_temperature,temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code,is_day",
-    daily: "sunrise,sunset",
+    hourly: [
+      "apparent_temperature", "temperature_2m", "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m",
+      "precipitation_probability", "weather_code", "is_day", "precipitation", "snowfall", "relative_humidity_2m",
+      "dew_point_2m", "cloud_cover", "visibility", "uv_index", "pressure_msl",
+    ].join(","),
+    daily: [
+      "sunrise", "sunset", "weather_code", "temperature_2m_max", "temperature_2m_min", "apparent_temperature_max",
+      "apparent_temperature_min", "precipitation_sum", "precipitation_probability_max", "wind_speed_10m_max",
+      "wind_gusts_10m_max", "wind_direction_10m_dominant", "uv_index_max", "daylight_duration",
+    ].join(","),
     temperature_unit: "fahrenheit",
     wind_speed_unit: "mph",
+    precipitation_unit: "inch",
     timezone: TIME_ZONE,
     past_days: "1",
     forecast_days: "14",
@@ -203,4 +238,115 @@ export function shiftWeather(
     wetFrom: hours.find((hour) => hour.rain >= 30) ?? null,
     sun,
   };
+}
+
+/* ---------- every hour of a day, and the days ahead ---------- */
+
+export type HourDetail = HourWeather & {
+  /** Rain (and melted snow) that hour, inches. */
+  precip: number;
+  /** Snow that hour, inches. */
+  snow: number;
+  humidity: number;
+  dew: number;
+  cloud: number;
+  /** Miles (Open-Meteo gives meters, or feet with imperial units). */
+  visibility: number;
+  uv: number;
+  /** Inches of mercury, like an altimeter setting (Open-Meteo gives hPa). */
+  pressure: number;
+};
+
+const at = (list: number[] | undefined, index: number) => (list && Number.isFinite(list[index]) ? list[index] : 0);
+
+function hourAt(forecast: Forecast, index: number): HourDetail {
+  const { hourly } = forecast;
+  const feet = forecast.hourly_units?.visibility === "ft";
+  const seen = hourly.visibility && Number.isFinite(hourly.visibility[index]) ? hourly.visibility[index] : null;
+  return {
+    time: hourly.time[index],
+    feels: Math.round(at(hourly.apparent_temperature, index)),
+    temp: Math.round(at(hourly.temperature_2m, index)),
+    wind: Math.round(at(hourly.wind_speed_10m, index)),
+    gust: Math.round(at(hourly.wind_gusts_10m, index)),
+    direction: at(hourly.wind_direction_10m, index),
+    rain: at(hourly.precipitation_probability, index),
+    code: at(hourly.weather_code, index),
+    day: at(hourly.is_day, index) === 1,
+    precip: at(hourly.precipitation, index),
+    snow: at(hourly.snowfall, index),
+    humidity: Math.round(at(hourly.relative_humidity_2m, index)),
+    dew: Math.round(at(hourly.dew_point_2m, index)),
+    cloud: Math.round(at(hourly.cloud_cover, index)),
+    visibility: seen === null ? 10 : Math.round((seen / (feet ? 5280 : 1609.34)) * 10) / 10,
+    uv: Math.round(at(hourly.uv_index, index) * 10) / 10,
+    pressure: Math.round((at(hourly.pressure_msl, index) / 33.8639) * 100) / 100,
+  };
+}
+
+/** The 24 hours of a day (fewer at the ends of the forecast). */
+export function dayHours(forecast: Forecast, date: string): HourDetail[] {
+  return forecast.hourly.time.flatMap((time, index) => (time.startsWith(date) ? [hourAt(forecast, index)] : []));
+}
+
+/** The hours of a shift, with every detail. */
+export function shiftHours(forecast: Forecast, date: string, start: string, end: string): HourDetail[] {
+  const times = new Set((shiftWeather(forecast, date, start, end)?.hours ?? []).map((hour) => hour.time));
+  return forecast.hourly.time.flatMap((time, index) => (times.has(time) ? [hourAt(forecast, index)] : []));
+}
+
+export type DayOutlook = {
+  date: string;
+  code: number;
+  high: number;
+  low: number;
+  feelsHigh: number;
+  feelsLow: number;
+  rainChance: number;
+  precip: number;
+  windMax: number;
+  gustMax: number;
+  direction: number;
+  uvMax: number;
+  sunrise: string;
+  sunset: string;
+  /** Hours of daylight. */
+  daylight: number;
+};
+
+/** The days from `from` on (today and after). */
+export function outlook(forecast: Forecast, from: string, days = 10): DayOutlook[] {
+  const { daily } = forecast;
+  return daily.time.flatMap((date, index) => date < from ? [] : [{
+    date,
+    code: at(daily.weather_code, index),
+    high: Math.round(at(daily.temperature_2m_max, index)),
+    low: Math.round(at(daily.temperature_2m_min, index)),
+    feelsHigh: Math.round(at(daily.apparent_temperature_max, index)),
+    feelsLow: Math.round(at(daily.apparent_temperature_min, index)),
+    rainChance: Math.round(at(daily.precipitation_probability_max, index)),
+    precip: Math.round(at(daily.precipitation_sum, index) * 100) / 100,
+    windMax: Math.round(at(daily.wind_speed_10m_max, index)),
+    gustMax: Math.round(at(daily.wind_gusts_10m_max, index)),
+    direction: at(daily.wind_direction_10m_dominant, index),
+    uvMax: Math.round(at(daily.uv_index_max, index) * 10) / 10,
+    sunrise: daily.sunrise?.[index] ?? "",
+    sunset: daily.sunset?.[index] ?? "",
+    daylight: Math.round((at(daily.daylight_duration, index) / 3600) * 10) / 10,
+  }]).slice(0, days);
+}
+
+/** Things worth a warning on the ramp, in the order they matter. */
+export function rampWarnings(hours: HourDetail[]) {
+  const warnings: Array<{ kind: "storm" | "ice" | "visibility" | "wind"; at: string; text: string }> = [];
+  const storm = hours.find((hour) => hour.code >= 95);
+  if (storm) warnings.push({ kind: "storm", at: storm.time, text: "Thunderstorms possible · the ramp may close for lightning" });
+  // Wet, or air near saturation, at or below freezing: slick surfaces, frost on equipment.
+  const ice = hours.find((hour) => hour.temp <= 34 && (hour.precip > 0 || hour.snow > 0 || hour.temp - hour.dew <= 3));
+  if (ice) warnings.push({ kind: "ice", at: ice.time, text: ice.snow > 0 ? "Snow at or below freezing · icy surfaces" : "Freezing temps with moisture · frost or ice on surfaces" });
+  const foggy = hours.find((hour) => hour.visibility > 0 && hour.visibility < 3);
+  if (foggy) warnings.push({ kind: "visibility", at: foggy.time, text: `Visibility down to ${Math.min(...hours.map((hour) => hour.visibility || 99))} mi` });
+  const gusty = hours.find((hour) => hour.gust >= 35);
+  if (gusty) warnings.push({ kind: "wind", at: gusty.time, text: `Gusts to ${Math.max(...hours.map((hour) => hour.gust))} mph · secure loose equipment` });
+  return warnings;
 }

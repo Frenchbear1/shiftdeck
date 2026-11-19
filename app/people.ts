@@ -262,6 +262,8 @@ export const blockPerson = (service: string, personId: string) => call<{ ok: boo
 export const setShareAccess = (service: string, personId: string, allow: boolean) =>
   call<{ ok: boolean }>(service, "share-access", { personId, allow });
 export const unblockPerson = (service: string, personId: string) => call<{ ok: boolean }>(service, "unblock", { personId });
+/** Owner only: empty the New phones list. */
+export const clearLog = (service: string) => call<{ ok: boolean }>(service, "log-clear", {});
 
 /** Starts a handover: the 16-digit key for the person you picked (good for a day). */
 export const startHandover = (service: string, personId: string) =>

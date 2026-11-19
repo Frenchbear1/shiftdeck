@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Check, ChevronDown, ChevronRight, Copy, Crown, KeyRound, LoaderCircle, Send, ShieldCheck, Smartphone, Undo2, Users, X } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronRight, Copy, Crown, KeyRound, LoaderCircle, Send, ShieldCheck, Smartphone, Trash2, Undo2, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { backdropClose } from "./home-sections";
 import { recommendedSuccessor, type LogEntry, type Me, type PersonSummary, type PhoneSummary } from "./people";
@@ -258,7 +258,7 @@ function Switch({ on, label, onChange }: { on: boolean; label: string; onChange:
 
 export function OwnerSheet({
   me, names, onRename, onRemove, onBlock, onUnblock, onShareAccess, onRenamePhone, onMovePhone, onRemovePhone, onDecide,
-  onStartHandover, onCancelHandover, onMakeRecoveryKey, onAddPhone, learning, rosterFor, focus, onClose,
+  onStartHandover, onCancelHandover, onMakeRecoveryKey, onAddPhone, onClearLog, learning, rosterFor, focus, onClose,
 }: PhoneActions & {
   /** Opened from a notification: that section open, that person shown. */
   focus?: { section: "requests" | "log" | "people"; personId?: string };
@@ -277,6 +277,7 @@ export function OwnerSheet({
   onCancelHandover: () => Promise<void>;
   onMakeRecoveryKey: () => Promise<string>;
   onAddPhone: () => void;
+  onClearLog: () => Promise<void>;
   /** Owner-only settings (flight learning). */
   learning?: React.ReactNode;
   onClose: () => void;
@@ -412,6 +413,7 @@ export function OwnerSheet({
 
         <Section icon={Smartphone} title="New phones" summary={log.length ? timeLabel(log[0].at) : "None yet"} defaultOpen={focus?.section === "log"}>
           {log.length ? (
+            <>
             <ul className="owner-rows">
               {log.map((entry) => (
                 <LogRow
@@ -424,6 +426,17 @@ export function OwnerSheet({
                 />
               ))}
             </ul>
+            <div className="owner-log-tools">
+              <button
+                type="button"
+                className={`owner-pill${confirm.armed === "log-clear" ? " danger" : ""}`}
+                onClick={() => confirm.tap("log-clear", () => void run(onClearLog))}
+              >
+                <Trash2 />
+                {confirm.armed === "log-clear" ? "Tap again to clear" : "Clear list"}
+              </button>
+            </div>
+            </>
           ) : (
             <p className="owner-empty">New names and phones show up here.</p>
           )}

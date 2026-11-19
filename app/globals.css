@@ -4781,60 +4781,6 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
   border-radius: inherit;
 }
 
-.wx-compact {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  white-space: nowrap;
-  padding: 11px 14px;
-  color: #fff;
-  border-radius: 14px;
-  font-size: 13.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.wx-compact-icon svg {
-  width: 24px;
-  height: 24px;
-}
-
-.wx-compact b {
-  font-size: 18px;
-}
-
-.wx-compact b small {
-  font-size: 11px;
-  font-weight: 650;
-  opacity: .85;
-}
-
-.wx-compact-wind,
-.wx-compact-rain {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.wx-compact-wind small {
-  opacity: .85;
-}
-
-.wx-compact-rain svg {
-  width: 14px;
-  height: 14px;
-}
-
-.wx-compact-storm {
-  margin-left: -4px;
-}
-
-.wx-compact-storm svg {
-  width: 18px;
-  height: 18px;
-}
-
 .wx-credit {
   justify-self: end;
   color: var(--muted);
@@ -4843,9 +4789,6 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
   text-decoration: none;
 }
 
-.wx-compact > * {
-  flex: none;
-}
 
 /* Fade the right edge so it's clear the hours scroll (only when they do). */
 .wx-hours.scrolls {
@@ -9446,4 +9389,512 @@ html {
 
 .contacts-list li.contact-left > b {
   color: var(--muted);
+}
+
+/* ---------- compact weather ---------- */
+
+.wx-compact {
+  display: grid;
+  gap: 9px;
+  padding: 11px 13px 10px;
+  color: #fff;
+  border-radius: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-compact-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wx-compact-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.wx-compact-main {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.1;
+}
+
+.wx-compact-main b {
+  font-size: 19px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.wx-compact-main small {
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 650;
+  opacity: .88;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wx-compact-stat {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  background: rgb(255 255 255 / 16%);
+  border-radius: 999px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.wx-compact-stat b {
+  font-weight: 800;
+}
+
+.wx-compact-stat small {
+  font-size: 10.5px;
+  font-weight: 650;
+  opacity: .85;
+}
+
+.wx-compact-stat svg {
+  width: 13px;
+  height: 13px;
+}
+
+.wx-compact-storm {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: #ffd75e;
+  background: rgb(0 0 0 / 18%);
+  border-radius: 50%;
+}
+
+.wx-compact-storm svg {
+  width: 15px;
+  height: 15px;
+}
+
+.wx-strip {
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  background: rgb(255 255 255 / 92%);
+  border-radius: 9px;
+}
+
+.wx-strip-row {
+  display: grid;
+  gap: 1px;
+  height: 7px;
+}
+
+.wx-strip-row i {
+  border-radius: 2px;
+}
+
+.wx-strip-ends {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 2px;
+  color: #4a5568;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+/* ---------- the day graph ---------- */
+
+.wx-day {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.wx-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.wx-day-back {
+  padding: 4px 9px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.wx-graph {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wx-metrics {
+  display: flex;
+  gap: 5px;
+  margin: 0 -12px;
+  padding: 0 12px 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.wx-metrics::-webkit-scrollbar {
+  display: none;
+}
+
+.wx-metrics button {
+  flex: none;
+  padding: 5px 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wx-metrics button.on {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.wx-readout {
+  min-height: 2.6em;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-readout b {
+  color: var(--text);
+}
+
+.wx-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wx-grid line {
+  stroke: var(--line);
+  stroke-dasharray: 2 3;
+}
+
+.wx-grid text,
+.wx-tick {
+  fill: var(--muted);
+  font-size: 8.5px;
+  font-weight: 600;
+}
+
+.wx-grid text {
+  text-anchor: end;
+}
+
+.wx-tick {
+  text-anchor: middle;
+}
+
+.wx-shift-band rect {
+  fill: color-mix(in srgb, var(--blue) 13%, transparent);
+}
+
+.wx-shift-band text {
+  fill: var(--blue);
+  font-size: 8px;
+  font-weight: 800;
+  text-anchor: middle;
+}
+
+.wx-line {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wx-line.second {
+  stroke: var(--muted);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 3;
+}
+
+.wx-area {
+  fill: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+
+.wx-line-temp { stroke: #ee7d1e; }
+.wx-area-temp { fill: rgb(238 125 30 / 14%); }
+.wx-line-wind { stroke: #3aa655; }
+.wx-area-wind { fill: rgb(58 166 85 / 13%); }
+.wx-line-clouds { stroke: #8390a6; }
+.wx-area-clouds { fill: rgb(131 144 166 / 20%); }
+.wx-line-humidity { stroke: #1f9e9e; }
+.wx-area-humidity { fill: rgb(31 158 158 / 14%); }
+.wx-line-visibility { stroke: #c9822a; }
+.wx-area-visibility { fill: rgb(201 130 42 / 13%); }
+.wx-line-pressure { stroke: #7a5cd6; }
+.wx-area-pressure { fill: rgb(122 92 214 / 10%); }
+
+.wx-wind-tick {
+  fill: #3aa655;
+  opacity: .75;
+}
+
+.wx-now {
+  stroke: var(--danger);
+  stroke-width: 1.2;
+}
+
+.wx-scrub line {
+  stroke: var(--text);
+  stroke-width: 1;
+}
+
+.wx-scrub circle {
+  fill: var(--surface);
+  stroke: var(--text);
+  stroke-width: 1.6;
+}
+
+/* Everything at once: one colored row per metric. */
+.wx-all {
+  display: grid;
+  gap: 4px;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wx-all-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.wx-all-row > span {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.wx-all-cells {
+  display: grid;
+  gap: 1px;
+  height: 15px;
+}
+
+.wx-all-cells i {
+  position: relative;
+  border-radius: 2px;
+}
+
+.wx-all-cells i.shift {
+  box-shadow: inset 0 -2px 0 var(--blue);
+}
+
+.wx-all-cells i.now::after,
+.wx-all-cells i.scrub::after {
+  position: absolute;
+  inset: -2px -1px;
+  border: 1.5px solid var(--danger);
+  border-radius: 3px;
+  content: "";
+}
+
+.wx-all-cells i.scrub::after {
+  border-color: var(--text);
+}
+
+.wx-all-axis .wx-all-cells {
+  height: auto;
+}
+
+.wx-all-axis small {
+  overflow: visible;
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wx-all-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-top: 3px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.wx-all-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wx-all-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.wx-all-legend .temps { width: 30px; background: linear-gradient(90deg, rgb(118 70 190), rgb(40 160 230), rgb(80 190 90), rgb(225 200 50), rgb(220 60 45)); }
+.wx-all-legend .in-shift { background: transparent; box-shadow: inset 0 -3px 0 var(--blue); border: 1px solid var(--line); }
+
+/* Whole-day facts. */
+.wx-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.wx-facts span {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 5px;
+  row-gap: 1px;
+  padding: 7px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+.wx-facts svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.wx-facts b {
+  grid-column: 1 / -1;
+}
+
+.wx-facts small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.wx-facts b {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- the days ahead ---------- */
+
+.wx-outlook {
+  display: grid;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.wx-outlook li + li {
+  border-top: 1px solid var(--line);
+}
+
+.wx-outlook button {
+  display: grid;
+  grid-template-columns: 50px 42px 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.wx-outlook button.on {
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+.wx-outlook-icon {
+  display: grid;
+  justify-items: center;
+  line-height: 1;
+}
+
+.wx-outlook-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.wx-outlook-icon small {
+  color: #3d8fe0;
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+.wx-outlook-low {
+  color: var(--muted);
+  font-weight: 650;
+  text-align: right;
+}
+
+.wx-outlook-high {
+  font-weight: 800;
+}
+
+.wx-outlook-bar {
+  position: relative;
+  height: 5px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: 999px;
+}
+
+.wx-outlook-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: inherit;
+}
+
+.wx-alert-ice,
+.wx-alert-visibility,
+.wx-alert-wind {
+  color: #b86a00;
+  background: rgb(238 160 30 / 14%);
+}
+
+.owner-log-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 4px 2px;
 }
