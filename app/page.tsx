@@ -2301,6 +2301,7 @@ export default function HomePage() {
             isPdf
               ? (progress.stage(1), parseCharterPdf(file, (image) => updateScanFile({ image })))
               : readScheduleImage(file, {
+                  knownNames,
                   matchesSourceRow: (name) => Boolean(person) && nameKey(resolveMergedName(
                     resolveSchedulePersonName(name, knownNames),
                     nameMerges,

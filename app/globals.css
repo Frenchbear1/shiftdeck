@@ -9379,3 +9379,16 @@ html {
 .name-gate-question b {
   font-size: 16px;
 }
+
+/* While scanning: every box drawn the same, nothing to tap. */
+.scan-overlay.is-plain .scan-mark {
+  --scan-color: #3a74e0;
+  --scan-wash: rgb(58 116 224 / 10%);
+  pointer-events: none;
+  cursor: default;
+}
+
+.scan-overlay.is-plain .scan-mark rect {
+  stroke-width: 0.67px;
+  stroke-dasharray: none;
+}

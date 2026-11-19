@@ -2,8 +2,7 @@
 
 import { Check, FileImage, FileText, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { formatDate, formatTime } from "./home-sections";
-import { scanConfidence, type ScanMark } from "./schedule-parser";
+import { scanConfidence } from "./schedule-parser";
 import type { ScanPreviewPass } from "./schedule-import";
 import { scanSweepDelays } from "./scan-annotations";
 import { IMPORT_STAGES, type ImportSnapshot } from "./schedule-tools";
@@ -33,15 +32,17 @@ export const confidenceLabels = {
 };
 
 export function ScanOverlay({
-  pass, ratio, matchesWorker, selected, onSelect, sweep = false,
+  pass, ratio, matchesWorker, selected = null, onSelect, sweep = false,
 }: {
   pass: ScanPreviewPass;
   ratio: number;
   matchesWorker: (name: string) => boolean;
-  selected: string | null;
-  onSelect: (id: string) => void;
+  selected?: string | null;
+  /** Without it the boxes are just drawn (while scanning): nothing to tap, no confidence colors. */
+  onSelect?: (id: string) => void;
   sweep?: boolean;
 }) {
+  const interactive = Boolean(onSelect);
   const delays = useMemo(() => sweep ? scanSweepDelays(pass.marks) : null, [pass.marks, sweep]);
   if (Math.abs((pass.width / pass.height) / ratio - 1) > 0.04) return null;
   const chosenRow = pass.workerRows.find((row) => matchesWorker(row.name));
@@ -49,7 +50,7 @@ export function ScanOverlay({
   const header = pass.dateHeader && pass.grid && { ...pass.dateHeader, ...pass.grid };
   return (
     <svg
-      className={`scan-overlay${sweep ? " is-sweeping" : ""}`}
+      className={`scan-overlay${sweep ? " is-sweeping" : ""}${interactive ? "" : " is-plain"}`}
       viewBox={`0 0 ${pass.width} ${pass.height}`}
       preserveAspectRatio="none"
       aria-label="Recognized schedule text"
@@ -71,19 +72,19 @@ export function ScanOverlay({
         return (
           <g
             key={mark.id}
-            tabIndex={sweep && score === "confident" ? undefined : 0}
-            role="button"
-            aria-label={`${label}: ${mark.text}${mark.note ? " · " + mark.note : ""}`}
-            aria-pressed={selected === mark.id}
-            className={`scan-mark scan-mark-${mark.kind} scan-mark-${score}`}
+            tabIndex={interactive && !(sweep && score === "confident") ? 0 : undefined}
+            role={interactive ? "button" : undefined}
+            aria-label={interactive ? `${label}: ${mark.text}${mark.note ? " · " + mark.note : ""}` : undefined}
+            aria-pressed={interactive ? selected === mark.id : undefined}
+            className={`scan-mark scan-mark-${mark.kind}${interactive ? ` scan-mark-${score}` : ""}`}
             style={{ "--scan-delay": `${delay}ms` } as CSSProperties}
-            onClick={() => onSelect(mark.id)}
-            onKeyDown={(event) => {
+            onClick={interactive ? () => onSelect!(mark.id) : undefined}
+            onKeyDown={interactive ? (event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                onSelect(mark.id);
+                onSelect!(mark.id);
               }
-            }}
+            } : undefined}
           >
             <rect
               x={mark.x - padX}
@@ -127,7 +128,6 @@ export function ScheduleImportPreview({
   // Picking your name is two taps (pick, then confirm), since it gets locked.
   const [pickedPerson, setPickedPerson] = useState<string | null>(null);
   const [frames, setFrames] = useState<{ current: PhotoFrame; previous?: PhotoFrame }>();
-  const [selected, setSelected] = useState<{ index: number; id: string }>();
   const [failedSource, setFailedSource] = useState<Blob>();
   const urls = useRef(new Set<string>());
   const fileIndex = file?.index;
@@ -190,11 +190,6 @@ export function ScheduleImportPreview({
 
   const pass = source && frames?.current.source === source && frames.current.index === fileIndex ? file?.pass : undefined;
   const stage = snapshot.stage === 3 ? 3 : file?.stage ?? snapshot.stage;
-  const mark = selected && selected.index === fileIndex
-    ? pass?.marks.find((item) => item.id === selected.id)
-    : undefined;
-  const ownShifts = pass?.marks.filter((item): item is ScanMark & { shift: NonNullable<ScanMark["shift"]> } =>
-    Boolean(item.shift && item.worker && matchesWorker(item.worker))) ?? [];
   return (
     <dialog className="schedule-scan-dialog" ref={dialog} aria-label="Scanning schedules" onCancel={(event) => {
       event.preventDefault();
@@ -231,15 +226,7 @@ export function ScheduleImportPreview({
               {/* eslint-disable-next-line @next/next/no-img-element -- the preview uses a local object URL */}
               <img src={frame.url} alt="Uploaded schedule" width={frame.width} height={frame.height} />
               {pass && frame === frames?.current && (
-                <ScanOverlay
-                  pass={pass}
-                  ratio={frame.ratio}
-                  matchesWorker={matchesWorker}
-                  selected={mark?.id ?? null}
-                  sweep
-                  onSelect={(id) => setSelected((current) =>
-                    current?.index === frame.index && current.id === id ? undefined : { index: frame.index, id })}
-                />
+                <ScanOverlay pass={pass} ratio={frame.ratio} matchesWorker={matchesWorker} sweep />
               )}
             </figure>
           </div>
@@ -272,28 +259,6 @@ export function ScheduleImportPreview({
           </button>
         </section>
       )}
-      <div className="scan-preview-notes" hidden={Boolean(personChoices)}>
-        <ul className="scan-legend" aria-label="Scan confidence colors">
-          {Object.entries(confidenceLabels).map(([key, label]) => (
-            <li key={key} className={`scan-mark-${key}`}><i />{label}</li>
-          ))}
-        </ul>
-        <p className={`scan-observation${mark ? " scan-mark-" + scanConfidence(mark) : ""}`} aria-live="polite">
-          {mark ? `${confidenceLabels[scanConfidence(mark)]} · ${mark.note ? mark.note + " · " : ""}${mark.text}` : pass?.marks.length ? "Tap a highlight to see what was read" : "\u00a0"}
-        </p>
-        <div className="scan-my-shifts" aria-label="Your shifts detected so far">
-          {ownShifts.map((item) => {
-            const confidence = scanConfidence(item);
-            return (
-              <span key={item.id} className={`scan-mark-${confidence}`}>
-                <b>{formatDate(item.shift.date)}</b>
-                <span>{formatTime(item.shift.start)} – {formatTime(item.shift.end)}</span>
-                {confidence !== "confident" && <small>Check time</small>}
-              </span>
-            );
-          })}
-        </div>
-      </div>
       <div className="scan-footer">
         <ol className="import-steps" aria-label="Import stages">
           {IMPORT_STAGES.map((label, index) => (

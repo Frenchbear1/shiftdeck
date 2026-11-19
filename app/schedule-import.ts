@@ -19,7 +19,13 @@ type TesseractWorker = Awaited<
 type ReaderListener = (status: { status: string; progress: number }) => void;
 
 let enginePromise: Promise<TesseractWorker> | null = null;
+/** A second reader, so the page's two halves are read at the same time on phones with the cores for it. */
+let helperPromise: Promise<TesseractWorker | null> | null = null;
 let listener: ReaderListener | null = null;
+
+const canReadInParallel = () =>
+  typeof navigator !== "undefined" && (navigator.hardwareConcurrency ?? 2) >= 4 &&
+  ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4) >= 3;
 
 /**
  * Starts loading the OCR engine and language data once. Opening the import
@@ -39,15 +45,67 @@ export function warmScheduleReader() {
         throw error;
       });
   }
+  if (!helperPromise && canReadInParallel()) {
+    helperPromise = import("tesseract.js")
+      .then(({ createWorker }) => createWorker("eng", 1))
+      .catch(() => null);
+  }
   return enginePromise;
 }
 
 export async function releaseScheduleReader() {
   const pending = enginePromise;
+  const helper = helperPromise;
   enginePromise = null;
-  if (!pending) return;
-  const worker = await pending.catch(() => null);
-  await worker?.terminate().catch(() => undefined);
+  helperPromise = null;
+  const [worker, second] = await Promise.all([pending?.catch(() => null), helper?.catch(() => null)]);
+  await Promise.all([worker?.terminate().catch(() => undefined), second?.terminate().catch(() => undefined)]);
+}
+
+/** Text that's white on a dark fill isn't on these schedules: skipping that check is ~7% faster. */
+const PAGE_PARAMETERS = { preserve_interword_spaces: "1", tessedit_do_invert: "0" };
+
+/**
+ * Reads the top and bottom halves at the same time on two readers and
+ * stitches the words back into one page. The halves overlap, and each word is
+ * taken from the half its middle is in, so words on the cut are whole.
+ */
+async function readInHalves(first: TesseractWorker, second: TesseractWorker, image: Blob, mode: string) {
+  const bitmap = await createImageBitmap(image);
+  try {
+    const { width, height } = bitmap;
+    const cut = Math.round(height / 2);
+    const overlap = Math.max(24, Math.round(height * 0.04));
+    const half = async (top: number, bottom: number) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = bottom - top;
+      canvas.getContext("2d")!.drawImage(bitmap, 0, top, width, bottom - top, 0, 0, width, bottom - top);
+      return (await canvasBlob(canvas))!;
+    };
+    const [upper, lower] = await Promise.all([half(0, Math.min(height, cut + overlap)), half(Math.max(0, cut - overlap), height)]);
+    const read = async (worker: TesseractWorker, part: Blob) => {
+      await worker.setParameters({ tessedit_pageseg_mode: mode as never, tessedit_char_whitelist: "", ...PAGE_PARAMETERS });
+      return (await worker.recognize(part, {}, { tsv: true })).data;
+    };
+    const [a, b] = await Promise.all([read(first, upper), read(second, lower)]);
+    const words = (tsv: string | null | undefined, offset: number, keep: (middle: number) => boolean) =>
+      (tsv ?? "").split(/\r?\n/).filter((line) => line.startsWith("5\t")).flatMap((line) => {
+        const parts = line.split("\t");
+        const top = Number(parts[7]) + offset;
+        if (!keep(top + Number(parts[9]) / 2)) return [];
+        parts[7] = String(top);
+        return [parts.join("\t")];
+      });
+    const tsv = [
+      ["1", "1", "0", "0", "0", "0", "0", "0", width, height, "-1", ""].join("\t"),
+      ...words(a.tsv, 0, (middle) => middle < cut),
+      ...words(b.tsv, cut - overlap, (middle) => middle >= cut),
+    ].join("\n");
+    return { tsv, confidence: ((a.confidence ?? 0) + (b.confidence ?? 0)) / 2 };
+  } finally {
+    bitmap.close();
+  }
 }
 
 const otsuThreshold = (data: Uint8ClampedArray) => {
@@ -203,6 +261,8 @@ export type ReadCallbacks = {
   onDoubleCheck: () => void;
   /** Times this worker had on the same weekday in other imported weeks. */
   history?: (worker: string, date: string) => Array<{ start: string; end: string }>;
+  /** Names already known from earlier imports: when every name read is one, one pass is enough. */
+  knownNames?: string[];
   /**
    * Set when this device doesn't know whose schedule it is yet. Called with
    * the names read from the photo before your row is cropped and checked.
@@ -217,11 +277,13 @@ export type ScheduleRead = ParsedSchedule & {
 };
 
 /**
- * Reads a schedule photo with as few OCR passes as possible. Two different
- * renderings are always read and merged; a third pass only runs when the
- * merged result still looks thin. Then every time in your row, and any time
- * the passes disagree on, is re-read on its own with digits only. Every
- * readable detail is kept, even when parts of the image can't be read.
+ * Reads a schedule photo with as few OCR passes as possible. The photo as
+ * taken is read first: for screenshots that's both the fastest and the most
+ * accurate read. A sharpened, enlarged copy (better for blurry camera photos)
+ * is only read when that first read is thin, misses your row, or has a name
+ * not seen before; a last full-page pass only when it's still thin. Then
+ * only the times that weren't read clearly are re-read with digits only.
+ * Every readable detail is kept, even when parts of the image can't be read.
  */
 export function readScheduleImage(file: File, callbacks: ReadCallbacks) {
   return scanScheduleImage(file, callbacks);
@@ -258,13 +320,13 @@ type PassRecord = {
   original: boolean;
 };
 
-/** Own-row cells are always re-read; other rows only when in doubt. */
-const MAX_OTHER_REREADS = 18;
+/** Unclear cells are re-read: all of your row's, and a few of everyone else's. */
+const MAX_OTHER_REREADS = 8;
 const DIGITS_ONLY = "0123456789-";
 
 async function scanScheduleImage(
   file: Blob,
-  { matchesSourceRow, onFraction, onReading, onDoubleCheck, onPass, history, choosePerson }: ReadCallbacks,
+  { matchesSourceRow, onFraction, onReading, onDoubleCheck, onPass, history, choosePerson, knownNames }: ReadCallbacks,
   dedicatedReader?: Promise<TesseractWorker>,
   verify = true,
 ): Promise<ScheduleRead | null> {
@@ -283,21 +345,25 @@ async function scanScheduleImage(
   setListener(({ status, progress }) => {
     if (/loading|initializ/i.test(status)) report(0.05 * progress);
   });
-  const [worker, enhanced, original] = await Promise.all([
+  const [worker, original, helper] = await Promise.all([
     dedicatedReader ?? warmScheduleReader(),
-    enhanceScheduleImage(file, android),
     readableOriginal(file, android),
+    dedicatedReader ? null : helperPromise?.catch(() => null) ?? null,
   ]).finally(() => {
     setListener(null);
   });
   report(0.06);
   onReading();
+  // The sharpened copy is only made if it's needed.
+  let enhancedCopy: Promise<Blob> | null = null;
+  const enhanced = () => (enhancedCopy ??= enhanceScheduleImage(file, android));
 
-  const passes: Array<{ image: Blob; mode: string }> = [
-    { image: enhanced, mode: PSM.SPARSE_TEXT },
+  const passes: Array<{ image: Blob | (() => Promise<Blob>); mode: string }> = [
     { image: original, mode: PSM.SPARSE_TEXT },
   ];
-  let fallback = { image: enhanced, mode: PSM.AUTO };
+  // The first read came out clean, so the page is flat: later reads can be split too.
+  let flatPage = false;
+  const known = new Set((knownNames ?? []).filter(Boolean).map((name) => resolveSchedulePersonName(name, knownNames ?? [])));
   const readable: ParsedSchedule[] = [];
   const records: PassRecord[] = [];
   const sources: Array<{
@@ -310,38 +376,48 @@ async function scanScheduleImage(
   const readingEnd = verify ? 0.88 : 0.98;
 
   for (let index = 0; index < planned; index += 1) {
-    const pass = index < passes.length ? passes[index] : fallback;
-    const isOriginal = pass.image === original;
-    if (index === passes.length) onDoubleCheck();
+    const pass = passes[index];
+    const image = typeof pass.image === "function" ? await pass.image() : pass.image;
+    const isOriginal = image === original;
+    if (index > 0) onDoubleCheck();
     const from = fraction;
     const to = from + (readingEnd - from) / (planned - index);
     setListener(({ status, progress }) => {
       if (status === "recognizing text") report(from + (to - from) * progress);
     });
     try {
-      await worker.setParameters({
-        tessedit_pageseg_mode: pass.mode as never,
-        tessedit_char_whitelist: "",
-        preserve_interword_spaces: "1",
-      });
-      const result = await worker.recognize(
-        pass.image,
-        { rotateAuto: true },
-        { tsv: true, imageColor: isOriginal },
-      );
+      // The first read of a flat screenshot is split across two readers; a
+      // tilted photo that reads poorly that way gets the straightened passes after.
+      const halves = (index === 0 || (index === 1 && flatPage)) && helper && typeof createImageBitmap === "function"
+        ? await readInHalves(worker, helper, image, pass.mode).catch(() => null)
+        : null;
+      if (!halves) {
+        await worker.setParameters({
+          tessedit_pageseg_mode: pass.mode as never,
+          tessedit_char_whitelist: "",
+          ...PAGE_PARAMETERS,
+        });
+      }
+      const result = halves
+        ? { data: { tsv: halves.tsv, confidence: halves.confidence, rotateRadians: 0, imageColor: undefined as string | undefined } }
+        : await worker.recognize(
+          image,
+          { rotateAuto: true },
+          { tsv: true, imageColor: isOriginal },
+        );
       const deskewed = Boolean(result.data.rotateRadians);
       const alignedImage = result.data.imageColor;
-      const image = deskewed && alignedImage
+      const alignedBlob = deskewed && alignedImage
         ? new Blob([Uint8Array.from(atob(alignedImage.split(",")[1]), (byte) => byte.charCodeAt(0))], {
             type: "image/png",
           })
         : undefined;
       // Overlay coordinates must correspond to the photo shown on screen.
-      const canOverlay = !deskewed || Boolean(image);
-      const coordinates = deskewed ? image : pass.image;
+      const canOverlay = !deskewed || Boolean(alignedBlob);
+      const coordinates = deskewed ? alignedBlob : image;
       const parsed = result.data.tsv
         ? parseScheduleTsv(result.data.tsv, result.data.confidence, (geometry) => {
-            const record = { ...geometry, image };
+            const record = { ...geometry, image: alignedBlob };
             records.push({ geometry: record, coordinates, overlay: canOverlay, original: isOriginal });
             if (onPass && canOverlay) onPass(record);
           })
@@ -349,7 +425,7 @@ async function scanScheduleImage(
       if (parsed) {
         readable.push(parsed);
         if (parsed.sourceLayout && canOverlay) {
-          sources.push({ schedule: parsed, layout: parsed.sourceLayout, image, original: isOriginal });
+          sources.push({ schedule: parsed, layout: parsed.sourceLayout, image: alignedBlob, original: isOriginal });
         }
       }
     } catch {
@@ -366,8 +442,29 @@ async function scanScheduleImage(
         candidate.schedule.dates.join() === merged?.dates.join() &&
         candidate.layout.rows.some((row) => matchesSourceRow(row.name)),
       );
-      if (!hasSelectedRow) fallback = { image: original, mode: PSM.AUTO };
-      if (!hasSelectedRow || !isStrongScheduleRead(merged)) planned += 1;
+      const strong = isStrongScheduleRead(merged);
+      if (index === 0) {
+        flatPage = strong && hasSelectedRow;
+        // Every name read is someone already known (clipped readings included)?
+        // A couple of new coworkers is normal; a clipped-looking name ("Ed Plank") or a
+        // mostly unknown sheet (the first import) gets the second, sharper read.
+        const unknown = merged && known.size
+          ? [...new Set(merged.shifts.map((shift) => shift.worker))]
+            .filter((name) => !known.has(resolveSchedulePersonName(name, [...known])))
+          : null;
+        const looksWhole = (name: string) => {
+          const parts = name.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(Boolean);
+          return parts.length >= 2 && parts[0].length >= 4 && parts[parts.length - 1].length >= 4;
+        };
+        const namesKnown = Boolean(unknown) && unknown!.length <= 3 && unknown!.every(looksWhole);
+        if (!strong || !hasSelectedRow || !namesKnown) {
+          passes.push({ image: enhanced, mode: PSM.SPARSE_TEXT });
+          planned += 1;
+        }
+      } else if (index === 1 && (!hasSelectedRow || !strong)) {
+        passes.push({ image: hasSelectedRow ? enhanced : original, mode: PSM.AUTO });
+        planned += 1;
+      }
     }
   }
 
@@ -492,13 +589,14 @@ async function confirmShiftTimes({
   // Decide which cells deserve a digits-only re-read.
   const candidates = [...groups.values()].filter((group) =>
     group.marks.some(({ mark }) => mark.shift || (mark.text.match(/\d/g)?.length ?? 0) >= 6));
+  // A time read clearly (one pass of a sharp screenshot is enough) isn't read again.
   const needsCheck = (group: CellGroup) => {
     const readings = pageReadings(group);
     const verdict = decideShiftTime(readings, priorsFor(group));
-    return !verdict || verdict.level !== "confident" || verdict.support < 2 ||
+    return !verdict || verdict.level !== "confident" ||
       new Set(readings.map((reading) => `${reading.start}-${reading.end}`)).size > 1;
   };
-  const own = candidates.filter((group) => group.own);
+  const own = candidates.filter((group) => group.own && needsCheck(group));
   const others = candidates.filter((group) => !group.own && needsCheck(group)).slice(0, MAX_OTHER_REREADS);
   const reread = [...own, ...others];
 
