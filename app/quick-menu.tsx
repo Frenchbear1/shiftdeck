@@ -13,25 +13,30 @@ export type QuickAction = {
   onSelect: () => void;
 };
 
-type Corner = "tl" | "tr" | "bl" | "br";
 type Insets = { top: number; right: number; bottom: number; left: number };
 
-const CORNER_KEY = "shiftdeck.quickMenuCorner";
+/** Which bottom corner the button sits in, and whether it's just the icon. */
+export type QuickMenuStyle = { side: "left" | "right"; clear: boolean };
+export const DEFAULT_QUICK_MENU: QuickMenuStyle = { side: "right", clear: false };
+export const QUICK_MENU_KEY = "shiftdeck.quickMenu";
+
+export function loadQuickMenuStyle(): QuickMenuStyle {
+  try {
+    const saved = JSON.parse(localStorage.getItem(QUICK_MENU_KEY) ?? "null");
+    return {
+      side: saved?.side === "left" ? "left" : "right",
+      clear: saved?.clear === true,
+    };
+  } catch {
+    return DEFAULT_QUICK_MENU;
+  }
+}
+
 const SIZE = 58;
 const MARGIN = 16;
 const STEP = 62;
-const HOLD_MS = 230;
 const MOVE_SLOP = 8;
 const PICK_RADIUS = 40;
-
-const loadCorner = (): Corner => {
-  try {
-    const saved = localStorage.getItem(CORNER_KEY);
-    return saved === "tl" || saved === "tr" || saved === "bl" || saved === "br" ? saved : "br";
-  } catch {
-    return "br";
-  }
-};
 
 /** The phone's notch / home-bar insets, read from CSS env(). */
 function readInsets(): Insets {
@@ -55,29 +60,24 @@ const buzz = (ms = 8) => {
 };
 
 /**
- * The floating button: tap to open the column of actions, or press-and-hold,
- * slide onto one and let go. Drag it to move it; it snaps to the nearest
- * corner and stays there.
+ * The floating button: tap to open the column of actions, or press and
+ * swipe straight onto one and let go. It opens the moment it's touched, and
+ * picks go by where each action ends up, so a quick swipe works even while
+ * the column is still springing out.
  */
-export function QuickMenu({ actions, badge }: { actions: QuickAction[]; badge: number }) {
-  const [corner, setCorner] = useState<Corner>("br");
+export function QuickMenu({ actions, badge, style }: { actions: QuickAction[]; badge: number; style: QuickMenuStyle }) {
   const [view, setView] = useState({ width: 0, height: 0 });
   const [insets, setInsets] = useState<Insets>({ top: 0, right: 0, bottom: 0, left: 0 });
   const [open, setOpen] = useState(false);
   const [held, setHeld] = useState(false);
-  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const [hot, setHot] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
   const gesture = useRef<{
     id: number;
     startX: number;
     startY: number;
-    grabX: number;
-    grabY: number;
-    mode: "press" | "move" | "slide";
     wasOpen: boolean;
     leftButton: boolean;
-    timer?: number;
   } | null>(null);
   const hotRef = useRef<number | null>(null);
 
@@ -86,11 +86,7 @@ export function QuickMenu({ actions, badge }: { actions: QuickAction[]; badge: n
       setView({ width: window.innerWidth, height: window.innerHeight });
       setInsets(readInsets());
     };
-    const corner = loadCorner();
-    queueMicrotask(() => {
-      measure();
-      setCorner(corner);
-    });
+    queueMicrotask(measure);
     window.addEventListener("resize", measure);
     // Turn transitions on only after the first placement (no fly-in on load).
     const frame = requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
@@ -117,15 +113,13 @@ export function QuickMenu({ actions, badge }: { actions: QuickAction[]; badge: n
     };
   }, [open]);
 
-  const right = corner === "tr" || corner === "br";
-  const bottom = corner === "bl" || corner === "br";
+  const right = style.side === "right";
   const home = {
     x: right ? view.width - MARGIN - insets.right - SIZE : MARGIN + insets.left,
-    y: bottom ? view.height - MARGIN - Math.max(insets.bottom, 4) - SIZE : MARGIN + insets.top,
+    y: view.height - MARGIN - Math.max(insets.bottom, 4) - SIZE,
   };
-  const at = drag ?? home;
-  // The column grows away from the edge it sits on.
-  const direction = bottom ? -1 : 1;
+  // The column grows up from the bottom corner.
+  const direction = -1;
   const centerOf = (index: number) => ({
     x: home.x + SIZE / 2,
     y: home.y + SIZE / 2 + direction * STEP * (index + 1),
@@ -172,10 +166,10 @@ export function QuickMenu({ actions, badge }: { actions: QuickAction[]; badge: n
         onClick={() => setOpen(false)}
       />
       <div
-        className={`quick-menu${open ? " open" : ""}${held ? " held" : ""}${drag ? " dragging" : ""}${ready ? " ready" : ""}${right ? " right" : " left"}${bottom ? " bottom" : " top"}`}
+        className={`quick-menu${open ? " open" : ""}${held ? " held" : ""}${ready ? " ready" : ""}${right ? " right" : " left"}${style.clear ? " clear" : ""}`}
         style={{
-          ["--x" as string]: `${at.x}px`,
-          ["--y" as string]: `${at.y}px`,
+          ["--x" as string]: `${home.x}px`,
+          ["--y" as string]: `${home.y}px`,
           ["--dir" as string]: direction,
           visibility: view.width ? undefined : "hidden",
         }}
@@ -216,86 +210,42 @@ export function QuickMenu({ actions, badge }: { actions: QuickAction[]; badge: n
           onPointerDown={(event) => {
             if (event.pointerType === "mouse" && event.button !== 0) return;
             event.currentTarget.setPointerCapture(event.pointerId);
-            const current = {
+            gesture.current = {
               id: event.pointerId,
               startX: event.clientX,
               startY: event.clientY,
-              grabX: event.clientX - home.x,
-              grabY: event.clientY - home.y,
-              mode: open ? "slide" as const : "press" as const,
               wasOpen: open,
               leftButton: false,
-              timer: undefined as number | undefined,
             };
-            gesture.current = current;
             setHeld(true);
+            // Opens right away, so a press can swipe straight onto an action.
             if (!open) {
-              // Held still: open, and whatever it's let go on is picked.
-              current.timer = window.setTimeout(() => {
-                if (gesture.current !== current || current.mode !== "press") return;
-                current.mode = "slide";
-                setOpen(true);
-                buzz(10);
-              }, HOLD_MS);
+              setOpen(true);
+              buzz(8);
             }
           }}
           onPointerMove={(event) => {
             const current = gesture.current;
             if (!current || current.id !== event.pointerId) return;
-            const moved = Math.hypot(event.clientX - current.startX, event.clientY - current.startY);
-            if (current.mode === "press" && moved > MOVE_SLOP) {
-              // A quick drag moves the button itself.
-              window.clearTimeout(current.timer);
-              current.mode = "move";
-              setHeld(false);
+            if (!current.leftButton && Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > MOVE_SLOP) {
+              current.leftButton = true;
             }
-            if (current.mode === "move") {
-              setDrag({
-                x: Math.min(Math.max(event.clientX - current.grabX, 4), view.width - SIZE - 4),
-                y: Math.min(Math.max(event.clientY - current.grabY, 4), view.height - SIZE - 4),
-              });
-            } else if (current.mode === "slide") {
-              if (moved > MOVE_SLOP) current.leftButton = true;
-              highlight(nearest(event.clientX, event.clientY));
-            }
+            if (current.leftButton) highlight(nearest(event.clientX, event.clientY));
           }}
           onPointerUp={(event) => {
             const current = gesture.current;
             if (!current || current.id !== event.pointerId) return;
-            window.clearTimeout(current.timer);
             gesture.current = null;
             setHeld(false);
-            if (current.mode === "press") {
-              setOpen((value) => !value);
-              return;
-            }
-            if (current.mode === "move") {
-              const centerX = event.clientX - current.grabX + SIZE / 2;
-              const centerY = event.clientY - current.grabY + SIZE / 2;
-              const next: Corner = `${centerY < view.height / 2 ? "t" : "b"}${centerX < view.width / 2 ? "l" : "r"}` as Corner;
-              setCorner(next);
-              setDrag(null);
-              buzz(8);
-              try {
-                localStorage.setItem(CORNER_KEY, next);
-              } catch {
-                // Stays put until the app reloads.
-              }
-              return;
-            }
-            // Sliding: let go on an action to pick it.
             const index = hotRef.current;
             if (index !== null) pick(index);
-            // Tapped while open, or slid off without picking: close. Held in place: stay open.
+            // A tap opens it and leaves it open; tapping again (or swiping off) closes it.
             else if (current.wasOpen || current.leftButton) setOpen(false);
             highlight(null);
           }}
           onPointerCancel={() => {
-            const current = gesture.current;
-            if (current) window.clearTimeout(current.timer);
             gesture.current = null;
             setHeld(false);
-            setDrag(null);
             highlight(null);
           }}
         >

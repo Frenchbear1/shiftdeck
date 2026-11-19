@@ -95,7 +95,7 @@ import { ShiftEditorSheet } from "./shift-editor";
 import { ScheduleComparison } from "./schedule-comparison";
 import { ScheduleFileViewer } from "./schedule-file-viewer";
 import { ScheduleImportPreview, type ImportPreviewFile } from "./schedule-import-preview";
-import { QuickMenu } from "./quick-menu";
+import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type QuickMenuStyle } from "./quick-menu";
 import { ShareSheet, SharedImportSheet, TeamJoinSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
@@ -690,6 +690,20 @@ export default function HomePage() {
       // Use the default layout if storage is unavailable.
     }
   }, []);
+  // The floating menu button: which bottom corner, and solid or just the icon.
+  const [quickMenu, setQuickMenu] = useState<QuickMenuStyle>(DEFAULT_QUICK_MENU);
+  useEffect(() => {
+    const saved = loadQuickMenuStyle();
+    queueMicrotask(() => setQuickMenu(saved));
+  }, []);
+  const saveQuickMenu = (next: QuickMenuStyle) => {
+    setQuickMenu(next);
+    try {
+      localStorage.setItem(QUICK_MENU_KEY, JSON.stringify(next));
+    } catch {
+      // Applies for this visit.
+    }
+  };
   const saveHomeOrder = (order: HomeTile[]) => {
     setHomeOrder(order);
     try {
@@ -3230,6 +3244,7 @@ export default function HomePage() {
       </main>
 
       <QuickMenu
+        style={quickMenu}
         badge={notificationCount}
         actions={[
           {
@@ -3736,6 +3751,39 @@ export default function HomePage() {
               </div>
             </div>
             <HomeOrderRow order={homeOrder} onChange={saveHomeOrder} />
+            <div className="menu-button-setting">
+              <span>Menu button</span>
+              <div className="menu-button-options">
+                <div role="radiogroup" aria-label="Menu button corner" className="settings-segment">
+                  {(["left", "right"] as const).map((side) => (
+                    <button
+                      key={side}
+                      type="button"
+                      role="radio"
+                      aria-checked={quickMenu.side === side}
+                      className={quickMenu.side === side ? "active" : ""}
+                      onClick={() => saveQuickMenu({ ...quickMenu, side })}
+                    >
+                      {side === "left" ? "Bottom left" : "Bottom right"}
+                    </button>
+                  ))}
+                </div>
+                <div role="radiogroup" aria-label="Menu button look" className="settings-segment">
+                  {([false, true] as const).map((clear) => (
+                    <button
+                      key={String(clear)}
+                      type="button"
+                      role="radio"
+                      aria-checked={quickMenu.clear === clear}
+                      className={quickMenu.clear === clear ? "active" : ""}
+                      onClick={() => saveQuickMenu({ ...quickMenu, clear })}
+                    >
+                      {clear ? "Icon only" : "Solid"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
             <div className="settings-tiles">
               <button
                 type="button"

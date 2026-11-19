@@ -7983,10 +7983,6 @@ html {
   transition: transform 520ms cubic-bezier(.28, 1.42, .45, 1);
 }
 
-.quick-menu.dragging {
-  transition: none;
-}
-
 .quick-button {
   position: relative;
   width: 58px;
@@ -8010,16 +8006,18 @@ html {
   transition: transform 260ms cubic-bezier(.3, 1.5, .5, 1), box-shadow 220ms ease, border-radius 300ms ease;
 }
 
-.quick-menu.held:not(.open) .quick-button {
-  transform: scale(.9);
+/* Clear: just the blue icon, with a soft halo so it reads over any card. */
+.quick-menu.clear .quick-button {
+  color: var(--blue);
+  background: transparent;
+  box-shadow: none;
+  filter:
+    drop-shadow(0 0 2px color-mix(in srgb, var(--bg) 90%, transparent))
+    drop-shadow(0 0 6px color-mix(in srgb, var(--bg) 70%, transparent));
 }
 
-.quick-menu.dragging .quick-button {
-  transform: scale(1.1);
-  box-shadow:
-    0 18px 40px color-mix(in srgb, var(--blue) 45%, transparent),
-    0 4px 10px rgba(0, 0, 0, .2),
-    inset 0 1px 0 rgba(255, 255, 255, .28);
+.quick-menu.clear .quick-bars i {
+  height: 3.5px;
 }
 
 .quick-menu.open .quick-button {
@@ -8084,8 +8082,8 @@ html {
   transform: translateY(calc(var(--dir) * (var(--i) + 1) * 62px)) scale(1);
   /* Opening: each one springs out a beat after the last. */
   transition:
-    transform 560ms cubic-bezier(.3, 1.55, .5, 1) calc(var(--i) * 38ms),
-    opacity 220ms ease calc(var(--i) * 38ms);
+    transform 440ms cubic-bezier(.3, 1.5, .5, 1) calc(var(--i) * 26ms),
+    opacity 160ms ease calc(var(--i) * 26ms);
   pointer-events: auto;
 }
 
@@ -8100,7 +8098,8 @@ html {
   border: 1px solid var(--line);
   border-radius: 16px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, .16), 0 1px 3px rgba(0, 0, 0, .1);
-  transition: transform 240ms cubic-bezier(.3, 1.6, .5, 1), background 160ms ease, color 160ms ease, border-color 160ms ease;
+  /* The highlight follows a sliding finger with no delay. */
+  transition: transform 130ms cubic-bezier(.3, 1.6, .5, 1);
 }
 
 .quick-icon svg {
@@ -8121,7 +8120,7 @@ html {
   font-weight: 750;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 160ms ease, transform 300ms cubic-bezier(.3, 1.4, .5, 1), background 160ms ease, color 160ms ease;
+  transition: opacity 140ms ease, transform 260ms cubic-bezier(.3, 1.4, .5, 1);
 }
 
 .quick-menu.right .quick-label {
@@ -8139,7 +8138,10 @@ html {
 .quick-menu.open .quick-label {
   opacity: 1;
   transform: translate(0, -50%) scale(1);
-  transition-delay: calc(var(--i) * 38ms + 90ms);
+  /* Only the fade-in waits its turn; the highlight never does. */
+  transition:
+    opacity 140ms ease calc(var(--i) * 26ms + 60ms),
+    transform 260ms cubic-bezier(.3, 1.4, .5, 1) calc(var(--i) * 26ms + 60ms);
 }
 
 .quick-item:active .quick-icon,
@@ -8154,10 +8156,6 @@ html {
   color: white;
   background: var(--blue);
   border-color: var(--blue);
-}
-
-.quick-menu.open .quick-item.hot .quick-label {
-  transform: translate(0, -50%) scale(1.06);
 }
 
 /* Badges */
@@ -8205,4 +8203,53 @@ html {
     transition-duration: 1ms !important;
     transition-delay: 0ms !important;
   }
+}
+
+/* ---------- menu button setting ---------- */
+
+.menu-button-setting {
+  display: grid;
+  gap: 7px;
+}
+
+.menu-button-setting > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.menu-button-options {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 8px;
+}
+
+.settings-segment {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+.settings-segment button {
+  height: 32px;
+  padding: 0 6px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.settings-segment button.active {
+  color: white;
+  background: var(--blue);
 }
