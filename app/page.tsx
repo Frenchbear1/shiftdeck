@@ -20,6 +20,7 @@ import {
   Crown,
   Sun,
   Trash2,
+  Timer,
   Upload,
   Users,
   X,
@@ -140,6 +141,8 @@ import { buildShare, describeShare } from "./share-build";
 import { weekLabel, type SharePackage, type SharedRead } from "./share-data";
 import { loadApplied, saveApplied, sendToMyPhones, toSend, wanted } from "./self-sync";
 import { SyncBar, type SyncStatus } from "./sync-bar";
+import { loadClock, saveClock, type ClockData } from "./time-clock";
+import { TimeClockCard, TimeClockSheet } from "./time-clock-ui";
 import {
   forgetLegacyTeam,
   legacyTeamKey,
@@ -727,6 +730,8 @@ export default function HomePage() {
       const known = saved.filter((tile): tile is HomeTile =>
         typeof tile === "string" && Object.hasOwn(HOME_TILES, tile),
       );
+      // A tile added since you arranged yours (the time clock) goes under Today.
+      if (!known.includes("clock")) known.splice(known.indexOf("today") + 1, 0, "clock");
       queueMicrotask(() => setHomeOrder([...new Set([...known, ...DEFAULT_HOME_ORDER])]));
     } catch {
       // Use the default layout if storage is unavailable.
@@ -753,6 +758,17 @@ export default function HomePage() {
     } catch {
       // Apply the order for the current visit.
     }
+  };
+  // Punches and pay: on this device only.
+  const [clockData, setClockData] = useState<ClockData | null>(null);
+  const [clockOpen, setClockOpen] = useState(false);
+  useEffect(() => {
+    const saved = loadClock();
+    queueMicrotask(() => setClockData(saved));
+  }, []);
+  const changeClock = (next: ClockData) => {
+    setClockData(next);
+    saveClock(next);
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   // What Settings looked like when it opened, so the X can turn into Save after a change.
@@ -3528,6 +3544,17 @@ export default function HomePage() {
   );
 
   const homeTiles = {
+    clock: clockData ? (
+      <TimeClockCard
+        data={clockData}
+        onChange={changeClock}
+        onOpen={() => setClockOpen(true)}
+        scheduled={(() => {
+          const shift = events.find((event) => event.date === todayDate);
+          return shift ? formatTimeRange(shift) : undefined;
+        })()}
+      />
+    ) : null,
     today: (
       <TodayHero
         date={selectedDate}
@@ -3835,6 +3862,7 @@ export default function HomePage() {
           { id: "import", label: "Import", ariaLabel: "Import schedule", icon: Upload, onSelect: () => openSheet("import") },
           { id: "swap", label: "Swap", ariaLabel: "Shift swap", icon: ArrowLeftRight, onSelect: () => openSheet("swap") },
           { id: "directory", label: "Directory", icon: BookUser, onSelect: () => setDirectoryOpen(true) },
+          { id: "clock", label: "Time clock", icon: Timer, onSelect: () => setClockOpen(true) },
           {
             id: "settings",
             label: "Settings",
@@ -3926,6 +3954,10 @@ export default function HomePage() {
             closeSheet();
           }}
         />
+      )}
+
+      {clockOpen && clockData && (
+        <TimeClockSheet data={clockData} onChange={changeClock} onClose={() => setClockOpen(false)} />
       )}
 
       {shiftEditor && (

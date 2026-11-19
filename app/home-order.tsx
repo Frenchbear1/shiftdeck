@@ -1,10 +1,11 @@
 "use client";
 
-import { CalendarDays, Clock3, CloudSun, MapPin, Plane, Users } from "lucide-react";
+import { CalendarDays, Clock3, CloudSun, MapPin, Plane, Timer, Users } from "lucide-react";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const HOME_TILES = {
   today: "Today",
+  clock: "Time clock",
   schedule: "Schedule",
   flights: "Flights",
   map: "Live map",
@@ -16,6 +17,7 @@ export const DEFAULT_HOME_ORDER = Object.keys(HOME_TILES) as HomeTile[];
 
 const ICONS: Record<HomeTile, ReactNode> = {
   today: <Clock3 />,
+  clock: <Timer />,
   schedule: <CalendarDays />,
   flights: <Plane />,
   map: <MapPin />,
@@ -25,6 +27,7 @@ const ICONS: Record<HomeTile, ReactNode> = {
 
 const SHORT: Record<HomeTile, string> = {
   today: "Today",
+  clock: "Clock",
   schedule: "Schedule",
   flights: "Flights",
   map: "Map",
