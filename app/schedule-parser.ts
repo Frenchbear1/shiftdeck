@@ -415,6 +415,10 @@ export const withoutNameNotes = (name: string) => {
 };
 
 const WEEKDAY = /^(?:sun|mon|tue|wed|thu|fri|sat)/i;
+/** Notes on a schedule that say someone's leaving or starting. */
+export const FAREWELL_NOTE = /\b(?:GOOD\s*LUCK|LUCK|BYE|GOOD\s*BYE|FAREWELL|LAST\s*DAY|MISS\s*YOU)\b/i;
+export const FIRST_DAY_NOTE = /\b(?:FIRST\s*DAY|1ST\s*DAY|NHO|NEW\s*HIRE|WELCOME)\b/i;
+const ROSTER_NOTE = new RegExp(`${FAREWELL_NOTE.source}|${FIRST_DAY_NOTE.source}|\\bGOOD\\b`, "i");
 
 export const isPlausibleWorkerName = (name: string) => {
   const parts = name
@@ -706,6 +710,11 @@ export function mergeScheduleParses(
       if (glued.has(worker)) return;
       const key = `${shift.date}|${worker}`;
       const current = shifts.get(key);
+      // A note one pass caught on a day off ("BYE") is kept.
+      if (current && current.status === "off" && shift.status === "off" && !current.note && shift.note) {
+        shifts.set(key, { ...current, note: shift.note });
+        return;
+      }
       if (!current || (current.status !== "working" && shift.status === "working")) {
         shifts.set(key, {
           ...shift,
@@ -995,6 +1004,8 @@ const parseShifts = (
           status: "pto",
         };
       }
+      // A day off can carry a note worth keeping: "GOOD", "BYE", "LUCK!" on someone's last week.
+      const note = ROSTER_NOTE.test(normalized) ? normalized.replace(/^[\s|:-]+|[\s|:-]+$/g, "") : undefined;
       return {
         id: `${date}-${row.name}-off`,
         date,
@@ -1002,6 +1013,7 @@ const parseShifts = (
         start: "",
         end: "",
         status: "off",
+        ...(note ? { note } : {}),
       };
     });
   });

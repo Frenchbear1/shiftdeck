@@ -425,3 +425,18 @@ test("readings of one person from different passes and weeks become one name", a
   assert.deepEqual([...new Set(tidy.map((item) => item.worker))].sort(), ["David LaBarre", "Devin Bauer", "Kody Hermany"]);
   assert.equal(tidy.filter((item) => item.worker === "Kody Hermany").length, 2);
 });
+
+test("goodbye and first-day notes in a row are kept", () => {
+  const parsed = parseScheduleTsv(week([
+    word("Matthew", 4, 300, 44), word("Finelli", 52, 300, 40),
+    word("1300-1600", 188, 300, 61), word("0900-1200", 333, 300, 61), word("1430-1830", 478, 300, 61),
+    word("GOOD", 623, 300, 30), word("BYE", 768, 300, 22), word("GOOD", 913, 300, 30), word("LUCK!", 1058, 300, 34),
+    word("Juan", 4, 330, 28), word("Delgado", 36, 330, 46),
+    word("1230-1630", 600, 330, 50), word("First", 655, 330, 24), word("Day", 683, 330, 18),
+  ]), 90);
+  const notes = parsed.shifts.filter((shift) => shift.note).map((shift) => `${shift.worker} ${shift.date} ${shift.note}`);
+  assert.deepEqual(notes, [
+    "Matthew Finelli 2026-11-25 GOOD", "Matthew Finelli 2026-11-26 BYE", "Matthew Finelli 2026-11-27 GOOD",
+    "Matthew Finelli 2026-11-28 LUCK!", "Juan Delgado 2026-11-25 FIRST DAY",
+  ]);
+});

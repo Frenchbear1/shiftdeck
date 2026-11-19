@@ -4,6 +4,7 @@ import { Ban, Check, ChevronDown, ChevronRight, Copy, Crown, KeyRound, LoaderCir
 import { useEffect, useState } from "react";
 import { backdropClose } from "./home-sections";
 import { recommendedSuccessor, type LogEntry, type Me, type PersonSummary, type PhoneSummary } from "./people";
+import { rosterLabel, type RosterStatus } from "./roster-status";
 
 const sinceLabel = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -257,8 +258,10 @@ function Switch({ on, label, onChange }: { on: boolean; label: string; onChange:
 
 export function OwnerSheet({
   me, names, onRename, onRemove, onBlock, onUnblock, onShareAccess, onRenamePhone, onMovePhone, onRemovePhone, onDecide,
-  onStartHandover, onCancelHandover, onMakeRecoveryKey, onAddPhone, learning, onClose,
+  onStartHandover, onCancelHandover, onMakeRecoveryKey, onAddPhone, learning, rosterFor, onClose,
 }: PhoneActions & {
+  /** Where someone stands on the imported schedules (new, leaving, left). */
+  rosterFor?: (name: string) => RosterStatus | undefined;
   me: Me;
   /** Names to rename people to (from schedules). */
   names: string[];
@@ -342,7 +345,15 @@ export function OwnerSheet({
           </Section>
         )}
 
-        <Section icon={Users} title="People" summary={people.length}>
+        <Section
+          icon={Users}
+          title="People"
+          summary={(() => {
+            const gone = others.filter((person) => rosterFor?.(person.name)?.state === "left").length;
+            return gone ? `${people.length} · ${gone} left the job` : people.length;
+          })()}
+          alert={others.some((person) => rosterFor?.(person.name)?.state === "left")}
+        >
           <div className="owner-people">
             {people.map((person) => (
               <PersonCard
@@ -357,6 +368,7 @@ export function OwnerSheet({
                   .sort((a, b) => a.localeCompare(b))}
                 confirm={confirm}
                 run={run}
+                roster={person.id === me.personId ? undefined : rosterFor?.(person.name)}
                 onRename={onRename}
                 onRemove={onRemove}
                 onBlock={onBlock}
@@ -534,7 +546,8 @@ export function OwnerSheet({
 
 /* ---------- one person, and their phones ---------- */
 
-function PersonCard({ person, me, open, onToggle, renameTo, moveTo, confirm, run, onRename, onRemove, onBlock, onRenamePhone, onMovePhone, onRemovePhone }: PhoneActions & {
+function PersonCard({ person, me, open, onToggle, renameTo, moveTo, confirm, run, roster, onRename, onRemove, onBlock, onRenamePhone, onMovePhone, onRemovePhone }: PhoneActions & {
+  roster?: RosterStatus;
   person: PersonSummary;
   me: Me;
   open: boolean;
@@ -562,6 +575,11 @@ function PersonCard({ person, me, open, onToggle, renameTo, moveTo, confirm, run
           <small>
             Since {sinceLabel(person.since)} · {person.devices} {person.devices === 1 ? "phone" : "phones"}
           </small>
+          {roster && roster.state !== "current" && (
+            <small className={`roster-tag roster-${roster.state}`}>
+              {roster.state === "left" ? `${rosterLabel(roster)} · still on the app` : rosterLabel(roster)}
+            </small>
+          )}
         </span>
         <ChevronRight className="owner-card-chevron" aria-hidden="true" />
       </button>

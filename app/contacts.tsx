@@ -1,13 +1,14 @@
 "use client";
 
 import { BookUser, ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
 import { addPeopleToDirectory, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle } from "./sheet-tools";
 import { TeamSendPrompt } from "./share-sheet";
 import type { Team } from "./team";
+import { hasLeft, rosterLabel, type RosterStatus } from "./roster-status";
 import { coolReader, warmReader } from "./ocr-reader";
 import type { ReadProgress } from "./read-progress";
 import {
@@ -39,9 +40,11 @@ const contactPicker = () =>
  * person can also be typed in. Everything stays on this device.
  */
 export function ContactsSheet({
-  workers, contacts, focus, onChange, directory, onDirectoryChange, team, onSendToTeam, onClose,
+  workers, contacts, focus, onChange, directory, onDirectoryChange, team, onSendToTeam, statuses, onClose,
 }: {
   workers: string[];
+  /** New, leaving, or no longer on the schedule (from the imported weeks). */
+  statuses?: Map<string, RosterStatus>;
   contacts: Contacts;
   /** People who aren't on your schedules can go to the Directory instead. */
   directory: DirectoryEntry[];
@@ -69,7 +72,9 @@ export function ContactsSheet({
   const toDirectory = useMemo(() => addPeopleToDirectory(directory, unmatched), [directory, unmatched]);
   const directoryCount = toDirectory.added + toDirectory.updated;
 
-  const sorted = useMemo(() => [...workers].sort((a, b) => a.localeCompare(b)), [workers]);
+  // People who've left go last, under their own heading; their numbers are kept.
+  const sorted = useMemo(() => [...workers].sort((a, b) =>
+    Number(hasLeft(statuses?.get(a))) - Number(hasLeft(statuses?.get(b))) || a.localeCompare(b)), [statuses, workers]);
   const shown = sorted.filter((worker) =>
     !query.trim() || worker.toLowerCase().includes(query.trim().toLowerCase()));
   const saved = workers.filter((worker) => {
@@ -276,11 +281,19 @@ export function ContactsSheet({
 
           {searching && query.trim() && !shown.length && <p className="contacts-notice">Nobody matches that search.</p>}
           <ul className="contacts-list">
-            {shown.map((worker) => {
+            {shown.map((worker, index) => {
               const contact = contacts[contactKey(worker)] ?? {};
+              const status = statuses?.get(worker);
+              const label = rosterLabel(status);
+              const firstLeft = hasLeft(status) && !hasLeft(statuses?.get(shown[index - 1] ?? ""));
               return (
-                <li key={worker}>
-                  <b>{worker}</b>
+                <Fragment key={worker}>
+                {firstLeft && <li className="contacts-left-heading" aria-hidden="true">No longer on the schedule</li>}
+                <li className={hasLeft(status) ? "contact-left" : undefined}>
+                  <b>
+                    {worker}
+                    {label && <small className={`roster-tag roster-${status!.state}`}>{label}</small>}
+                  </b>
                   <label>
                     <Mail aria-hidden="true" />
                     <input
@@ -316,6 +329,7 @@ export function ContactsSheet({
                     />
                   </label>
                 </li>
+                </Fragment>
               );
             })}
           </ul>

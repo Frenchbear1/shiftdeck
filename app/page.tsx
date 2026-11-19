@@ -130,6 +130,7 @@ import {
   withdrawNameRequest,
   type Me,
 } from "./people";
+import { hasLeft, rosterStatuses } from "./roster-status";
 import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type QuickMenuStyle } from "./quick-menu";
 import { ShareSheet, SharedImportSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
@@ -1770,10 +1771,21 @@ export default function HomePage() {
   const swapContacts = useMemo(() => contactsWithDirectory(contacts, contactWorkers, directory),
     [contactWorkers, contacts, directory]);
 
+  // Who's new, leaving or gone, from the weeks imported (never you).
+  const rosterStatus = useMemo(() => {
+    const statuses = rosterStatuses(baseImportedShifts, todayDate);
+    for (const name of statuses.keys()) {
+      if (nameKey(name) === nameKey(prefs.person) || isSameSchedulePerson(name, prefs.person)) statuses.delete(name);
+    }
+    return statuses;
+  }, [baseImportedShifts, prefs.person, todayDate]);
+
   const availableWorkers = useMemo(() => {
-    const names = Array.from(new Set(importedShifts.map((shift) => shift.worker)));
+    // People who've left the schedule aren't offered as names anymore.
+    const names = Array.from(new Set(importedShifts.map((shift) => shift.worker)))
+      .filter((name) => !hasLeft(rosterStatus.get(name)));
     return names.length ? names : prefs.person ? [prefs.person] : [];
-  }, [importedShifts, prefs.person]);
+  }, [importedShifts, prefs.person, rosterStatus]);
 
   const scheduleDates = useMemo(() => [...new Set([
     ...importedDates,
@@ -4279,6 +4291,10 @@ export default function HomePage() {
             await refreshMe();
             return key;
           }}
+          rosterFor={(name) => {
+            const exact = [...rosterStatus].find(([worker]) => nameKey(worker) === nameKey(name));
+            return (exact ?? [...rosterStatus].find(([worker]) => isSameSchedulePerson(worker, name)))?.[1];
+          }}
           learning={liveFlights.live || !liveFlights.checked ? <LearningSetting url={calendarServiceUrl("/api/flights/learning")} /> : undefined}
           onRenamePhone={async (deviceId, label) => {
             await renamePhone(CALENDAR_SERVICE_ORIGIN, deviceId, label);
@@ -4363,6 +4379,7 @@ export default function HomePage() {
       {contactsOpen && (
         <ContactsSheet
           workers={contactWorkers}
+          statuses={rosterStatus}
           contacts={contacts}
           focus={contactsOpen.focus}
           onChange={saveContacts}
