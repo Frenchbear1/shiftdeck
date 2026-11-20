@@ -28,6 +28,8 @@ import {
   runwayFromWind,
   runwayUsed,
   summarize,
+  learningDetail,
+  type DetailFlight,
   withoutOutliers,
 } from "./learning-data";
 import type { LiveFlight } from "./live-flight-data";
@@ -472,15 +474,62 @@ export async function attachLiveEtas(db: CalendarDatabase, flights: LiveFlight[]
   }
 }
 
+/** GET /api/flights/learning/all: every rule (most precise first) and every flight behind them. */
+async function allLearning(request: Request, db: CalendarDatabase) {
+  const rows = await allRows<{
+    id: string; ident: string | null; origin: string | null; aircraft: string | null; runway: string | null; wind_runway: string | null;
+    gate: string | null; checkpoints: string | null; taxi_s: number | null; first_seen_nm: number | null; landed_ts: number | null;
+    sched_on: number | null; created: number; status: string;
+    fa_err30: number | null; fa_err15: number | null; our_err30: number | null; our_err15: number | null;
+  }>(db.prepare(`SELECT id, ident, origin, aircraft, runway, wind_runway, gate, checkpoints, taxi_s, first_seen_nm, landed_ts,
+      sched_on, created, status, fa_err30, fa_err15, our_err30, our_err15
+      FROM learn_flights ORDER BY COALESCE(landed_ts, sched_on, created) DESC LIMIT 800`));
+  const flights: DetailFlight[] = rows.map((row) => {
+    let checkpoints: Record<string, number> = {};
+    try {
+      checkpoints = row.checkpoints ? JSON.parse(row.checkpoints) as Record<string, number> : {};
+    } catch {
+      // Left without.
+    }
+    return {
+      id: row.id, ident: row.ident, origin: row.origin, aircraft: row.aircraft, runway: row.runway, windRunway: row.wind_runway,
+      gate: row.gate, checkpoints, taxiS: row.taxi_s, firstSeenNm: row.first_seen_nm,
+      landedTs: row.landed_ts ?? row.sched_on, status: row.status === "open" ? "open" : "done",
+      faErr30: row.fa_err30, faErr15: row.fa_err15, ourErr30: row.our_err30, ourErr15: row.our_err15,
+    };
+  });
+  return json(request, {
+    rules: learningDetail(flights),
+    flights: flights.map((flight) => ({
+      id: flight.id,
+      ident: flight.ident,
+      origin: flight.origin,
+      at: flight.landedTs ? new Date(flight.landedTs).toISOString() : null,
+      status: flight.status === "open" ? "tracking" : flight.checkpoints && Object.keys(flight.checkpoints).length ? "tracked" : "not seen",
+      aircraft: flight.aircraft,
+      runway: flight.runway,
+      windRunway: flight.windRunway,
+      gate: flight.gate,
+      taxiMin: flight.taxiS ? Math.round((flight.taxiS / 60) * 10) / 10 : null,
+      firstSeenNm: flight.firstSeenNm === null ? null : Math.round(flight.firstSeenNm),
+      at30: flight.checkpoints["30"] ? Math.round((flight.checkpoints["30"] / 60) * 10) / 10 : null,
+      at15: flight.checkpoints["15"] ? Math.round((flight.checkpoints["15"] / 60) * 10) / 10 : null,
+      faErr15: flight.faErr15,
+      ourErr15: flight.ourErr15,
+    })),
+  }, 200, { "Cache-Control": "no-store" });
+}
+
 /** GET /api/flights/learning */
 export async function handleLearningRequest(request: Request, db: CalendarDatabase | undefined) {
   const url = new URL(request.url);
-  if (url.pathname !== "/api/flights/learning") return null;
+  if (url.pathname !== "/api/flights/learning" && url.pathname !== "/api/flights/learning/all") return null;
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(request) as Record<string, string> });
   }
   if (!db) return json(request, { enabled: false });
   await ensureSchema(db);
+  if (url.pathname === "/api/flights/learning/all") return allLearning(request, db);
   const results = await allRows<{ first_seen_nm: number | null; aircraft: string | null; runway: string | null; gate: string | null; taxi_s: number | null; fa_err30: number | null; fa_err15: number | null; our_err30: number | null; our_err15: number | null; landed_ts: number | null; created: number }>(db
     .prepare(
       "SELECT first_seen_nm, aircraft, runway, gate, taxi_s, fa_err30, fa_err15, our_err30, our_err15, landed_ts, created FROM learn_flights WHERE status = 'done'",

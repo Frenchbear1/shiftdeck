@@ -145,15 +145,22 @@ const median = (values: number[]) => {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 };
 
-/** Drop odd balls (outside 1.5× the interquartile range) before averaging. */
-export function withoutOutliers(values: number[]) {
-  if (values.length < 4) return values;
+/** What counts as normal for a set of values: within 1.5× the interquartile range (null: too few to tell). */
+export function outlierBounds(values: number[]): [number, number] | null {
+  if (values.length < 4) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const q = (p: number) => sorted[Math.floor((sorted.length - 1) * p)];
   const low = q(0.25);
   const high = q(0.75);
   const spread = (high - low) * 1.5;
-  return sorted.filter((value) => value >= low - spread && value <= high + spread);
+  return [low - spread, high + spread];
+}
+
+/** Drop odd balls (outside 1.5× the interquartile range) before averaging. */
+export function withoutOutliers(values: number[]) {
+  const bounds = outlierBounds(values);
+  if (!bounds) return values;
+  return [...values].sort((a, b) => a - b).filter((value) => value >= bounds[0] && value <= bounds[1]);
 }
 
 /** Time left to touchdown at a distance, from one history flight (interpolated between checkpoints). */
@@ -307,5 +314,113 @@ export function summarize(flights: FinishedFlight[]) {
         return { family, flights: list.length, ourErr15: typical(errors) };
       })
       .filter((group) => group.flights > 0),
+  };
+}
+
+/* ---------- Everything it learned, for "Show all data" ---------- */
+
+export type DetailFlight = HistoryFlight & {
+  id: string;
+  ident: string | null;
+  landedTs: number | null;
+  status: "done" | "open";
+  firstSeenNm: number | null;
+  windRunway: string | null;
+  faErr30: number | null;
+  faErr15: number | null;
+  ourErr30: number | null;
+  ourErr15: number | null;
+};
+
+/** One rule: the flights it averages, which were left out as odd, and whether it's enough to be used. */
+export type RuleGroup = {
+  label: string;
+  /** Flights with a value for it. */
+  total: number;
+  kept: number;
+  /** Ids of the flights left out as odd (outside the normal range). */
+  filtered: string[];
+  /** Has at least the 3 it needs, so the estimate uses it (else it falls back to the next level). */
+  used: boolean;
+  /** Typical, fastest and slowest of those kept, in minutes. */
+  typical: number | null;
+  low: number | null;
+  high: number | null;
+};
+export type RuleLevel = { level: string; detail: string; groups: RuleGroup[] };
+
+const round1 = (value: number) => Math.round(value * 10) / 10;
+
+function ruleGroup(label: string, entries: Array<{ id: string; value: number }>): RuleGroup {
+  const bounds = outlierBounds(entries.map((entry) => entry.value));
+  const kept = bounds ? entries.filter((entry) => entry.value >= bounds[0] && entry.value <= bounds[1]) : entries;
+  const minutes = kept.map((entry) => entry.value / 60);
+  return {
+    label,
+    total: entries.length,
+    kept: kept.length,
+    filtered: entries.filter((entry) => !kept.includes(entry)).map((entry) => entry.id),
+    used: kept.length >= MIN_HISTORY,
+    typical: minutes.length ? round1(median(minutes)) : null,
+    low: minutes.length ? round1(Math.min(...minutes)) : null,
+    high: minutes.length ? round1(Math.max(...minutes)) : null,
+  };
+}
+
+/** Flights grouped by a key (null key: left out), each group a rule, busiest first. */
+function levelOf(
+  level: string,
+  detail: string,
+  flights: DetailFlight[],
+  keyOf: (flight: DetailFlight) => string | null,
+  valueOf: (flight: DetailFlight) => number | null,
+): RuleLevel {
+  const groups = new Map<string, Array<{ id: string; value: number }>>();
+  for (const flight of flights) {
+    const key = keyOf(flight);
+    const value = valueOf(flight);
+    if (key === null || value === null) continue;
+    groups.set(key, [...(groups.get(key) ?? []), { id: flight.id, value }]);
+  }
+  return {
+    level,
+    detail,
+    groups: [...groups.entries()]
+      .map(([key, entries]) => ruleGroup(key, entries))
+      .sort((a, b) => Number(b.used) - Number(a.used) || b.kept - a.kept || a.label.localeCompare(b.label, undefined, { numeric: true })),
+  };
+}
+
+/**
+ * Every rule the arrival estimate can use, most precise first, the way it
+ * falls back: taxi to the gate (runway and gate → runway → gate → every
+ * flight) and time to touchdown from 30 and 15 nm out (plane type and runway →
+ * type → runway → every flight).
+ */
+export function learningDetail(flights: DetailFlight[]) {
+  const done = flights.filter((flight) => flight.status === "done");
+  const taxi = (flight: DetailFlight) => (typeof flight.taxiS === "number" && flight.taxiS > 0 ? flight.taxiS : null);
+  const rwy = (flight: DetailFlight) => flight.runway ? `Rwy ${flight.runway}` : null;
+  const gateOf = (flight: DetailFlight) => flight.gate ? `Gate ${flight.gate}` : null;
+  const type = (flight: DetailFlight) => aircraftFamily(flight.aircraft);
+  const approach = (nm: number) => (flight: DetailFlight) => timeAt(flight, nm);
+  const approachLevels = (nm: number) => [
+    levelOf("Plane type + runway", `Time to touchdown from ${nm} nm`, done,
+      (flight) => type(flight) && flight.runway ? `${type(flight)} · Rwy ${flight.runway}` : null, approach(nm)),
+    levelOf("Plane type", `Time to touchdown from ${nm} nm`, done, type, approach(nm)),
+    levelOf("Runway", `Time to touchdown from ${nm} nm`, done, rwy, approach(nm)),
+    levelOf("All flights", `Time to touchdown from ${nm} nm`, done, () => "Every flight", approach(nm)),
+  ];
+  return {
+    taxi: [
+      levelOf("Runway + gate", "Taxi from touchdown to the gate", done,
+        (flight) => flight.runway && flight.gate ? `Rwy ${flight.runway} · Gate ${flight.gate}` : null, taxi),
+      levelOf("Runway", "Taxi from touchdown to the gate", done, rwy, taxi),
+      levelOf("Gate", "Taxi from touchdown to the gate", done, gateOf, taxi),
+      levelOf("All flights", "Taxi from touchdown to the gate", done, () => "Every flight", taxi),
+    ],
+    approach30: approachLevels(30),
+    approach15: approachLevels(15),
+    needs: MIN_HISTORY,
   };
 }

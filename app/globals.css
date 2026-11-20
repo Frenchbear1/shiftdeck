@@ -11690,3 +11690,192 @@ html[data-menu="bottom"] .toast {
   border-color: color-mix(in srgb, var(--blue) 55%, var(--line));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 14%, transparent);
 }
+
+/* ---------- Flight learning: all the data ---------- */
+.learning-all {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+.learning-sheet .sheet-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.learning-sheet .sheet-scroll > * {
+  flex: none;
+}
+
+.learning-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.learning-loading svg {
+  width: 16px;
+  height: 16px;
+}
+
+.learning-rule {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.learning-legend {
+  display: grid;
+  gap: 8px;
+}
+
+.learning-legend small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.learning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.learning-level {
+  display: grid;
+  gap: 6px;
+}
+
+.learning-level > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.learning-level > header b {
+  font-size: 14px;
+}
+
+.learning-level > header small,
+.learning-empty {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.learning-level > ul,
+.learning-flights {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.learning-level > ul > li,
+.learning-flights > li {
+  display: grid;
+  gap: 4px;
+  padding: 9px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.learning-level > ul > li.used {
+  border-color: color-mix(in srgb, var(--green, #2f9e5b) 45%, var(--line));
+}
+
+.learning-group-head,
+.learning-flight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.learning-group-head b,
+.learning-flight-head b {
+  font-size: 13.5px;
+}
+
+.learning-flight-head small {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.learning-badge {
+  padding: 2px 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.learning-badge.on {
+  color: var(--green, #2f9e5b);
+  background: color-mix(in srgb, var(--green, #2f9e5b) 14%, transparent);
+}
+
+.learning-group-stats,
+.learning-flight-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.learning-group-stats b {
+  color: var(--text);
+}
+
+.learning-filtered {
+  margin: 2px 0 0;
+  padding: 6px 0 0 12px;
+  color: var(--amber, #b7791f);
+  border-top: 1px dashed var(--line);
+  font-size: 12px;
+}
+
+.learning-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.learning-filters button {
+  padding: 6px 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.learning-filters button.on {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.learning-flights > li.filtered {
+  border-color: color-mix(in srgb, var(--amber, #b7791f) 50%, var(--line));
+}
+
+.learning-flights > li.quiet {
+  opacity: .75;
+}
+
+.learning-left {
+  color: var(--amber, #b7791f);
+  font-size: 11.5px;
+}

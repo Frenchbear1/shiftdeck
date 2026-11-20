@@ -3,6 +3,8 @@
 import { Flip } from "./flip";
 import { ChevronDown } from "lucide-react";
 import { ReactNode, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { LearningDataSheet } from "./learning-data-sheet";
 import type { LiveStatus } from "./live-flights";
 
 /** One-line summary that expands to the full card when tapped. */
@@ -158,6 +160,7 @@ export function SettingPlaceholder({ title }: { title: string }) {
 /** What the flight-learning worker has figured out so far, shown in Settings. */
 export function LearningSetting({ url }: { url: string }) {
   const [, rerender] = useState(0);
+  const [allOpen, setAllOpen] = useState(false);
   useEffect(() => {
     const listener = () => rerender((count) => count + 1);
     listeners.add(listener);
@@ -245,6 +248,10 @@ export function LearningSetting({ url }: { url: string }) {
         </>
       )}
       <small>Storage ~{results.storageKb} KB · odd flights cleared after 90 days</small>
+      <button type="button" className="button soft learning-all" onClick={() => setAllOpen(true)}>
+        Show all data
+      </button>
+      {allOpen && createPortal(<LearningDataSheet url={`${url}/all`} onClose={() => setAllOpen(false)} />, document.body)}
     </Collapsible>
   );
 }

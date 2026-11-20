@@ -139,3 +139,30 @@ test("a runway's taxi distance comes before a gate's average", () => {
   // Gate 8 has only come in off runway 24; off runway 6 it's runway 6's long taxi.
   assert.equal((estimate.gateTs - estimate.landingTs) / 1000, 540);
 });
+
+test("all the data: each rule level, most precise first, with what's used and what's filtered out", async () => {
+  const { learningDetail } = await import("../worker/learning-data.ts");
+  const flight = (id, runway, gate, taxiMin, aircraft = "A320") => ({
+    id, ident: "AAY1", landedTs: 0, status: "done", firstSeenNm: 60, windRunway: null,
+    faErr30: null, faErr15: null, ourErr30: null, ourErr15: null, origin: "SFB", aircraft, runway, gate,
+    checkpoints: { 15: 360, 30: 660 }, taxiS: taxiMin * 60,
+  });
+  const flights = [
+    flight("a", "6", "3", 6), flight("b", "6", "3", 6.5), flight("c", "6", "3", 7), flight("d", "6", "3", 30), // d: way off
+    flight("e", "24", "3", 4), flight("f", "24", "5", 4.5, "B738"),
+  ];
+  const detail = learningDetail(flights);
+  assert.deepEqual(detail.taxi.map((level) => level.level), ["Runway + gate", "Runway", "Gate", "All flights"]);
+  const r6g3 = detail.taxi[0].groups.find((group) => group.label === "Rwy 6 · Gate 3");
+  assert.equal(r6g3.total, 4);
+  assert.equal(r6g3.kept, 3);
+  assert.deepEqual(r6g3.filtered, ["d"]);
+  assert.equal(r6g3.used, true);
+  assert.equal(r6g3.typical, 6.5);
+  // Too few on Rwy 24 at gate 3: shown, but the estimate falls back.
+  assert.equal(detail.taxi[0].groups.find((group) => group.label === "Rwy 24 · Gate 3").used, false);
+  // Used ones come first in a level.
+  assert.equal(detail.taxi[0].groups[0].used, true);
+  assert.equal(detail.approach15[0].groups.find((group) => group.label === "A320 · Rwy 6").typical, 6);
+  assert.equal(detail.approach30[3].groups[0].total, 6);
+});
