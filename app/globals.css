@@ -11034,8 +11034,7 @@ html {
   height: 36px;
   color: var(--blue);
   background: none;
-  border: 1px dashed color-mix(in srgb, var(--blue) 40%, var(--line));
-  border-radius: 11px;
+  border: 0;
   font: inherit;
   font-size: 13px;
   font-weight: 700;
