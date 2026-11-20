@@ -151,3 +151,28 @@ test("shows ABE flights before 5 AM under the prior workday with their actual fl
   const imported = { ...saturday[0], source: "schedule" };
   assert.equal(addAbeBoardFlights([imported], "2026-11-14", live).length, 1);
 });
+
+test("our tracking beats an early \"Arrived\" on the airport board (G4 174, Nov 19)", () => {
+  const board = {
+    id: "abe-arrival-G4174-2026-11-19", airportBoardId: "abe-arrival-G4174-2026-11-19",
+    ident: "G4174", kind: "arrival", other: ["SFB", "KSFB"],
+    scheduled: "2026-11-20T03:08:00Z", estimated: "2026-11-20T03:18:00Z", estimatedOn: "2026-11-20T03:08:00Z",
+    status: "Arrived", cancelled: false, done: true, gate: "12",
+  };
+  const flight = { id: "f", date: "2026-11-19", period: "Evening", kind: "arrival", raw: "", origin: "SFB", inboundAirport: "SFB", arrival: "22:08", start: "22:08", trackingId: "G4174" };
+  const at = (patch) => matchLiveFlight(flight, "22:08", { updatedAt: "", airportBoardUpdatedAt: "x", flights: [{ ...board, ...patch }] });
+
+  // Still in the air on our tracking: our time, not the board's 10:18.
+  const flying = at({ liveEta: { landing: "2026-11-20T03:33:00Z", gate: "2026-11-20T03:40:00Z", distanceNm: 6, seenAt: "", method: "history" } });
+  assert.equal(flying.time, "22:40");
+  assert.equal(flying.label, "6 nm out");
+  assert.equal(flying.live.done, false);
+
+  // Down at 10:33 (seen by our tracking): never shown earlier than that.
+  assert.equal(at({ landedAt: "2026-11-20T03:33:00Z" }).time, "22:33");
+  assert.equal(at({ landedAt: "2026-11-20T03:33:00Z", atGateAt: "2026-11-20T03:41:00Z" }).time, "22:41");
+  // Landing time setting: the touchdown.
+  assert.equal(matchLiveFlight(flight, "22:08", { updatedAt: "", flights: [{ ...board, landedAt: "2026-11-20T03:33:00Z" }] }, "landing").time, "22:33");
+  // The board alone (we never saw it): its time, as before.
+  assert.equal(at({}).time, "22:18");
+});

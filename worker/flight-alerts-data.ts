@@ -88,8 +88,10 @@ export function flightKey(flight: LiveFlight, timezone = "America/New_York") {
   return `${flight.ident.replace(/^AAY/, "G4")}-${flight.kind}-${day}`;
 }
 
+/** Down: a touchdown seen, or the board's "Arrived" (unless our tracking still has it flying). */
 export const isLanded = (flight: LiveFlight) =>
-  Boolean(flight.landedAt || flight.atGateAt) || (flight.kind === "arrival" && Boolean(flight.done) && !flight.cancelled);
+  Boolean(flight.landedAt || flight.atGateAt) ||
+  (flight.kind === "arrival" && Boolean(flight.done) && !flight.cancelled && !flight.liveEta);
 
 /**
  * The alerts a flight calls for right now, given what was already sent for it

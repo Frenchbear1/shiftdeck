@@ -444,11 +444,20 @@ export async function attachLiveEtas(db: CalendarDatabase, flights: LiveFlight[]
       )
       .bind(now - LIVE_FRESH));
     const byId = new Map(results.map((row) => [row.id, row]));
+    // When we saw it touch down (ADS-B, or FlightAware's time), for the last few hours.
+    const landings = await allRows<{ id: string; landed_ts: number }>(db
+      .prepare("SELECT id, landed_ts FROM learn_flights WHERE landed_ts IS NOT NULL AND landed_ts >= ?")
+      .bind(now - 4 * 3_600_000));
+    const landedById = new Map(landings.map((row) => [row.id, row.landed_ts]));
     return flights.map((flight) => {
+      const landedTs = landedById.get(flight.id);
+      const withLanding = landedTs && !flight.landedAt ? { ...flight, landedAt: new Date(landedTs).toISOString() } : flight;
       const row = byId.get(flight.id);
-      if (!row || !row.our_landing || !row.our_gate || flight.done) return flight;
+      // Still in the air on our tracking (seen in the last 3 minutes, not on the ground):
+      // that wins over the airport board, which sometimes says "Arrived" early.
+      if (!row || !row.our_landing || !row.our_gate || landedTs) return withLanding;
       return {
-        ...flight,
+        ...withLanding,
         liveEta: {
           landing: new Date(row.our_landing).toISOString(),
           gate: new Date(row.our_gate).toISOString(),

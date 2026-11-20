@@ -243,10 +243,18 @@ export function matchLiveFlight(
   }
   if (!best) return null;
 
-  const match = best.live;
-  // Our tracked estimate is newer than FlightAware's between refreshes.
-  const tracked = match.kind === "arrival" && !match.done && !match.cancelled ? match.liveEta ?? null : null;
-  const current = new Date(tracked?.gate ?? match.estimated ?? match.scheduled ?? "");
+  const found = best.live;
+  // Our tracked estimate is newer than FlightAware's between refreshes, and it means
+  // the plane is still in the air: then it isn't done, whatever the airport board says.
+  const tracked = found.kind === "arrival" && !found.cancelled ? found.liveEta ?? null : null;
+  const match = tracked && found.done ? { ...found, done: false, status: "En Route" } : found;
+  // Once down, nothing shows earlier than the touchdown (the board can be early).
+  const landedAt = match.kind === "arrival" && match.done ? Date.parse(match.landedAt ?? "") : NaN;
+  const boardTime = Date.parse(match.estimated ?? match.scheduled ?? "");
+  const arrivedAt = Number.isFinite(landedAt)
+    ? Date.parse(match.atGateAt ?? "") || Math.max(boardTime || 0, landedAt)
+    : NaN;
+  const current = new Date(tracked?.gate ?? (Number.isFinite(arrivedAt) ? new Date(arrivedAt).toISOString() : null) ?? match.estimated ?? match.scheduled ?? "");
   const delay = Math.round(
     (current.getTime() - Date.parse(match.scheduled ?? "")) / 60_000,
   );
@@ -264,11 +272,14 @@ export function matchLiveFlight(
         ? match.status.replace(/\s*\/.*$/, "")
         : null;
   // Delays stay against the gate schedule; only the time shown follows the setting.
-  const landing = match.kind === "arrival" && timeMode === "landing" && !match.done && !match.cancelled
-    ? new Date(tracked?.landing ?? match.estimatedOn ?? current.toISOString())
-    : null;
+  const landing = match.kind !== "arrival" || timeMode !== "landing" || match.cancelled
+    ? null
+    : !match.done
+      ? new Date(tracked?.landing ?? match.estimatedOn ?? current.toISOString())
+      : Number.isFinite(landedAt) ? new Date(landedAt) : null;
   const shown = landing && Number.isFinite(landing.getTime()) ? landing : current;
-  const time = match.airportBoardId && !landing ? abeClock.format(shown).slice(-5) : clockOf(shown);
+  // Airport board flights read in ABE's time zone, whatever the device's is.
+  const time = match.airportBoardId ? abeClock.format(shown).slice(-5) : clockOf(shown);
   return { live: match, time, delay, label, tracked };
 }
 
