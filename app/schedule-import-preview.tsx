@@ -112,13 +112,15 @@ export function ScanOverlay({
 }
 
 export function ScheduleImportPreview({
-  file, count, snapshot, matchesWorker, onClose, personChoices, onChoosePerson,
+  file, count, snapshot, matchesWorker, onClose, waiting, personChoices, onChoosePerson,
 }: {
   file: ImportPreviewFile | null;
   count: number;
   snapshot: ImportSnapshot;
   matchesWorker: (name: string) => boolean;
   onClose: () => void;
+  /** The photo's been picked but the phone hasn't handed it over yet. */
+  waiting?: boolean;
   /** Names read from the photo when this device doesn't know yours yet. */
   personChoices?: string[] | null;
   onChoosePerson?: (name: string | null) => void;
@@ -204,7 +206,7 @@ export function ScheduleImportPreview({
         {(!frames || (source && failedSource === source)) && (
           <div className="scan-photo-placeholder" role="status">
             {file?.pdf ? <FileText /> : <FileImage />}
-            <span>{failedSource === source && source ? "Preview unavailable" : "Opening preview…"}</span>
+            <span>{failedSource === source && source ? "Preview unavailable" : waiting ? "Getting your photo…" : "Opening preview…"}</span>
           </div>
         )}
         {[frames?.previous, frames?.current].map((frame) => frame && (

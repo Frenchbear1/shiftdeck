@@ -1156,6 +1156,10 @@ export default function HomePage() {
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
   const notificationsBackdrop = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Choosing a photo: the scan popup opens at the tap, behind the picker, so the moment the
+  // picker closes there's "Getting your photo…" on screen. (An iPhone converts the photo
+  // before handing it over, which can take a second or two of nothing otherwise.)
+  const [awaitingPhoto, setAwaitingPhoto] = useState(false);
   // Android's picker hides the gallery and camera when PDFs are also allowed,
   // so it only offers photos there.
   const android = useSyncExternalStore(subscribeToNothing, isAndroid, () => false);
@@ -3221,8 +3225,22 @@ export default function HomePage() {
   }, [vaultTick, vaultPersonId, serverVault, teamKey, clockData, prefs, nameMerges, dismissedMerges, contacts, shiftEdits]);
 
   const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
-    void processFiles(Array.from(event.target.files ?? []));
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
+    void processFiles(files).finally(() => setAwaitingPhoto(false));
+    if (!files.length) setAwaitingPhoto(false);
+  };
+  // The picker closed with nothing picked (React doesn't pass a file input's cancel along).
+  useEffect(() => {
+    const input = fileInput.current;
+    if (!input) return;
+    const cancelled = () => setAwaitingPhoto(false);
+    input.addEventListener("cancel", cancelled);
+    return () => input.removeEventListener("cancel", cancelled);
+  }, [sheet]);
+  const choosePhotos = () => {
+    setAwaitingPhoto(true);
+    fileInput.current?.click();
   };
 
   const removeScheduleDocument = async (document: ScheduleDocument) => {
@@ -3694,7 +3712,7 @@ export default function HomePage() {
           onChange={onFiles}
           aria-label={android ? "Upload schedule photos" : "Upload schedule files"}
         />
-        <button className="upload-inner" onClick={() => fileInput.current?.click()}>
+        <button className="upload-inner" onClick={choosePhotos}>
           <span className="upload-icon"><Upload /></span>
           <h2>{dragActive ? "Drop to import" : android ? "Add schedule photos" : "Add schedule files"}</h2>
           <p>{android ? "Tap to choose from your gallery or camera" : "Tap to choose, or drop them here"}</p>
@@ -4229,20 +4247,24 @@ export default function HomePage() {
         ]}
       />
 
-      {sheet === "import" && (importState === "reading" ? (
+      {/* The Import sheet stays while a photo's on its way: its file input is what receives it. */}
+      {sheet === "import" && importState !== "reading" && renderImportSheet()}
+      {sheet === "import" && (importState === "reading" || awaitingPhoto) && (
         <ScheduleImportPreview
-          file={scanFile}
-          count={loadedFiles.length}
-          snapshot={importSnapshot}
+          file={importState === "reading" ? scanFile : null}
+          count={importState === "reading" ? loadedFiles.length : 1}
+          snapshot={importState === "reading" ? importSnapshot : { progress: 0, stage: 0, detail: "Getting your photo…" }}
+          waiting={importState !== "reading"}
           onClose={() => {
             personPrompt?.resolve(null);
-            closeSheet();
+            setAwaitingPhoto(false);
+            if (importState === "reading") closeSheet();
           }}
           matchesWorker={matchesScanWorker}
           personChoices={personPrompt?.names ?? null}
           onChoosePerson={(name) => personPrompt?.resolve(name)}
         />
-      ) : renderImportSheet())}
+      )}
       {viewedDocument && (
         <ScheduleFileViewer
           id={viewedDocument.id}
