@@ -805,8 +805,29 @@ export default function HomePage() {
     setClockData(next);
     saveClock(next);
   };
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpenState] = useState(false);
+  const [notificationsOpen, setNotificationsOpenState] = useState(false);
+  // What's changed in Settings or Alerts but not saved yet: nothing applies until Save
+  // (closing without it drops them). Opening or closing either one starts clean.
+  const [prefsDraft, setPrefsDraft] = useState<{ sheet: "settings" | "alerts"; patch: Partial<Preferences> } | null>(null);
+  const setSettingsOpen = (open: boolean) => {
+    setSettingsOpenState(open);
+    setPrefsDraft(null);
+  };
+  const setNotificationsOpen = (open: boolean) => {
+    setNotificationsOpenState(open);
+    setPrefsDraft(null);
+  };
+  const editDraft = (sheet: "settings" | "alerts") => (patch: Partial<Preferences>) =>
+    setPrefsDraft((current) => ({ sheet, patch: { ...(current?.sheet === sheet ? current.patch : {}), ...patch } }));
+  const alertPrefs: Preferences = prefsDraft?.sheet === "alerts" ? { ...prefs, ...prefsDraft.patch } : prefs;
+  const settingsPrefs: Preferences = prefsDraft?.sheet === "settings" ? { ...prefs, ...prefsDraft.patch } : prefs;
+  const editAlerts = editDraft("alerts");
+  const editSettings = editDraft("settings");
+  /** Saves what was changed in that sheet. */
+  const commitDraft = (sheet: "settings" | "alerts") => {
+    if (prefsDraft?.sheet === sheet) savePrefs(prefsDraft.patch);
+  };
   const [nameMergeOpen, setNameMergeOpen] = useState(false);
   // Coworker emails/numbers live only in this device's storage.
   const [contacts, setContacts] = useState<Contacts>({});
@@ -1430,7 +1451,7 @@ export default function HomePage() {
   }, [prefs, hydrated]);
 
   useEffect(() => {
-    const query = prefs.location.trim();
+    const query = alertPrefs.location.trim();
     if (!notificationsOpen || !placeMenuOpen || query.length < 3) {
       return;
     }
@@ -1471,7 +1492,7 @@ export default function HomePage() {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [notificationsOpen, placeMenuOpen, prefs.location]);
+  }, [notificationsOpen, placeMenuOpen, alertPrefs.location]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -2382,37 +2403,37 @@ export default function HomePage() {
     unit: number,
   ) => {
     const minutes = Math.max(0, Math.min(10080, Math.round(amount * unit)));
-    savePrefs({
-      alerts: prefs.alerts.map((current, alertIndex) =>
+    editAlerts({
+      alerts: alertPrefs.alerts.map((current, alertIndex) =>
         alertIndex === index ? minutes : current,
       ),
     });
   };
 
   const addNotificationAlert = () => {
-    if (prefs.alerts.length >= 12) {
+    if (alertPrefs.alerts.length >= 12) {
       setToast("You can add up to 12 alerts per shift");
       return;
     }
     const next = [30, 60, 120, 1440, 15, 0].find(
-      (minutes) => !prefs.alerts.includes(minutes),
+      (minutes) => !alertPrefs.alerts.includes(minutes),
     );
-    savePrefs({ alerts: [...prefs.alerts, next ?? 30] });
+    editAlerts({ alerts: [...alertPrefs.alerts, next ?? 30] });
   };
 
   const removeNotificationAlert = (index: number) => {
-    if (prefs.alerts.length === 1) return;
-    savePrefs({
-      alerts: prefs.alerts.filter((_, alertIndex) => alertIndex !== index),
+    if (alertPrefs.alerts.length === 1) return;
+    editAlerts({
+      alerts: alertPrefs.alerts.filter((_, alertIndex) => alertIndex !== index),
     });
   };
 
   const updateCoordinateDraft = (value: string) => {
     setCoordinateDraft(value);
     const coordinate = parseCoordinatePair(value);
-    savePrefs({
+    editAlerts({
       location:
-        coordinate && !prefs.location.trim() ? "Pinned location" : prefs.location,
+        coordinate && !alertPrefs.location.trim() ? "Pinned location" : alertPrefs.location,
       locationLat: coordinate?.latitude ?? null,
       locationLon: coordinate?.longitude ?? null,
     });
@@ -4231,16 +4252,13 @@ export default function HomePage() {
               </div>
               <SheetClose
                 className=""
-                watch={[prefs.title, prefs.location, prefs.locationLat, prefs.locationLon, prefs.alerts, prefs.flightAlerts]}
+                watch={[alertPrefs.title, alertPrefs.location, alertPrefs.locationLat, alertPrefs.locationLon, alertPrefs.alerts, alertPrefs.flightAlerts]}
                 label="Close alerts"
-                saving={notificationSyncState === "syncing"}
                 onClose={() => setNotificationsOpen(false)}
                 onSave={() => {
-                  if (notificationProfile) void saveNotificationSettings();
-                  else {
-                    setNotificationsOpen(false);
-                    setToast("Saved");
-                  }
+                  commitDraft("alerts");
+                  setNotificationsOpen(false);
+                  setToast(notificationProfile ? "Alerts saved" : "Saved");
                 }}
               />
             </header>
@@ -4283,18 +4301,18 @@ export default function HomePage() {
               icon={BriefcaseBusiness}
               title="Shift details"
               className="notify-group"
-              summary={[prefs.title.trim() || "Work", prefs.location.trim().split(",")[0]].filter(Boolean).join(" · ")}
+              summary={[alertPrefs.title.trim() || "Work", alertPrefs.location.trim().split(",")[0]].filter(Boolean).join(" · ")}
             >
             <div className="export-fields notify-card">
               <label>
                 <span>Default job title</span>
-                <input value={prefs.title} onChange={(event) => savePrefs({ title: event.target.value })} placeholder="Work" />
+                <input value={alertPrefs.title} onChange={(event) => editAlerts({ title: event.target.value })} placeholder="Work" />
                 <small>Used for imported shifts unless you rename one.</small>
               </label>
               <label className="place-field">
                 <span>Location</span>
                 <input
-                  value={prefs.location}
+                  value={alertPrefs.location}
                   onChange={(event) => {
                     const coordinate = parseCoordinatePair(event.target.value);
                     if (coordinate) {
@@ -4305,7 +4323,7 @@ export default function HomePage() {
                         ),
                       );
                       setCoordinatesOpen(true);
-                      savePrefs({
+                      editAlerts({
                         location: "Pinned location",
                         locationLat: coordinate.latitude,
                         locationLon: coordinate.longitude,
@@ -4314,7 +4332,7 @@ export default function HomePage() {
                       setPlaceMenuOpen(false);
                       return;
                     }
-                    savePrefs({
+                    editAlerts({
                       location: event.target.value,
                       locationLat: null,
                       locationLon: null,
@@ -4334,7 +4352,7 @@ export default function HomePage() {
                   aria-expanded={placeMenuOpen && placeSuggestions.length > 0}
                   aria-controls="calendar-place-suggestions"
                 />
-                {placeMenuOpen && prefs.location.trim().length >= 3 && (
+                {placeMenuOpen && alertPrefs.location.trim().length >= 3 && (
                   <div
                     className="place-suggestions"
                     id="calendar-place-suggestions"
@@ -4351,7 +4369,7 @@ export default function HomePage() {
                           aria-selected="false"
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => {
-                            savePrefs({
+                            editAlerts({
                               location: suggestion.label,
                               locationLat: suggestion.latitude,
                               locationLon: suggestion.longitude,
@@ -4384,15 +4402,15 @@ export default function HomePage() {
                     </small>
                   </div>
                 )}
-                {prefs.location &&
-                  Number.isFinite(prefs.locationLat) &&
-                  Number.isFinite(prefs.locationLon) && (
+                {alertPrefs.location &&
+                  Number.isFinite(alertPrefs.locationLat) &&
+                  Number.isFinite(alertPrefs.locationLon) && (
                     <small className="place-selected">
                       <MapPin />
                       Map pin attached ·{" "}
                       {formatAppleCoordinates(
-                        prefs.locationLat!,
-                        prefs.locationLon!,
+                        alertPrefs.locationLat!,
+                        alertPrefs.locationLon!,
                       )}
                     </small>
                   )}
@@ -4406,11 +4424,11 @@ export default function HomePage() {
                       const next = !current;
                       if (next) {
                         setCoordinateDraft(
-                          typeof prefs.locationLat === "number" &&
-                            typeof prefs.locationLon === "number"
+                          typeof alertPrefs.locationLat === "number" &&
+                            typeof alertPrefs.locationLon === "number"
                             ? formatAppleCoordinates(
-                                prefs.locationLat,
-                                prefs.locationLon,
+                                alertPrefs.locationLat,
+                                alertPrefs.locationLon,
                               )
                             : "",
                         );
@@ -4424,7 +4442,7 @@ export default function HomePage() {
                 </button>
                 {hasStructuredCalendarPlace && (
                   <a
-                    href={`https://maps.apple.com/?ll=${prefs.locationLat},${prefs.locationLon}&q=${encodeURIComponent(prefs.location.trim())}`}
+                    href={`https://maps.apple.com/?ll=${alertPrefs.locationLat},${alertPrefs.locationLon}&q=${encodeURIComponent(alertPrefs.location.trim())}`}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -4441,7 +4459,7 @@ export default function HomePage() {
                         type="button"
                         onClick={() => {
                           setCoordinateDraft("");
-                          savePrefs({
+                          editAlerts({
                             locationLat: null,
                             locationLon: null,
                           });
@@ -4472,10 +4490,10 @@ export default function HomePage() {
               title="Shift reminders"
               className="notify-group"
               defaultOpen={!notificationProfile}
-              summary={reminderSummary(prefs.alerts)}
+              summary={reminderSummary(alertPrefs.alerts)}
             >
             <div className="notify-card notify-alerts">
-              {prefs.alerts.map((minutes, index) => {
+              {alertPrefs.alerts.map((minutes, index) => {
                 const unit = alertUnitFor(minutes);
                 return (
                   <div className="notify-alert" key={`alert-${index}`}>
@@ -4512,7 +4530,7 @@ export default function HomePage() {
                       type="button"
                       className="notify-remove"
                       aria-label={`Remove alert ${index + 1}`}
-                      disabled={prefs.alerts.length === 1}
+                      disabled={alertPrefs.alerts.length === 1}
                       onClick={() => removeNotificationAlert(index)}
                     >
                       <X />
@@ -4528,13 +4546,13 @@ export default function HomePage() {
                   { minutes: 120, label: "2 hr" },
                   { minutes: 1440, label: "1 day" },
                 ]
-                  .filter((preset) => !prefs.alerts.includes(preset.minutes))
+                  .filter((preset) => !alertPrefs.alerts.includes(preset.minutes))
                   .map((preset) => (
                     <button
                       type="button"
                       key={preset.minutes}
-                      disabled={prefs.alerts.length >= 12}
-                      onClick={() => savePrefs({ alerts: [...prefs.alerts, preset.minutes] })}
+                      disabled={alertPrefs.alerts.length >= 12}
+                      onClick={() => editAlerts({ alerts: [...alertPrefs.alerts, preset.minutes] })}
                     >
                       <Plus /> {preset.label}
                     </button>
@@ -4542,18 +4560,18 @@ export default function HomePage() {
                 <button
                   type="button"
                   className="custom"
-                  disabled={prefs.alerts.length >= 12}
+                  disabled={alertPrefs.alerts.length >= 12}
                   onClick={addNotificationAlert}
                 >
                   <Plus /> Custom
                 </button>
               </div>
-              <small className="notify-count">{prefs.alerts.length} of 12 alerts</small>
+              <small className="notify-count">{alertPrefs.alerts.length} of 12 alerts</small>
             </div>
             </Disclosure>
 
-            <Disclosure icon={Plane} title="Flight alerts" className="notify-group" summary={flightAlertSummary(prefs.flightAlerts)}>
-              <FlightAlertSettings bare value={prefs.flightAlerts} onChange={(flightAlerts) => savePrefs({ flightAlerts })} />
+            <Disclosure icon={Plane} title="Flight alerts" className="notify-group" summary={flightAlertSummary(alertPrefs.flightAlerts)}>
+              <FlightAlertSettings bare value={alertPrefs.flightAlerts} onChange={(flightAlerts) => editAlerts({ flightAlerts })} />
             </Disclosure>
 
             {notificationProfile && (
@@ -4571,7 +4589,10 @@ export default function HomePage() {
             <footer className="sheet-foot">
             <button
               className="button primary"
-              onClick={() => void saveNotificationSettings()}
+              onClick={() => {
+                commitDraft("alerts");
+                void saveNotificationSettings();
+              }}
               disabled={notificationSyncState === "syncing"}
             >
               {notificationProfile ? <Check /> : <Bell />}
@@ -4605,10 +4626,11 @@ export default function HomePage() {
                 </button>
                 <SheetClose
                   className=""
-                  watch={prefs}
+                  watch={settingsPrefs}
                   label="Close settings"
                   onClose={() => setSettingsOpen(false)}
                   onSave={() => {
+                    commitDraft("settings");
                     setSettingsOpen(false);
                     setToast(me ? "Saved · on your other devices too" : "Preferences saved on this device");
                   }}
@@ -4674,15 +4696,15 @@ export default function HomePage() {
             <div className="theme-setting compact">
               <span>Flight app</span>
               <div role="group" aria-label="Open flights in">
-                <button className={prefs.flightApp === "flightaware" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightaware" })}>FlightAware</button>
-                <button className={prefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightradar24" })}>Flightradar24</button>
+                <button className={settingsPrefs.flightApp === "flightaware" ? "active" : ""} onClick={() => editSettings({ flightApp: "flightaware" })}>FlightAware</button>
+                <button className={settingsPrefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => editSettings({ flightApp: "flightradar24" })}>Flightradar24</button>
               </div>
             </div>
             <div className="theme-setting compact">
               <span>Arrival time</span>
               <div role="group" aria-label="Arrival time shown in Flights">
-                <button className={prefs.flightTime === "landing" ? "active" : ""} onClick={() => savePrefs({ flightTime: "landing" })}>Landing</button>
-                <button className={prefs.flightTime !== "landing" ? "active" : ""} onClick={() => savePrefs({ flightTime: "gate" })}>At gate</button>
+                <button className={settingsPrefs.flightTime === "landing" ? "active" : ""} onClick={() => editSettings({ flightTime: "landing" })}>Landing</button>
+                <button className={settingsPrefs.flightTime !== "landing" ? "active" : ""} onClick={() => editSettings({ flightTime: "gate" })}>At gate</button>
               </div>
             </div>
             <HomeOrderRow order={homeOrder} onChange={saveHomeOrder} />
