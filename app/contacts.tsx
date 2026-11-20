@@ -1,11 +1,11 @@
 "use client";
 
-import { BookUser, ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search } from "lucide-react";
+import { BookUser, ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Phone, Search } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { backdropClose } from "./home-sections";
-import { addPeopleToDirectory, type DirectoryEntry } from "./directory-data";
+import { createPortal } from "react-dom";
+import { addPeopleToDirectory, callLink, findPerson, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
-import { AddMenu, SearchToggle, SheetClose } from "./sheet-tools";
+import { AddMenu, SearchToggle } from "./sheet-tools";
 import { TeamSendPrompt } from "./share-sheet";
 import type { Team } from "./team";
 import { rosterLabel, type RosterStatus } from "./roster-status";
@@ -39,9 +39,11 @@ const contactPicker = () =>
  * list or picking several people from the phone's contacts at once; each
  * person can also be typed in. Saved on this device and, encrypted, on your own other devices.
  */
-export function ContactsSheet({
-  workers, contacts, focus, onChange, directory, onDirectoryChange, team, onSendToTeam, statuses, onClose,
+export function CoworkersPane({
+  tools, workers, contacts, focus, onChange, directory, onDirectoryChange, team, onSendToTeam, statuses,
 }: {
+  /** Where this pane's search and + go (the popup's header). */
+  tools: HTMLElement | null;
   workers: string[];
   /** New, leaving, or no longer on the schedule (from the imported weeks). */
   statuses?: Map<string, RosterStatus>;
@@ -55,7 +57,6 @@ export function ContactsSheet({
   /** Opened from a swap match: show just this person first. */
   focus?: string;
   onChange: (contacts: Contacts) => void;
-  onClose: () => void;
 }) {
   const [query, setQuery] = useState(focus ?? "");
   const [offerTeam, setOfferTeam] = useState(0);
@@ -108,52 +109,52 @@ export function ContactsSheet({
   };
 
   return (
-    <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
-      <section className="panel-sheet contacts-sheet" role="dialog" aria-modal="true" aria-label="Coworker contacts">
-        <header className="sheet-head sheet-head-tools">
-          <h2>
-            Coworker contacts
-            {workers.length > 0 && <small aria-label={`${saved} of ${workers.length} saved`}>{saved}/{workers.length}</small>}
-          </h2>
-          <div className="sheet-tools">
-            <SearchToggle
-              open={searching}
-              label="Search coworkers"
-              onToggle={() => {
-                if (searching) setQuery("");
-                setSearching(!searching);
-              }}
-            />
-            <AddMenu
-              label="Add emails and numbers"
-                onOpen={() => void warmReader().catch(() => undefined)}
-              busy={Boolean(reading)}
-              note="Member list screenshots (like an Outlook group) work: each name with its email below. Read on this device; saved here and, encrypted, on your other devices."
-              items={[
-                ...(picker ? [{
-                  icon: ContactIcon,
-                  label: "Pick from contacts",
-                  onSelect: async () => {
-                    try {
-                      const picked = await picker.select(["name", "email", "tel"], { multiple: true });
-                      addEntries(picked.map((person) => ({
-                        name: person.name?.[0] ?? "",
-                        email: tidyEmail(person.email?.[0] ?? "") || undefined,
-                        phone: tidyPhone(person.tel?.[0] ?? "") || undefined,
-                      })).filter((entry) => entry.email || entry.phone));
-                    } catch {
-                      setNotice("Contacts couldn’t be opened. Paste a list instead.");
-                    }
-                  },
-                }] : []),
-                { icon: ImageIcon, label: "Screenshots", onSelect: () => screenshotInput.current?.click() },
-                { icon: ClipboardPaste, label: "Paste a list", onSelect: () => setPasting(true) },
-              ]}
-            />
-            <SheetClose watch={contacts} label="Close coworker contacts" onClose={onClose} />
-          </div>
-        </header>
-        <div className="sheet-scroll">
+    <>
+      {tools && createPortal(
+        <>
+          <SearchToggle
+            open={searching}
+            label="Search coworkers"
+            onToggle={() => {
+              if (searching) setQuery("");
+              setSearching(!searching);
+            }}
+          />
+          <AddMenu
+            label="Add emails and numbers"
+            onOpen={() => void warmReader().catch(() => undefined)}
+            busy={Boolean(reading)}
+            note="Member list screenshots (like an Outlook group) work: each name with its email below. Read on this device; saved here and, encrypted, on your other devices."
+            items={[
+              ...(picker ? [{
+                icon: ContactIcon,
+                label: "Pick from contacts",
+                onSelect: async () => {
+                  try {
+                    const picked = await picker.select(["name", "email", "tel"], { multiple: true });
+                    addEntries(picked.map((person) => ({
+                      name: person.name?.[0] ?? "",
+                      email: tidyEmail(person.email?.[0] ?? "") || undefined,
+                      phone: tidyPhone(person.tel?.[0] ?? "") || undefined,
+                    })).filter((entry) => entry.email || entry.phone));
+                  } catch {
+                    setNotice("Contacts couldn’t be opened. Paste a list instead.");
+                  }
+                },
+              }] : []),
+              { icon: ImageIcon, label: "Screenshots", onSelect: () => screenshotInput.current?.click() },
+              { icon: ClipboardPaste, label: "Paste a list", onSelect: () => setPasting(true) },
+            ]}
+          />
+        </>,
+        tools,
+      )}
+      {workers.length > 0 && (
+        <p className="coworkers-summary">
+          <b>{saved} of {workers.length}</b> have an email or number for swaps.
+          {saved < workers.length && " Add the rest with +, or type them in below."}
+        </p>
+      )}
           {searching && (
             <label className="contacts-search">
               <Search />
@@ -284,13 +285,29 @@ export function ContactsSheet({
               const contact = contacts[contactKey(worker)] ?? {};
               const status = statuses?.get(worker);
               const label = rosterLabel(status);
+              // Their entry in the company directory, if they're in it.
+              const listed = findPerson(directory, worker, contact.email);
+              const about = [listed?.department, listed?.title].filter(Boolean).join(" · ");
+              const text = contact.phone ?? listed?.cell;
               return (
                 <Fragment key={worker}>
-                <li>
-                  <b>
-                    {worker}
-                    {label && <small className={`roster-tag roster-${status!.state}`}>{label}</small>}
-                  </b>
+                <li className={focus && worker === focus ? "focus" : undefined}>
+                  <div className="coworker-head">
+                    <b>
+                      {worker}
+                      {label && <small className={`roster-tag roster-${status!.state}`}>{label}</small>}
+                    </b>
+                    {about && <small className="coworker-about">{about}</small>}
+                    <span className="coworker-actions">
+                      {listed?.phone && (
+                        <a href={callLink(listed.phone, listed.ext)} aria-label={`Call ${worker}${listed.ext ? ` at extension ${listed.ext}` : ""}`}><Phone /></a>
+                      )}
+                      {text && <a href={`sms:${text.replace(/[^\d+]/g, "")}`} aria-label={`Text ${worker}`}><MessageSquare /></a>}
+                      {(contact.email ?? listed?.email) && (
+                        <a href={`mailto:${contact.email ?? listed?.email}`} aria-label={`Email ${worker}`}><Mail /></a>
+                      )}
+                    </span>
+                  </div>
                   <label>
                     <Mail aria-hidden="true" />
                     <input
@@ -331,10 +348,8 @@ export function ContactsSheet({
             })}
           </ul>
           {!workers.length && (
-            <p className="contacts-notice">Import a schedule first so names can be matched.</p>
+            <p className="contacts-notice">Import a schedule first so your coworkers show up here.</p>
           )}
-        </div>
-      </section>
-    </div>
+    </>
   );
 }

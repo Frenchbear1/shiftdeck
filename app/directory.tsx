@@ -1,9 +1,10 @@
 "use client";
 
 import {
-  ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus,
+  BookUser, ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus, Users,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { backdropClose } from "./home-sections";
 import {
   callLink,
@@ -22,6 +23,8 @@ import type { Contacts } from "./contacts-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle, SheetClose } from "./sheet-tools";
 import { TeamSendPrompt } from "./share-sheet";
+import { CoworkersPane } from "./contacts";
+import type { RosterStatus } from "./roster-status";
 import type { Team } from "./team";
 import { coolReader, warmReader } from "./ocr-reader";
 import type { ReadProgress } from "./read-progress";
@@ -84,7 +87,9 @@ function EntryForm({ draft, departments, onSave, onCancel }: {
  * this phone), or typed in. Search, department tabs, and one-tap calls
  * (the extension is dialed after a pause) and texts.
  */
-export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, contacts, team, onSendToTeam, onChange, onClear, onClose }: {
+function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, contacts, team, onSendToTeam, onChange, onClear }: {
+  /** Where this pane's search and + go (the popup's header). */
+  tools: HTMLElement | null;
   entries: DirectoryEntry[];
   /** Names on your schedules, for spelling ("LABARRE" → "LaBarre"). */
   workers: string[];
@@ -99,7 +104,6 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
   onChange: (entries: DirectoryEntry[]) => void;
   /** Clear everything, hidden people too. */
   onClear?: () => void;
-  onClose: () => void;
 }) {
   const [offerTeam, setOfferTeam] = useState(0);
   const [query, setQuery] = useState("");
@@ -115,7 +119,7 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
   const images = useRef<HTMLInputElement>(null);
   const pdf = useRef<HTMLInputElement>(null);
 
-  const everyone = useMemo(() => withCoworkers(entries, coworkers, contacts), [contacts, coworkers, entries]);
+  const everyone = useMemo(() => withCoworkers(entries, coworkers, contacts).filter((entry) => !entry.fromSchedule), [contacts, coworkers, entries]);
   const departments = useMemo(() => departmentsOf(entries).filter((item) => item !== COWORKERS), [entries]);
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -127,7 +131,7 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
     ? searchDirectory(everyone.filter((entry) => entry.coworker || entry.department === COWORKERS), query, null)
       .sort((a, b) => (a.last ?? a.first ?? "").localeCompare(b.last ?? b.first ?? "") || (a.first ?? "").localeCompare(b.first ?? ""))
     : searchDirectory(everyone, query, department), [department, everyone, query]);
-  const tabs = [null, ...(counts.get(COWORKERS) ? [COWORKERS] : []), ...departments];
+  const tabs = [null, ...departments];
 
   const importEntries = async (read: () => Promise<DirectoryEntry[]>) => {
     setNotice("");
@@ -174,40 +178,40 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
   };
 
   return (
-    <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
-      <section className="panel-sheet directory-sheet" role="dialog" aria-modal="true" aria-label="Directory">
-        <header className="sheet-head sheet-head-tools">
-          <h2>{editing ? (editing.id && !editing.fromSchedule ? "Edit" : "Add to directory") : "Directory"}</h2>
-          <div className="sheet-tools">
-            {!editing && everyone.length > 0 && (
-              <SearchToggle
-                open={searching}
-                label="Search the directory"
-                onToggle={() => {
-                  if (searching) setQuery("");
-                  setSearching(!searching);
-                }}
-              />
-            )}
-            {!editing && (
-              <AddMenu
-                label="Add to the directory"
-                onOpen={() => void warmReader().catch(() => undefined)}
-                busy={Boolean(reading)}
-                note="Screenshot each page of the directory and pick them all at once. Read and saved only on this device."
-                items={[
-                  { icon: ImageIcon, label: "Screenshots", onSelect: () => images.current?.click() },
-                  { icon: FileText, label: "PDF", onSelect: () => pdf.current?.click() },
-                  { icon: UserPlus, label: "Add by hand", onSelect: () => setEditing({ department: department && department !== COWORKERS ? department : undefined }) },
-                ]}
-              />
-            )}
-            <SheetClose watch={entries} label="Close directory" onClose={onClose} />
-          </div>
-        </header>
-        <div className="sheet-scroll">
+    <>
+      {tools && createPortal(
+        <>
+          {!editing && everyone.length > 0 && (
+            <SearchToggle
+              open={searching}
+              label="Search the directory"
+              onToggle={() => {
+                if (searching) setQuery("");
+                setSearching(!searching);
+              }}
+            />
+          )}
+          {!editing && (
+            <AddMenu
+              label="Add to the directory"
+              onOpen={() => void warmReader().catch(() => undefined)}
+              busy={Boolean(reading)}
+              note="Screenshot each page of the directory and pick them all at once. Read on this device."
+              items={[
+                { icon: ImageIcon, label: "Screenshots", onSelect: () => images.current?.click() },
+                { icon: FileText, label: "PDF", onSelect: () => pdf.current?.click() },
+                { icon: UserPlus, label: "Add by hand", onSelect: () => setEditing({ department: department ?? undefined }) },
+              ]}
+            />
+          )}
+        </>,
+        tools,
+      )}
           {editing ? (
-            <EntryForm draft={editing} departments={departments} onSave={save} onCancel={() => setEditing(null)} />
+            <>
+              <h3 className="pane-title">{editing.id && !editing.fromSchedule ? "Edit" : "Add to the directory"}</h3>
+              <EntryForm draft={editing} departments={departments} onSave={save} onCancel={() => setEditing(null)} />
+            </>
           ) : (
             <>
               <div hidden>
@@ -391,6 +395,108 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
                 </>
               )}
             </>
+          )}
+    </>
+  );
+}
+
+export type PeopleTab = "coworkers" | "directory";
+const TAB_KEY = "shiftdeck.peopleTab";
+const savedTab = (): PeopleTab => {
+  try {
+    return localStorage.getItem(TAB_KEY) === "directory" ? "directory" : "coworkers";
+  } catch {
+    return "coworkers";
+  }
+};
+
+/**
+ * Everyone in one place: your Coworkers (the people on your schedules, with
+ * their email and number for swaps and their directory info) and the company
+ * Directory. A switch at the top goes between them; each has its own search
+ * and +.
+ */
+export function DirectorySheet({ tab: firstTab, focus, entries, workers, coworkers, hiddenCount, contacts, statuses, team,
+  onSendDirectory, onSendContacts, onChange, onContactsChange, onClear, onClose }: {
+  /** Which side opens (by default the one used last). */
+  tab?: PeopleTab;
+  /** Opened from a swap match: that coworker, searched for. */
+  focus?: string;
+  entries: DirectoryEntry[];
+  workers: string[];
+  coworkers: string[];
+  hiddenCount?: number;
+  contacts: Contacts;
+  statuses?: Map<string, RosterStatus>;
+  team?: Team | null;
+  onSendDirectory?: (to: string[]) => Promise<number>;
+  onSendContacts?: (to: string[]) => Promise<number>;
+  onChange: (entries: DirectoryEntry[]) => void;
+  onContactsChange: (contacts: Contacts) => void;
+  onClear?: () => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<PeopleTab>(() => firstTab ?? savedTab());
+  const [tools, setTools] = useState<HTMLElement | null>(null);
+  const pick = (next: PeopleTab) => {
+    setTab(next);
+    try {
+      localStorage.setItem(TAB_KEY, next);
+    } catch {
+      // Opens on Coworkers next time.
+    }
+  };
+  const directoryCount = useMemo(
+    () => withCoworkers(entries, coworkers, contacts).filter((entry) => !entry.fromSchedule).length,
+    [contacts, coworkers, entries],
+  );
+  return (
+    <div className="modal-layer" role="presentation" {...backdropClose(onClose)}>
+      <section className="panel-sheet directory-sheet people-sheet" role="dialog" aria-modal="true" aria-label="Directory">
+        <header className="sheet-head sheet-head-tools">
+          <h2>Directory</h2>
+          <div className="sheet-tools">
+            {/* The open side puts its search and + here. */}
+            <span className="pane-tools" ref={setTools} />
+            <SheetClose watch={[entries, contacts]} label="Close directory" onClose={onClose} />
+          </div>
+        </header>
+        <div className="people-switch" role="tablist" aria-label="Who to show">
+          {([["coworkers", "Coworkers", coworkers.length], ["directory", "Directory", directoryCount]] as const).map(([id, label, count]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => pick(id)}>
+              {id === "coworkers" ? <Users aria-hidden="true" /> : <BookUser aria-hidden="true" />}
+              {label}
+              <small>{count}</small>
+            </button>
+          ))}
+        </div>
+        <div className="sheet-scroll" key={tab}>
+          {tab === "coworkers" ? (
+            <CoworkersPane
+              tools={tools}
+              workers={coworkers}
+              statuses={statuses}
+              contacts={contacts}
+              focus={focus}
+              onChange={onContactsChange}
+              directory={entries}
+              onDirectoryChange={onChange}
+              team={team}
+              onSendToTeam={onSendContacts}
+            />
+          ) : (
+            <DirectoryPane
+              tools={tools}
+              entries={entries}
+              workers={workers}
+              coworkers={coworkers}
+              hiddenCount={hiddenCount}
+              contacts={contacts}
+              team={team}
+              onSendToTeam={onSendDirectory}
+              onChange={onChange}
+              onClear={onClear}
+            />
           )}
         </div>
       </section>

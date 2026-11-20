@@ -11560,3 +11560,133 @@ html[data-menu="bottom"] .home {
 html[data-menu="bottom"] .toast {
   bottom: calc(92px + env(safe-area-inset-bottom));
 }
+
+/* ---------- Directory: Coworkers and the company directory in one popup ---------- */
+.pane-tools {
+  display: contents;
+}
+
+.people-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 0 20px 8px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.people-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.people-switch button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.people-switch button small {
+  min-width: 20px;
+  padding: 1px 6px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 99px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.people-switch button.on {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
+}
+
+.people-switch button.on svg {
+  color: var(--blue);
+}
+
+.people-sheet .sheet-scroll {
+  animation: owner-card-in .18s ease;
+}
+
+.pane-title {
+  margin: 0;
+  font-size: 15px;
+}
+
+.coworkers-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.coworkers-summary b {
+  color: var(--text);
+}
+
+.contacts-list .coworker-head {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+}
+
+.coworker-head > b {
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coworker-about {
+  grid-column: 1;
+  grid-row: 2;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coworker-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: 4px;
+}
+
+.coworker-actions a {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--blue);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.coworker-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+.contacts-list li.focus {
+  border-color: color-mix(in srgb, var(--blue) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 14%, transparent);
+}

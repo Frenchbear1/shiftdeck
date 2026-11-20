@@ -174,7 +174,6 @@ import {
 } from "./team";
 import { devicePair, keyCheck, keyProof, loadTeamKey, newTeamKey, publicKeyText, saveTeamKey, unwrapTeamKey, wrapTeamKey } from "./team-key";
 import { useLiveFlights } from "./live-flights";
-import { ContactsSheet } from "./contacts";
 import { DirectorySheet } from "./directory";
 import { DIRECTORY_KEY, contactsWithDirectory, entryKey, findPerson, type DirectoryEntry } from "./directory-data";
 import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
@@ -4823,25 +4822,6 @@ export default function HomePage() {
                 className="settings-tile"
                 onClick={() => {
                   setSettingsOpen(false);
-                  setContactsOpen({});
-                }}
-              >
-                <span><Users /> Coworker contacts</span>
-                <b>
-                  {(() => {
-                    const count = contactWorkers.filter((worker) => {
-                      const contact = contacts[contactKey(worker)];
-                      return Boolean(contact?.email || contact?.phone);
-                    }).length;
-                    return count ? `${count} saved for swaps` : "For swap emails";
-                  })()}
-                </b>
-              </button>
-              <button
-                type="button"
-                className="settings-tile"
-                onClick={() => {
-                  setSettingsOpen(false);
                   setNotificationsOpen(true);
                 }}
               >
@@ -5142,33 +5122,26 @@ export default function HomePage() {
         />
       )}
 
-      {directoryOpen && (
+      {(directoryOpen || contactsOpen) && (
         <DirectorySheet
+          tab={contactsOpen ? "coworkers" : undefined}
+          focus={contactsOpen?.focus}
           entries={shownDirectory}
           workers={[prefs.person, ...contactWorkers].filter(Boolean)}
           coworkers={currentCoworkers}
           hiddenCount={hiddenIds.size + leftCoworkers.filter((worker) => !findPerson(directory, worker)).length}
           contacts={contacts}
-          team={sendTeam}
-          onSendToTeam={(to) => sendImportToTeam({ directory: true }, to)}
-          onChange={saveShownDirectory}
-          onClear={() => saveDirectory([])}
-          onClose={() => setDirectoryOpen(false)}
-        />
-      )}
-
-      {contactsOpen && (
-        <ContactsSheet
-          workers={currentCoworkers}
           statuses={rosterStatus}
-          contacts={contacts}
-          focus={contactsOpen.focus}
-          onChange={saveContacts}
-          directory={directory}
-          onDirectoryChange={saveDirectory}
           team={sendTeam}
-          onSendToTeam={(to) => sendImportToTeam({ contacts: true }, to)}
-          onClose={() => setContactsOpen(null)}
+          onSendDirectory={(to) => sendImportToTeam({ directory: true }, to)}
+          onSendContacts={(to) => sendImportToTeam({ contacts: true }, to)}
+          onChange={saveShownDirectory}
+          onContactsChange={saveContacts}
+          onClear={() => saveDirectory([])}
+          onClose={() => {
+            setDirectoryOpen(false);
+            setContactsOpen(null);
+          }}
         />
       )}
 
