@@ -22,11 +22,13 @@ import {
   Trash2,
   Timer,
   Upload,
+  Undo2,
   Users,
   X,
 } from "lucide-react";
 import {
   ChangeEvent,
+  type CSSProperties,
   Fragment,
   useEffect,
   useEffectEvent,
@@ -1009,7 +1011,9 @@ export default function HomePage() {
   const airportNoticeCount = visibleAirportAlerts.length;
   const teamInbox = teamPosts.filter((post) => !post.mine && !dismissedPosts.includes(post.id));
   const unseenTeamPosts = teamInbox.filter((post) => !seenPosts.includes(post.id)).length;
-  const ownerRequests = me?.owner ? (me.requests ?? []).filter((request) => request.personId !== me.personId) : [];
+  const allOwnerRequests = me?.owner ? (me.requests ?? []).filter((request) => request.personId !== me.personId) : [];
+  // Cleared from notifications (still waiting in the owner popup).
+  const ownerRequests = allOwnerRequests.filter((request) => !dismissedPosts.includes(`request:${request.id}`));
   const notificationCount = airportNoticeCount + unseenSwapAnswers + unseenTeamPosts + ownerRequests.length;
   // A chosen name is locked; only the app's owner changes names (their own included).
   const nameLocked = Boolean(prefs.person) && !me?.owner;
@@ -1027,10 +1031,19 @@ export default function HomePage() {
   };
   // What you dealt with (dismissed, read, closed) goes along with each check-in,
   // and comes back merged with your other phones'.
+  // Clear all, with 10 seconds to undo (kept while the popup is closed and opened again).
+  // What it cleared isn't sent to your other devices until the 10 seconds are up.
+  const [cleared, setCleared] = useState<{ until: number; count: number; dismissed: string[]; alerts: string[]; swaps: SentSwap[] } | null>(null);
+  const [clearTick, setClearTick] = useState(0);
   const syncedStateRef = useRef<SyncedState>({ dismissed: [], seen: [], alerts: [] });
   useEffect(() => {
-    syncedStateRef.current = { dismissed: dismissedPosts, seen: seenPosts, alerts: dismissedAirportAlerts };
-  }, [dismissedPosts, seenPosts, dismissedAirportAlerts]);
+    syncedStateRef.current = {
+      dismissed: cleared ? cleared.dismissed : dismissedPosts,
+      seen: seenPosts,
+      alerts: cleared ? cleared.alerts : dismissedAirportAlerts,
+    };
+  }, [dismissedPosts, seenPosts, dismissedAirportAlerts, cleared]);
+
   const adoptSyncedState = (state?: SyncedState) => {
     if (!state) return;
     const add = (current: string[], incoming: string[], limit: number, save: (next: string[]) => void) => {
@@ -1054,6 +1067,18 @@ export default function HomePage() {
   // Dealt with something: tell your other phones soon, not at the next minute's check-in.
   const [stateChanged, setStateChanged] = useState(0);
   const pushStateSoon = () => setStateChanged((count) => count + 1);
+  useEffect(() => {
+    if (!cleared) return;
+    const timer = window.setInterval(() => {
+      if (Date.now() < cleared.until) {
+        setClearTick(Date.now());
+        return;
+      }
+      setCleared(null);
+      pushStateSoon();
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [cleared]);
   const airportAlertsDialog = useRef<HTMLDialogElement>(null);
   const notificationsBackdrop = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -1606,6 +1631,46 @@ export default function HomePage() {
   const liveSwapReplies = [...sentSwaps]
     .filter((swap) => swap.status !== "cancelled" && isLiveSwap(swap, todayDate))
     .reverse();
+
+  const storeList = (key: string, next: string[]) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // Kept for this visit.
+    }
+  };
+  const notificationsShown = teamInbox.length + ownerRequests.length + liveSwapReplies.length + airportNoticeCount;
+  /** Everything in Notifications: coworkers' shares and swap invites, name changes, swap replies, airport alerts. */
+  const clearAllNotifications = () => {
+    if (!notificationsShown) return;
+    const ids = [...teamInbox.map((post) => post.id), ...ownerRequests.map((request) => `request:${request.id}`)];
+    const swapIds = new Set(liveSwapReplies.map((swap) => swap.id));
+    setCleared({
+      until: Date.now() + 10_000,
+      count: notificationsShown,
+      dismissed: cleared?.dismissed ?? dismissedPosts,
+      alerts: cleared?.alerts ?? dismissedAirportAlerts,
+      swaps: cleared?.swaps ?? sentSwaps,
+    });
+    setClearTick(Date.now());
+    const dismissed = [...new Set([...dismissedPosts, ...ids])].slice(-300);
+    setDismissedPosts(dismissed);
+    storeList(DISMISSED_POSTS_KEY, dismissed);
+    const alerts = [...new Set([...dismissedAirportAlerts, ...visibleAirportAlerts.map((alert) => alert.text)])].slice(-100);
+    setDismissedAirportAlerts(alerts);
+    storeList("shiftdeck.dismissedAirportAlerts", alerts);
+    updateSentSwaps((current) => current.filter((swap) => !swapIds.has(swap.id)));
+  };
+  const undoClearNotifications = () => {
+    if (!cleared) return;
+    setDismissedPosts(cleared.dismissed);
+    storeList(DISMISSED_POSTS_KEY, cleared.dismissed);
+    setDismissedAirportAlerts(cleared.alerts);
+    storeList("shiftdeck.dismissedAirportAlerts", cleared.alerts);
+    updateSentSwaps(() => cleared.swaps);
+    setCleared(null);
+  };
+  const clearSecondsLeft = cleared ? Math.max(0, Math.ceil((cleared.until - clearTick) / 1000)) : 0;
 
   // Check for swap answers while any request is still live: on open, when the
   // app comes back to the foreground, and once a minute.
@@ -3658,6 +3723,11 @@ export default function HomePage() {
       >
         <header className="sheet-head notifications-head">
           <h2 id="airport-alerts-title">Notifications</h2>
+          {notificationsShown > 0 && (
+            <button type="button" className="notifications-clear" onClick={clearAllNotifications}>
+              Clear all
+            </button>
+          )}
           <button
             type="button"
             className={`notifications-info${notificationsInfo ? " on" : ""}`}
@@ -3670,6 +3740,17 @@ export default function HomePage() {
           <form method="dialog"><button type="submit" aria-label="Close notifications"><X /></button></form>
         </header>
         <div className="sheet-scroll notifications-body">
+          {cleared && (
+            <div className="notifications-undo" role="status">
+              <span>Cleared {cleared.count === 1 ? "1 notification" : `${cleared.count} notifications`}</span>
+              <button type="button" onClick={undoClearNotifications}>
+                <Undo2 aria-hidden="true" /> Undo
+                <span className="notifications-undo-count" style={{ "--left": `${(clearSecondsLeft / 10) * 100}%` } as CSSProperties}>
+                  {clearSecondsLeft}
+                </span>
+              </button>
+            </div>
+          )}
           {notificationsInfo && (
             <div className="notifications-about">
               <p>
@@ -4541,7 +4622,7 @@ export default function HomePage() {
                   <span><Crown /> Owner</span>
                   <b>
                     {(me.people?.length ?? 1)} {(me.people?.length ?? 1) === 1 ? "person" : "people"}
-                    {ownerRequests.length ? ` · ${ownerRequests.length} name ${ownerRequests.length === 1 ? "change" : "changes"} waiting` : " · people, devices, access"}
+                    {allOwnerRequests.length ? ` · ${allOwnerRequests.length} name ${allOwnerRequests.length === 1 ? "change" : "changes"} waiting` : " · people, devices, access"}
                   </b>
                 </button>
               )}
