@@ -177,6 +177,9 @@ import { DirectorySheet } from "./directory";
 import { DIRECTORY_KEY, contactsWithDirectory, entryKey, findPerson, type DirectoryEntry } from "./directory-data";
 import { contactKey, CONTACTS_KEY, type Contacts } from "./contacts-data";
 import {
+  applyEventEdit, applyFix, fixesFor, loadShiftEdits, newerEdits, saveShiftEdits, type ShiftEdits,
+} from "./shift-edits";
+import {
   cancelSwap,
   fetchSwapStatuses,
   isLiveSwap,
@@ -829,17 +832,35 @@ export default function HomePage() {
     if (prefsDraft?.sheet === sheet) savePrefs(prefsDraft.patch);
   };
   const [nameMergeOpen, setNameMergeOpen] = useState(false);
-  // Coworker emails/numbers live only in this device's storage.
+  // Coworker emails/numbers: on this device, and (encrypted) on your other devices through your vault.
   const [contacts, setContacts] = useState<Contacts>({});
   const [contactsOpen, setContactsOpen] = useState<{ focus?: string } | null>(null);
+  // Shifts you added, changed or deleted by hand, for your other devices (shift-edits.ts).
+  const [shiftEdits, setShiftEdits] = useState<ShiftEdits<CalendarEvent>>({});
+  // Contacts and shift edits are read: only then can the vault tell a deletion from not-loaded-yet.
+  const [personalLoaded, setPersonalLoaded] = useState(false);
   useEffect(() => {
+    let saved: unknown = {};
     try {
-      const saved: unknown = JSON.parse(localStorage.getItem(CONTACTS_KEY) ?? "{}");
-      if (saved && typeof saved === "object") queueMicrotask(() => setContacts(saved as Contacts));
+      saved = JSON.parse(localStorage.getItem(CONTACTS_KEY) ?? "{}");
     } catch {
       // Start with no contacts.
     }
+    const edits = loadShiftEdits<CalendarEvent>(workdayAt());
+    queueMicrotask(() => {
+      if (saved && typeof saved === "object" && !Array.isArray(saved)) setContacts(saved as Contacts);
+      setShiftEdits(edits);
+      setPersonalLoaded(true);
+    });
   }, []);
+  /** Notes hand-made shift changes (date → your shift that day, or none) for your other devices. */
+  const recordShiftEdits = (entries: ShiftEdits<CalendarEvent>) => {
+    setShiftEdits((current) => {
+      const next = { ...current, ...entries };
+      saveShiftEdits(next);
+      return next;
+    });
+  };
   // The work phone directory, kept only on this device.
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [directoryOpen, setDirectoryOpen] = useState(false);
@@ -2960,6 +2981,25 @@ export default function HomePage() {
     }
   };
 
+  /** The same worker, after name merges. */
+  const sameWorker = (a: string, b: string) =>
+    nameKey(resolveMergedName(a, nameMerges)) === nameKey(resolveMergedName(b, nameMerges));
+  /** Makes a shift change from your other device here: your shift that day, and the photo it corrects. */
+  const applyShiftEdit = (date: string, edit: ShiftEdits<CalendarEvent>[string]) => {
+    setEvents((current) => applyEventEdit(current, date, edit));
+    if (edit.event) setImportedDates((current) => (current.includes(date) ? current : [...current, date].sort()));
+    const fix = edit.fix;
+    if (!fix || !scheduleDocuments.some((document) => document.hash === fix.hash)) return;
+    setScheduleDocuments((current) => current.map((document) =>
+      document.hash === fix.hash ? { ...document, shifts: applyFix(document.shifts, fix, sameWorker) } : document));
+    setParsedShifts((current) => applyFix(current, fix, sameWorker));
+  };
+  /** A photo from your other device, with the fixes you made to it there. */
+  const withFixes = <R extends { shifts: Shift[] } | undefined>(read: R, hash: string): R => {
+    const fixes = fixesFor(shiftEdits, hash);
+    if (!read || !fixes.length) return read;
+    return { ...read, shifts: fixes.reduce((shifts, fix) => applyFix(shifts, fix, sameWorker), read.shifts) };
+  };
   const processFilesRef = useRef<typeof processFiles | null>(null);
   useEffect(() => {
     processFilesRef.current = processFiles;
@@ -3027,10 +3067,19 @@ export default function HomePage() {
                 person: prefs.person,
                 fromShare: true,
                 quiet: true,
-                reads: picked.map(({ schedule }) => schedule.read),
+                reads: picked.map(({ schedule }) => withFixes(schedule.read, schedule.hash)),
                 hashes: picked.map(({ schedule }) => schedule.hash),
               });
               if (!ok) throw new Error("Not imported");
+              // Shifts changed by hand after that schedule came in on the other device: changed here too
+              // (the import just put that week back the way the schedule has it).
+              const importedAt = Date.parse(incoming.createdAt);
+              for (const { schedule } of picked) {
+                for (const date of schedule.dates) {
+                  const edit = shiftEdits[date];
+                  if (edit && edit.at > importedAt) applyShiftEdit(date, edit);
+                }
+              }
               setToast(`Got ${incoming.what} from your other device`);
             }
             remember([incoming.id]);
@@ -3084,16 +3133,38 @@ export default function HomePage() {
   const vaultBusy = useRef(false);
   const [vaultTick, setVaultTick] = useState(0);
   useEffect(() => {
-    if (!hydrated || !clockData) return;
+    if (!hydrated || !clockData || !personalLoaded) return;
     const local = (vaultRef.current ??= loadLocalVault());
     const defaults: Values = { pref: pickSyncedPrefs(DEFAULT_PREFS), clock: { settings: DEFAULT_SETTINGS } };
-    const next = stamp(local.vault, vaultValuesOf(clockData, prefs, nameMerges, dismissedMerges), Date.now(), defaults, !local.stamped);
+    const mine = { ...vaultValuesOf(clockData, prefs, nameMerges, dismissedMerges), contact: contacts, edit: shiftEdits };
+    const next = stamp(local.vault, mine, Date.now(), defaults, !local.stamped);
     const changed = stable(next) !== stable(local.vault);
     if (!changed && local.stamped) return;
     vaultRef.current = { ...local, vault: next, stamped: true, dirty: local.dirty || changed };
     saveLocalVault(vaultRef.current);
-  }, [hydrated, clockData, prefs, nameMerges, dismissedMerges]);
+  }, [hydrated, clockData, prefs, nameMerges, dismissedMerges, contacts, shiftEdits, personalLoaded]);
   const applyVault = (vault: Vault) => {
+    const contactsIn = values<Contacts[string]>(vault, "contact");
+    setContacts((current) => {
+      if (stable(current) === stable(contactsIn)) return current;
+      try {
+        localStorage.setItem(CONTACTS_KEY, JSON.stringify(contactsIn));
+      } catch {
+        // In the vault; saved here next time.
+      }
+      return contactsIn;
+    });
+    // Shifts changed by hand on your other devices: the same change here.
+    const editsIn = values<ShiftEdits<CalendarEvent>[string]>(vault, "edit");
+    const newer = newerEdits(shiftEdits, editsIn);
+    if (newer.length) {
+      for (const date of newer) applyShiftEdit(date, editsIn[date]);
+      setShiftEdits((current) => {
+        const next = { ...current, ...Object.fromEntries(newer.map((date) => [date, editsIn[date]])) };
+        saveShiftEdits(next);
+        return next;
+      });
+    }
     const synced = clockFromVault(vault);
     setClockData((current) => {
       if (!current || stable(sortedClock(current)) === stable(synced)) return current;
@@ -3143,8 +3214,10 @@ export default function HomePage() {
         });
     }, 1200);
     return () => window.clearTimeout(timer);
-    // The clock, settings and merges are listed because a change to them is what gets sent.
-  }, [vaultTick, vaultPersonId, serverVault, teamKey, clockData, prefs, nameMerges, dismissedMerges]);
+    // The clock, settings, merges, contacts and shift edits are listed because a change to them is what gets sent.
+    // applyVault reads this render's edits and documents; it isn't what starts a sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vaultTick, vaultPersonId, serverVault, teamKey, clockData, prefs, nameMerges, dismissedMerges, contacts, shiftEdits]);
 
   const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
     void processFiles(Array.from(event.target.files ?? []));
@@ -3280,6 +3353,18 @@ export default function HomePage() {
     setImportedDates((current) =>
       Array.from(new Set([...current, shiftDraft.date])).sort(),
     );
+    // The same change on your other devices.
+    const editedAt = Date.now();
+    recordShiftEdits({
+      ...(editing && editing.date !== shiftDraft.date ? { [editing.date]: { at: editedAt, event: null } } : {}),
+      [shiftDraft.date]: {
+        at: editedAt,
+        event: nextEvent,
+        ...(imported && correctedShift
+          ? { fix: { hash: imported.hash, fromId: imported.shift.id, shift: correctedShift, adding: Boolean(imported.adding) } }
+          : {}),
+      },
+    });
     setSelectedDate(workdayFor(eventCalendarDate(nextEvent), nextEvent.start));
     setShiftEditor(null);
     setToast(imported?.adding ? "Shift added" : imported || editing || existingOnDate ? "Shift updated" : "Shift added");
@@ -3293,6 +3378,7 @@ export default function HomePage() {
     setEvents((current) =>
       current.filter((event) => event.id !== editing.id),
     );
+    recordShiftEdits({ [editing.date]: { at: Date.now(), event: null } });
     setShiftEditor(null);
     setToast("Shift deleted");
   };

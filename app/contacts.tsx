@@ -37,7 +37,7 @@ const contactPicker = () =>
 /**
  * Coworker emails and numbers for Shift swap. Fastest is pasting a whole
  * list or picking several people from the phone's contacts at once; each
- * person can also be typed in. Everything stays on this device.
+ * person can also be typed in. Saved on this device and, encrypted, on your own other devices.
  */
 export function ContactsSheet({
   workers, contacts, focus, onChange, directory, onDirectoryChange, team, onSendToTeam, statuses, onClose,
@@ -128,7 +128,7 @@ export function ContactsSheet({
               label="Add emails and numbers"
                 onOpen={() => void warmReader().catch(() => undefined)}
               busy={Boolean(reading)}
-              note="Member list screenshots (like an Outlook group) work: each name with its email below. Read and saved only on this device."
+              note="Member list screenshots (like an Outlook group) work: each name with its email below. Read on this device; saved here and, encrypted, on your other devices."
               items={[
                 ...(picker ? [{
                   icon: ContactIcon,

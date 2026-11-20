@@ -1,6 +1,7 @@
 /**
- * Coworker emails and phone numbers. They're saved only on this device
- * (localStorage), never sent to Shiftdeck's server or kept in the code.
+ * Coworker emails and phone numbers. Saved on this device (localStorage) and
+ * on your own other devices through your vault, encrypted on the device first
+ * (the server only stores what it can't read). Never kept in the code.
  */
 
 export type Contact = { email?: string; phone?: string };
