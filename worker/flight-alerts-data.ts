@@ -143,7 +143,12 @@ export function flightNews(
       const left = (landing - now) / MINUTE;
       if (left <= lead && left > -3) {
         const minutes = Math.max(1, Math.round(left));
-        news.push({ kind: "landing", title: `${name} lands in ~${minutes} min`, body: [place ? `From ${place}` : "", `about ${clock(landing)}`, gate].filter(Boolean).join(" · ") });
+        // The gate up front: it's where you're headed.
+        news.push({
+          kind: "landing",
+          title: `${name} lands in ~${minutes} min · ${flight.gate ? `Gate ${flight.gate}` : "gate not posted yet"}`,
+          body: [place ? `From ${place}` : "", `about ${clock(landing)}`].filter(Boolean).join(" · "),
+        });
       }
     }
   }

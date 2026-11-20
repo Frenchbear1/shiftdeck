@@ -15,8 +15,10 @@ test("reminds before landing, from a real estimate", () => {
   const lands = new Date(now + 9 * MIN).toISOString();
   const news = flightNews(flight({ liveEta: { landing: lands, gate: lands, distanceNm: 30, seenAt: "", method: "history" } }), DEFAULT_FLIGHT_ALERTS, new Set(["gate:8", "inair"]), now, null, clock);
   assert.deepEqual(kinds(news), ["landing"]);
-  assert.equal(news[0].title, "G4 854 lands in ~9 min");
-  assert.equal(news[0].body, "From PIE · about 8:39 PM · Gate 8");
+  assert.equal(news[0].title, "G4 854 lands in ~9 min · Gate 8");
+  assert.equal(news[0].body, "From PIE · about 8:39 PM");
+  const noGate = flightNews(flight({ gate: null, liveEta: { landing: lands, gate: lands, distanceNm: 30, seenAt: "", method: "history" } }), DEFAULT_FLIGHT_ALERTS, new Set(["inair"]), now, null, clock);
+  assert.equal(noGate.find((item) => item.kind === "landing").title, "G4 854 lands in ~9 min · gate not posted yet");
   // Only the timetable, nothing flying yet: no reminder.
   assert.deepEqual(kinds(flightNews(flight({ scheduled: new Date(now + 5 * MIN).toISOString() }), DEFAULT_FLIGHT_ALERTS, new Set(["gate:8"]), now, null, clock)), []);
   // Too early for a 10-minute reminder.
