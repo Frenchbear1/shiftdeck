@@ -104,3 +104,23 @@ test("warns about storms, frost, fog and gusts on the ramp", () => {
   const ice = rampWarnings(hours).find((warning) => warning.kind === "ice");
   assert.equal(ice.at, "2026-11-14T02:00");
 });
+
+test("chart lines are smooth curves through every hour, never past the real high or low", async () => {
+  const { smoothPath } = await import("../app/smooth-path.ts");
+  const points = [[0, 50], [10, 50], [20, 20], [30, 80], [40, 80], [50, 60]];
+  const d = smoothPath(points);
+  assert.match(d, /^M0\.0,50\.0 C/);
+  // Passes through each point.
+  for (const [x, y] of points.slice(1)) assert.ok(d.includes(`${x.toFixed(1)},${y.toFixed(1)}`));
+  // Control points stay inside each segment's own range (no bulge past a high or low).
+  const curves = [...d.matchAll(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/g)];
+  curves.forEach((curve, index) => {
+    const [y0, y1] = [points[index][1], points[index + 1][1]];
+    for (const y of [Number(curve[2]), Number(curve[4])]) {
+      assert.ok(y >= Math.min(y0, y1) - 0.05 && y <= Math.max(y0, y1) + 0.05, `segment ${index}: ${y} outside ${y0}..${y1}`);
+    }
+  });
+  // A flat stretch stays flat.
+  assert.equal(curves[0][2], "50.0");
+  assert.equal(curves[0][4], "50.0");
+});

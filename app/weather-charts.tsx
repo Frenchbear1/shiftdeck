@@ -3,6 +3,7 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { DayOutlook, HourDetail } from "./weather";
 import { Flip } from "./flip";
+import { smoothPath } from "./smooth-path";
 
 const hourLabel = (time: string) => {
   const hour = Number(time.slice(11, 13));
@@ -219,7 +220,7 @@ function LineOrBars({ hours, metric, x, plotHeight, svg, shiftBand, nowIndex, sc
   }
   if (high - low < 1e-6) high = low + 1;
   const y = (value: number) => PAD.top + plotHeight - ((clamp(value, low, high) - low) / (high - low)) * plotHeight;
-  const line = (list: number[]) => list.map((value, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
+  const line = (list: number[]) => smoothPath(list.map((value, index) => [x(index), y(value)] as const));
   const barWidth = Math.max(2, ((WIDTH - PAD.left - PAD.right) / hours.length) * 0.66);
   const ticks = hours.flatMap((hour, index) => (Number(hour.time.slice(11, 13)) % 3 === 0 ? [{ index, label: hourLabel(hour.time) }] : []));
 
