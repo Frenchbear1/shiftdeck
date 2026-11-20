@@ -133,6 +133,8 @@ export type HistoryFlight = {
   runway: string | null;
   origin: string | null;
   aircraft?: string | null;
+  /** The arrival gate it parked at. */
+  gate?: string | null;
   checkpoints: Record<string, number>;
   taxiS: number | null;
 };
@@ -188,6 +190,7 @@ export function estimateArrival(
   groundSpeed: number | null,
   runway: string | null,
   aircraft: string | null = null,
+  gate: string | null = null,
 ): Estimate {
   const pick = (flights: HistoryFlight[]) =>
     withoutOutliers(
@@ -208,12 +211,22 @@ export function estimateArrival(
     times = pick(group);
     if (times.length >= MIN_HISTORY) break;
   }
-  const taxi = withoutOutliers(
-    history
-      .filter((flight) => !runway || flight.runway === runway)
-      .map((flight) => flight.taxiS)
-      .filter((value): value is number => typeof value === "number" && value > 0),
+  // Taxi to the gate: same runway and gate first (where it turns off and how far
+  // it parks), then same gate, then same runway, then every flight.
+  const taxiOf = (flights: HistoryFlight[]) => withoutOutliers(
+    flights.map((flight) => flight.taxiS).filter((value): value is number => typeof value === "number" && value > 0),
   );
+  const taxiGroups = [
+    gate && runway ? history.filter((flight) => flight.gate === gate && flight.runway === runway) : [],
+    gate ? history.filter((flight) => flight.gate === gate) : [],
+    runway ? history.filter((flight) => flight.runway === runway) : [],
+    history,
+  ];
+  let taxi: number[] = [];
+  for (const group of taxiGroups) {
+    taxi = taxiOf(group);
+    if (taxi.length >= MIN_HISTORY) break;
+  }
   const taxiS = taxi.length >= MIN_HISTORY ? median(taxi) : DEFAULT_TAXI_S;
 
   let seconds: number;
@@ -237,6 +250,7 @@ export type FinishedFlight = {
   aircraft?: string | null;
   firstSeenNm: number | null;
   runway: string | null;
+  gate?: string | null;
   taxiS: number | null;
   /** Absolute error in minutes of each estimate made 30 and 15 minutes before touchdown. */
   faErr30: number | null;
@@ -272,6 +286,17 @@ export function summarize(flights: FinishedFlight[]) {
         taxiMin: typical(values((flight) => (list.includes(flight) && flight.taxiS ? flight.taxiS / 60 : null))),
       }))
       .sort((a, b) => b.flights - a.flights),
+    // Typical taxi time to each gate, busiest first.
+    gates: [...flights.reduce((groups, flight) => {
+      if (flight.gate) groups.set(flight.gate, [...(groups.get(flight.gate) ?? []), flight]);
+      return groups;
+    }, new Map<string, FinishedFlight[]>()).entries()]
+      .map(([gate, list]) => ({
+        gate,
+        flights: list.length,
+        taxiMin: typical(withoutOutliers(list.map((flight) => (flight.taxiS ? flight.taxiS / 60 : null)).filter((value): value is number => value !== null))),
+      }))
+      .sort((a, b) => b.flights - a.flights || a.gate.localeCompare(b.gate, undefined, { numeric: true })),
     aircraft: (["A320", "737"] as const)
       .map((family) => {
         const list = flights.filter((flight) => aircraftFamily(flight.aircraft) === family);

@@ -108,6 +108,8 @@ type LearningResults = {
   ourErr15: number | null;
   ourSamples: number;
   runways: { runway: string; flights: number; taxiMin: number | null }[];
+  /** Typical taxi time to each gate (saved from Nov 2026 on). */
+  gates?: { gate: string; flights: number; taxiMin: number | null }[];
   aircraft?: { family: string; flights: number; ourErr15: number | null }[];
 };
 
@@ -219,6 +221,13 @@ export function LearningSetting({ url }: { url: string }) {
                   (runway) =>
                     `Rwy ${runway.runway}: ${runway.flights}${runway.taxiMin !== null ? ` · taxi ~${runway.taxiMin} min` : ""}`,
                 )
+                .join("  ·  ")}
+            </small>
+          )}
+          {results.gates && results.gates.length > 0 && (
+            <small>
+              {results.gates
+                .map((gate) => `Gate ${gate.gate}: ${gate.flights}${gate.taxiMin !== null ? ` · taxi ~${gate.taxiMin} min` : ""}`)
                 .join("  ·  ")}
             </small>
           )}

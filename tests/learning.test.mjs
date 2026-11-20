@@ -109,3 +109,22 @@ test("outlier filter and summary", () => {
   assert.equal(summary.ourErr15, 1.8);
   assert.deepEqual(summary.runways, [{ runway: "24", flights: 2, taxiMin: 4.5 }]);
 });
+
+test("learns taxi time by gate, then runway", () => {
+  const flight = (gate, runway, taxiS) => ({ runway, origin: "PIE", gate, checkpoints: { 20: 600 }, taxiS });
+  const history = [
+    flight("8", "24", 180), flight("8", "24", 200), flight("8", "24", 190),
+    flight("3", "24", 420), flight("3", "24", 400), flight("3", "24", 440),
+    flight("3", "6", 300),
+  ];
+  const at = (gate, runway) => {
+    const estimate = estimateArrival(history, 0, 20, 250, runway, null, gate);
+    return (estimate.gateTs - estimate.landingTs) / 1000;
+  };
+  assert.equal(at("8", "24"), 190); // close gate off runway 24
+  assert.equal(at("3", "24"), 420); // the far gate
+  assert.equal(at("3", "6"), 410); // not enough on runway 6 to gate 3: gate 3 overall
+  assert.equal(at("12", "24"), 300); // a gate it hasn't learned: runway 24's typical
+  const summary = summarize(history.map((item) => ({ seen: true, firstSeenNm: 80, runway: item.runway, gate: item.gate, taxiS: item.taxiS, faErr30: null, faErr15: null, ourErr30: null, ourErr15: null })));
+  assert.deepEqual(summary.gates, [{ gate: "3", flights: 4, taxiMin: 6.8 }, { gate: "8", flights: 3, taxiMin: 3.2 }]);
+});
