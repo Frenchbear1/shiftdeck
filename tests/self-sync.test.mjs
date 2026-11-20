@@ -35,3 +35,13 @@ test("merges what each phone dealt with", () => {
   assert.equal(many.dismissed.length, 400);
   assert.equal(many.dismissed.at(-1), "p499");
 });
+
+test("never sends a schedule twice: what this device already sent, or any post carries, stays", () => {
+  const documents = [
+    { id: "a", hash: "aaaa", name: "a", dates: week("2026-11-15") },
+    { id: "b", hash: "bbbb", name: "b", dates: week("2026-11-22") },
+  ];
+  // The server's list of posts can miss one (a check-in that didn't come back): what was sent from here still counts.
+  assert.deepEqual(toSend(documents, [], "2026-11-19", ["aaaa", "bbbb"]), []);
+  assert.deepEqual(toSend(documents, [], "2026-11-19", new Set(["bbbb"])).map((document) => document.id), ["a"]);
+});

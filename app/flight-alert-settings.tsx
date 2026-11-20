@@ -44,15 +44,24 @@ const TOGGLES: Array<{ key: "cancelled" | "delayed" | "inAir" | "landed" | "gate
   { key: "landed", label: "Landed", hint: "Once it’s down" },
 ];
 
-/** The Flight alerts part of the alerts settings. */
-export function FlightAlertSettings({ value, onChange }: { value: FlightAlertPrefs; onChange: (next: FlightAlertPrefs) => void }) {
+/** "My shifts · 10 min before landing" (the line on the closed Flight alerts section). */
+export function flightAlertSummary(value: FlightAlertPrefs) {
+  if (value.which === "off") return "Off";
+  return [value.which === "shifts" ? "My shifts" : "All flights", value.landingLead !== null && `${value.landingLead} min before landing`]
+    .filter(Boolean).join(" · ");
+}
+
+/** The Flight alerts part of the alerts settings (`bare`: inside a section that has its own title). */
+export function FlightAlertSettings({ value, onChange, bare }: { value: FlightAlertPrefs; onChange: (next: FlightAlertPrefs) => void; bare?: boolean }) {
   const off = value.which === "off";
   return (
     <>
-      <div className="notify-section-head">
-        <span className="notify-section-label">Flight alerts</span>
-        <small>Allegiant at ABE</small>
-      </div>
+      {!bare && (
+        <div className="notify-section-head">
+          <span className="notify-section-label">Flight alerts</span>
+          <small>Allegiant at ABE</small>
+        </div>
+      )}
       <div className="notify-card flight-alerts">
         <div className="flight-alerts-which" role="radiogroup" aria-label="Which flights">
           {([["shifts", "My shifts"], ["all", "All flights"], ["off", "Off"]] as const).map(([id, label]) => (

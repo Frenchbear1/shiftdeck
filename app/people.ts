@@ -80,6 +80,10 @@ export type Me = {
   state?: SyncedState;
   /** Schedules you imported on your phones, for your other phones to pick up. */
   selfPosts?: SelfPost[];
+  /** Every schedule your other devices were sent (photo hashes). */
+  selfHashes?: string[];
+  /** Your vault's version on the server (time clock, settings). */
+  vaultVersion?: number;
   /** The owner wants to hand the app to you. */
   handoverOffer?: { from: string; expiresAt: string } | null;
   /** Owner only: everyone (blocked too), oldest first; name changes; new phones; a handover in progress. */
@@ -296,3 +300,17 @@ export const removePhone = (service: string, targetDeviceId: string) =>
 /** Who's used the app longest (besides you), suggested for handing over. */
 export const recommendedSuccessor = (people: PersonSummary[], myId: string) =>
   [...people].filter((person) => person.id !== myId && !person.blocked).sort((a, b) => a.since.localeCompare(b.since))[0] ?? null;
+
+/** Your vault (see vault.ts): only what's newer than `have`. */
+export const getVault = (service: string, have: number) =>
+  call<{ version: number; data: string | null }>(service, "vault", { have });
+
+/** Saves your vault on top of `base`; null if another device saved first. */
+export async function putVault(service: string, data: string, base: number) {
+  try {
+    return await call<{ version: number }>(service, "vault-put", { data, base });
+  } catch (problem) {
+    if ((problem as { status?: number }).status === 409) return null;
+    throw problem;
+  }
+}

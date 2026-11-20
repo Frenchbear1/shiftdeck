@@ -1,11 +1,11 @@
 "use client";
 
-import { BookUser, ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search, X } from "lucide-react";
+import { BookUser, ClipboardPaste, Contact as ContactIcon, Image as ImageIcon, Mail, MessageSquare, Search } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
 import { addPeopleToDirectory, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
-import { AddMenu, SearchToggle } from "./sheet-tools";
+import { AddMenu, SearchToggle, SheetClose } from "./sheet-tools";
 import { TeamSendPrompt } from "./share-sheet";
 import type { Team } from "./team";
 import { rosterLabel, type RosterStatus } from "./roster-status";
@@ -150,7 +150,7 @@ export function ContactsSheet({
                 { icon: ClipboardPaste, label: "Paste a list", onSelect: () => setPasting(true) },
               ]}
             />
-            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close coworker contacts"><X /></button>
+            <SheetClose watch={contacts} label="Close coworker contacts" onClose={onClose} />
           </div>
         </header>
         <div className="sheet-scroll">

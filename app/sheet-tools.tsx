@@ -1,6 +1,8 @@
 "use client";
 
-import { LoaderCircle, Plus, Search, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, LoaderCircle, Plus, Search, X, type LucideIcon } from "lucide-react";
+import { stable } from "./vault-data";
+import { Flip } from "./flip";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type AddMenuItem = { icon: LucideIcon; label: string; onSelect: () => void };
@@ -102,6 +104,61 @@ export function SearchToggle({ open, label, onToggle }: { open: boolean; label: 
       onClick={onToggle}
     >
       <Search />
+    </button>
+  );
+}
+
+/**
+ * A section that opens and closes (the owner screen, Send to the team,
+ * Notifications): a row with an icon, a title and a short summary.
+ */
+export function Disclosure({ icon: Icon, title, summary, alert, defaultOpen = false, className, children }: {
+  icon: LucideIcon;
+  title: string;
+  summary?: React.ReactNode;
+  /** Something's waiting in it. */
+  alert?: boolean;
+  defaultOpen?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`owner-section${open ? " open" : ""}${alert ? " alert" : ""}${className ? ` ${className}` : ""}`}>
+      <button type="button" className="owner-section-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon className="owner-section-icon" aria-hidden="true" />
+        <span>{title}</span>
+        {summary !== undefined && <b>{typeof summary === "string" || typeof summary === "number" ? <Flip value={summary} /> : summary}</b>}
+        <ChevronDown className="owner-section-chevron" aria-hidden="true" />
+      </button>
+      {open && <div className="owner-section-body">{children}</div>}
+    </section>
+  );
+}
+
+/**
+ * A popup's close button that turns into Save once something in it changed
+ * (like Settings). It mounts with the popup, so what `watch` was then is what
+ * "changed" is measured against. `onSave` defaults to closing (for popups
+ * whose changes are kept as they're made).
+ */
+export function SheetClose({ watch, label, onClose, onSave, saving, className = "sheet-tool" }: {
+  watch: unknown;
+  /** What's being closed, for screen readers ("Close time clock"). */
+  label: string;
+  onClose: () => void;
+  onSave?: () => void;
+  saving?: boolean;
+  className?: string;
+}) {
+  const [initial] = useState(() => stable(watch));
+  const changed = stable(watch) !== initial;
+  if (!changed) {
+    return <button type="button" className={className} onClick={onClose} aria-label={label}><X /></button>;
+  }
+  return (
+    <button type="button" className={`${className} sheet-save`} onClick={onSave ?? onClose} disabled={saving} aria-label="Save changes">
+      {saving ? <LoaderCircle className="spin" /> : <Check />} {saving ? "Saving…" : "Save"}
     </button>
   );
 }

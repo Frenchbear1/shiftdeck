@@ -1,7 +1,8 @@
 "use client";
 
+import { SheetClose } from "./sheet-tools";
 import { Flip } from "./flip";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, FileUp, Loader2, Plus, RotateCcw, Timer, Trash2, Undo2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, FileUp, Loader2, Plus, RotateCcw, Timer, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { asPunch, compareSheet, isFlag, readPaycomSheet, type PaycomSheet, type SheetCheck } from "./paycom-sheet";
 import { backdropClose } from "./home-sections";
@@ -224,7 +225,7 @@ export function TimeClockSheet({ data, onChange, onClose }: {
         <header className="sheet-head sheet-head-tools">
           <h2>Time clock</h2>
           <div className="sheet-tools">
-            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close time clock"><X /></button>
+            <SheetClose watch={data} label="Close time clock" onClose={onClose} />
           </div>
         </header>
         <div className="clock-tabs" role="tablist" aria-label="Time clock">

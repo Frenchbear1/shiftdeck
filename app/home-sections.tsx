@@ -1,5 +1,6 @@
 "use client";
 
+import { SheetClose } from "./sheet-tools";
 import { Flip } from "./flip";
 import {
   ArrowLeftRight,
@@ -1951,9 +1952,7 @@ export function NameMergeSheet({
             <h2>Coworker names</h2>
             <p>Names that look like one person read two ways.</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close coworker names">
-            <X />
-          </button>
+          <SheetClose className="" watch={[merges, different]} label="Close coworker names" onClose={onClose} />
         </header>
         <div className="sheet-scroll">
           {suggestions.length ? (

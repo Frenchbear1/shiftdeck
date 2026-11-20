@@ -1,6 +1,7 @@
 "use client";
 
-import { BookUser, CalendarDays, Check, LoaderCircle, Send, UserPlus, Users, X } from "lucide-react";
+import { Disclosure } from "./sheet-tools";
+import { BookUser, CalendarDays, Check, ChevronDown, LoaderCircle, Send, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { backdropClose } from "./home-sections";
 import type { Contacts } from "./contacts-data";
@@ -141,6 +142,13 @@ function InviteButton({ url }: { url: string }) {
   );
 }
 
+const OLDER_BATCH = 8;
+const shiftDay = (day: string, days: number) => {
+  const at = new Date(`${day}T12:00:00`);
+  at.setDate(at.getDate() + days);
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+};
+
 export function ShareSheet({
   schedules, today, directory, contacts, person, loadFile, team, signedIn, inviteUrl, onSendToTeam, onClose,
 }: {
@@ -168,8 +176,15 @@ export function ShareSheet({
     const current = sorted.filter((document) => document.dates.some((date) => date >= today));
     return new Set((current.length ? current : sorted.slice(0, 1)).map((document) => document.id));
   });
-  const [withDirectory, setWithDirectory] = useState(directory.length > 0);
-  const [withContacts, setWithContacts] = useState(contactCount(contacts) > 0);
+  // Off unless picked (in "Also send", closed to start).
+  const [withDirectory, setWithDirectory] = useState(false);
+  const [withContacts, setWithContacts] = useState(false);
+  // Last week on shows; older weeks come a batch at a time with "Show more".
+  const recentFrom = shiftDay(today, -7);
+  const recent = sorted.filter((document) => document.dates.some((date) => date >= recentFrom));
+  const older = sorted.filter((document) => !recent.includes(document));
+  const [olderShown, setOlderShown] = useState(0);
+  const shownWeeks = [...recent, ...older.slice(0, olderShown)];
   const [state, setState] = useState<"idle" | "sending" | "error">("idle");
   const [error, setError] = useState("");
   const [sent, setSent] = useState<{ what: string; notified: number; to: string[] } | null>(null);
@@ -238,7 +253,7 @@ export function ShareSheet({
                   <p className="share-section-title">Schedules</p>
                   {sorted.length ? (
                     <div className="share-weeks">
-                      {sorted.map((document) => {
+                      {shownWeeks.map((document) => {
                         const on = weeks.has(document.id);
                         return (
                           <button
@@ -260,11 +275,23 @@ export function ShareSheet({
                           </button>
                         );
                       })}
+                      {olderShown < older.length && (
+                        <button type="button" className="share-more" onClick={() => setOlderShown((count) => count + OLDER_BATCH)}>
+                          <ChevronDown aria-hidden="true" />
+                          Show more · {Math.min(OLDER_BATCH, older.length - olderShown)} older
+                          {older.length - olderShown > OLDER_BATCH ? ` of ${older.length - olderShown}` : ""}
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <p className="quiet-line">Import a schedule to send it.</p>
                   )}
-                  <p className="share-section-title">Also send</p>
+                  <Disclosure
+                    icon={BookUser}
+                    title="Also send"
+                    className="share-also"
+                    summary={[withDirectory && "Directory", withContacts && "Contacts"].filter(Boolean).join(" · ") || "Nothing"}
+                  >
                   <div className="share-choices">
                     <Choice
                       on={withDirectory}
@@ -283,6 +310,7 @@ export function ShareSheet({
                       disabled={!contactCount(contacts)}
                     />
                   </div>
+                  </Disclosure>
                   <RecipientPicker team={team} value={to} onChange={setTo} />
                   {state === "error" && <p className="contacts-notice share-error" role="alert">{error}</p>}
                   <button type="button" className="button primary share-make" disabled={nothing || state === "sending"} onClick={() => void send()}>

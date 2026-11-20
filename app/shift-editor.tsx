@@ -1,7 +1,8 @@
 "use client";
 
+import { SheetClose } from "./sheet-tools";
 import { Flip } from "./flip";
-import { Calendar, Check, Clock3, Moon, Trash2, X } from "lucide-react";
+import { Calendar, Check, Clock3, Moon, Trash2 } from "lucide-react";
 import {
   Dispatch,
   ReactNode,
@@ -321,7 +322,7 @@ export function ShiftEditorSheet({
             <small>{formatDate(draft.date, false)}</small>
             <h2>{mode === "edit" ? "Edit shift" : "Add a shift"}</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close shift editor"><X /></button>
+          <SheetClose className="" watch={draft} label="Close shift editor" onClose={onClose} onSave={onSave} />
         </header>
 
         <input

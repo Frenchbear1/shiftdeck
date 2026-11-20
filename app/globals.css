@@ -11023,3 +11023,132 @@ html {
   font-size: 14px;
   text-align: right;
 }
+
+/* Send to the team: older weeks a batch at a time, and "Also send" folded away. */
+.share-more {
+  display: inline-flex;
+  flex-basis: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  color: var(--blue);
+  background: none;
+  border: 1px dashed color-mix(in srgb, var(--blue) 40%, var(--line));
+  border-radius: 11px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.share-more svg {
+  width: 15px;
+  height: 15px;
+}
+
+.share-also {
+  margin-bottom: 14px;
+}
+
+.share-also .share-choices {
+  margin: 0;
+  padding: 10px;
+}
+
+/* The close button once a popup has changes: Save, the same everywhere (Settings, Alerts, Time clock…). */
+button.sheet-save,
+.sheet-head button.sheet-save,
+.settings-head-actions > button.sheet-save {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 14px;
+  color: #fff;
+  background: var(--blue);
+  font-weight: 750;
+  animation: pop 200ms var(--ease-out) both;
+}
+
+button.sheet-save svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Alerts popup: a slim status line, then sections that open one at a time. */
+.notify-status.compact {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 13px;
+}
+
+.notify-status.compact .notify-status-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+
+.notify-status.compact .notify-status-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.notify-status.compact b {
+  font-size: 13.5px;
+}
+
+.notify-status.compact small {
+  font-size: 11.5px;
+}
+
+.notify-status.compact .notify-test {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.notify-group {
+  flex: none;
+}
+
+.notify-group .owner-section-head span,
+.share-also .owner-section-head span {
+  flex: none;
+  white-space: nowrap;
+}
+
+.notify-group .owner-section-head b,
+.share-also .owner-section-head b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notify-group .owner-section-body > .notify-card {
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.notify-count {
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: right;
+}
+
+/* Popups with sections that open: a plain column, so an open section is never squeezed. */
+.notify-sheet .sheet-scroll,
+.share-sheet .sheet-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+.notify-sheet .sheet-scroll > *,
+.share-sheet .sheet-scroll > * {
+  flex: none;
+}

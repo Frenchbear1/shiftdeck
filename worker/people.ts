@@ -91,6 +91,13 @@ async function ensureSchema(db: CalendarDatabase) {
       expires_at INTEGER NOT NULL
     )`),
     db.prepare("CREATE INDEX IF NOT EXISTS app_posts_time ON app_posts (created_at)"),
+    // Each person's own things on all their devices (time clock, settings), encrypted on the device.
+    db.prepare(`CREATE TABLE IF NOT EXISTS app_vault (
+      person_id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`),
     // A handover the owner started: the person it's for types the key.
     db.prepare(`CREATE TABLE IF NOT EXISTS app_handover (
       id TEXT PRIMARY KEY,
@@ -391,9 +398,13 @@ async function view(db: CalendarDatabase, me: Me) {
       recipients: string | null; created_at: number; expires_at: number }>();
 
   // Schedules you imported on your other phones (only you see these).
+  // The newest 60 (oldest first), and every schedule any of them carries, so a device never sends one again.
   const mySchedules = await db.prepare(`SELECT id, share_id, what, hashes, created_at, expires_at FROM app_posts
-      WHERE person_id = ?1 AND kind = 'self' AND expires_at > ?2 ORDER BY created_at LIMIT 60`)
+      WHERE person_id = ?1 AND kind = 'self' AND expires_at > ?2 ORDER BY created_at DESC LIMIT 60`)
     .bind(person.id, now).all<{ id: string; share_id: string; what: string; hashes: string | null; created_at: number; expires_at: number }>();
+  const allSelfHashes = await db.prepare(`SELECT hashes FROM app_posts WHERE person_id = ?1 AND kind = 'self' AND expires_at > ?2 LIMIT 1000`)
+    .bind(person.id, now).all<{ hashes: string | null }>();
+  const vault = await db.prepare("SELECT version FROM app_vault WHERE person_id = ?1").bind(person.id).first<{ version: number }>();
 
   const handover = await db.prepare("SELECT person_id, expires_at, tries FROM app_handover WHERE id = 'offer'")
     .first<{ person_id: string; expires_at: number; tries: number }>();
@@ -430,7 +441,9 @@ async function view(db: CalendarDatabase, me: Me) {
       }];
     }).slice(0, 40),
     state: readState(person.synced_state),
-    selfPosts: (mySchedules.results ?? []).map((post) => ({
+    vaultVersion: vault?.version ?? 0,
+    selfHashes: [...new Set((allSelfHashes.results ?? []).flatMap((row) => recipientsOf(row.hashes) ?? []))],
+    selfPosts: (mySchedules.results ?? []).reverse().map((post) => ({
       id: post.id,
       shareId: post.share_id,
       what: post.what,
@@ -885,6 +898,7 @@ async function ownerAction(request: Request, db: CalendarDatabase, env: PushEnvi
       db.prepare("DELETE FROM app_name_requests WHERE person_id = ?1").bind(target.id),
       db.prepare("DELETE FROM app_link_codes WHERE person_id = ?1").bind(target.id),
       db.prepare("DELETE FROM app_handover WHERE person_id = ?1").bind(target.id),
+      db.prepare("DELETE FROM app_vault WHERE person_id = ?1").bind(target.id),
       db.prepare("DELETE FROM app_people WHERE id = ?1").bind(target.id),
     ]);
     return json(request, { ok: true });
@@ -980,10 +994,46 @@ export async function handlePeopleRequest(request: Request, db: CalendarDatabase
   if (action === "recover") return recover(request, db, env);
   if (action === "keys") return keys(request, db);
   if (action === "post") return post(request, db, env);
+  if (action === "vault") return vaultGet(request, db);
+  if (action === "vault-put") return vaultPut(request, db);
   if (action === "name-request") return requestName(request, db, env);
   if (action === "accept-handover") return acceptHandover(request, db, env);
   if (OWNER_ACTIONS.includes(action)) return ownerAction(request, db, env, action);
   return json(request, { error: "Not found" }, 404);
+}
+
+/** Your vault, if it's newer than the version this device has (`have`). */
+async function vaultGet(request: Request, db: CalendarDatabase) {
+  const auth = await signedIn(request, db);
+  if (auth instanceof Response) return auth;
+  const row = await db.prepare("SELECT data, version FROM app_vault WHERE person_id = ?1").bind(auth.me.person.id)
+    .first<{ data: string; version: number }>();
+  const have = Number(auth.body.have);
+  if (!row) return json(request, { version: 0, data: null });
+  return json(request, { version: row.version, data: row.version === have ? null : row.data });
+}
+
+const VAULT_MAX = 1_800_000;
+
+/** Saves your vault on top of the version it was merged with (`base`); 409 if another device saved first. */
+async function vaultPut(request: Request, db: CalendarDatabase) {
+  const auth = await signedIn(request, db);
+  if (auth instanceof Response) return auth;
+  const data = typeof auth.body.data === "string" ? auth.body.data : "";
+  const base = Number(auth.body.base);
+  if (!data || data.length > VAULT_MAX || !/^[A-Za-z0-9_-]+$/.test(data)) return json(request, { error: "Too big to save" }, 413);
+  if (!Number.isInteger(base) || base < 0) return json(request, { error: "Bad version" }, 400);
+  const id = auth.me.person.id;
+  const now = Date.now();
+  const result = base === 0
+    ? await db.prepare("INSERT OR IGNORE INTO app_vault (person_id, data, version, updated_at) VALUES (?1, ?2, 1, ?3)").bind(id, data, now).run()
+    : await db.prepare("UPDATE app_vault SET data = ?2, version = version + 1, updated_at = ?3 WHERE person_id = ?1 AND version = ?4")
+      .bind(id, data, now, base).run();
+  if (!result.meta?.changes) {
+    const row = await db.prepare("SELECT version FROM app_vault WHERE person_id = ?1").bind(id).first<{ version: number }>();
+    return json(request, { conflict: true, version: row?.version ?? 0 }, 409);
+  }
+  return json(request, { version: base + 1 });
 }
 
 /** Posts go when their share does. */

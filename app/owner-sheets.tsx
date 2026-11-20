@@ -1,5 +1,6 @@
 "use client";
 
+import { Disclosure } from "./sheet-tools";
 import { Flip } from "./flip";
 import { Ban, Check, ChevronDown, ChevronRight, Copy, Crown, KeyRound, LoaderCircle, Send, ShieldCheck, Smartphone, Trash2, Undo2, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -225,30 +226,6 @@ export type PhoneActions = {
   onRemovePhone: (deviceId: string) => Promise<void>;
 };
 
-/** A section of the owner screen that opens and closes. */
-function Section({ icon: Icon, title, summary, alert, defaultOpen = false, children }: {
-  icon: typeof Crown;
-  title: string;
-  summary?: React.ReactNode;
-  /** Something's waiting in it. */
-  alert?: boolean;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <section className={`owner-section${open ? " open" : ""}${alert ? " alert" : ""}`}>
-      <button type="button" className="owner-section-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon className="owner-section-icon" aria-hidden="true" />
-        <span>{title}</span>
-        {summary !== undefined && <b>{typeof summary === "string" || typeof summary === "number" ? <Flip value={summary} /> : summary}</b>}
-        <ChevronDown className="owner-section-chevron" aria-hidden="true" />
-      </button>
-      {open && <div className="owner-section-body">{children}</div>}
-    </section>
-  );
-}
-
 function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} className={`owner-switch${on ? " on" : ""}`} onClick={() => onChange(!on)}>
@@ -339,7 +316,7 @@ export function OwnerSheet({
 
       <div className="owner-sections">
         {requests.length > 0 && (
-          <Section icon={KeyRound} title="Name changes" summary={requests.length} alert defaultOpen>
+          <Disclosure icon={KeyRound} title="Name changes" summary={requests.length} alert defaultOpen>
             <ul className="owner-rows">
               {requests.map((request) => (
                 <li key={request.id} className="owner-row">
@@ -354,10 +331,10 @@ export function OwnerSheet({
                 </li>
               ))}
             </ul>
-          </Section>
+          </Disclosure>
         )}
 
-        <Section
+        <Disclosure
           icon={Users}
           title="People"
           defaultOpen={focus?.section === "people"}
@@ -391,9 +368,9 @@ export function OwnerSheet({
               />
             ))}
           </div>
-        </Section>
+        </Disclosure>
 
-        <Section icon={Send} title="Can send to the team" summary={others.length ? `${senders.length} of ${others.length}` : "Just you"}>
+        <Disclosure icon={Send} title="Can send to the team" summary={others.length ? `${senders.length} of ${others.length}` : "Just you"}>
           {others.length ? (
             <ul className="owner-rows">
               {others.map((person) => (
@@ -410,9 +387,9 @@ export function OwnerSheet({
           ) : (
             <p className="owner-empty">Nobody else yet.</p>
           )}
-        </Section>
+        </Disclosure>
 
-        <Section icon={Smartphone} title="New devices" summary={log.length ? timeLabel(log[0].at) : "None yet"} defaultOpen={focus?.section === "log"}>
+        <Disclosure icon={Smartphone} title="New devices" summary={log.length ? timeLabel(log[0].at) : "None yet"} defaultOpen={focus?.section === "log"}>
           {log.length ? (
             <>
             <ul className="owner-rows">
@@ -441,10 +418,10 @@ export function OwnerSheet({
           ) : (
             <p className="owner-empty">New names and devices show up here.</p>
           )}
-        </Section>
+        </Disclosure>
 
         {blocked.length > 0 && (
-          <Section icon={Ban} title="Blocked" summary={blocked.length}>
+          <Disclosure icon={Ban} title="Blocked" summary={blocked.length}>
             <ul className="owner-rows">
               {blocked.map((person) => (
                 <li key={person.id} className="owner-row">
@@ -458,12 +435,12 @@ export function OwnerSheet({
                 </li>
               ))}
             </ul>
-          </Section>
+          </Disclosure>
         )}
 
         {learning}
 
-        <Section
+        <Disclosure
           icon={ShieldCheck}
           title="Ownership"
           summary={me.handover ? `Handing to ${firstOf(me.handover.name)}` : me.recoveryKeyMadeAt ? "Recovery key saved" : "No recovery key"}
@@ -563,7 +540,7 @@ export function OwnerSheet({
               </div>
             )}
           </div>
-        </Section>
+        </Disclosure>
       </div>
     </Sheet>
   );

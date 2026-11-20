@@ -1,8 +1,12 @@
 "use client";
 
+import { Disclosure, SheetClose } from "./sheet-tools";
 import { Flip } from "./flip";
 import {
+  AlarmClock,
   AlertTriangle,
+  BriefcaseBusiness,
+  Plane,
   ArrowLeftRight,
   ArrowUpRight,
   Bell,
@@ -137,6 +141,8 @@ import {
   withdrawNameRequest,
   type Me,
   type SyncedState,
+  getVault,
+  putVault,
 } from "./people";
 import { hasLeft, rosterStatuses } from "./roster-status";
 import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type QuickMenuStyle } from "./quick-menu";
@@ -144,10 +150,15 @@ import { ShareSheet, SharedImportSheet, TeamSendPrompt, type OpenedShare, type S
 import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
 import { weekLabel, type SharePackage, type SharedRead } from "./share-data";
-import { loadApplied, saveApplied, sendToMyPhones, toSend, wanted } from "./self-sync";
+import {
+  failedTries, loadApplied, loadSent, loadUnsendable, noteFailure, POST_TRIES, rememberUnsendable, saveApplied, sendToMyPhones, toSend, wanted,
+} from "./self-sync";
 import { SyncBar, type SyncStatus } from "./sync-bar";
-import { loadClock, saveClock, type ClockData } from "./time-clock";
-import { DEFAULT_FLIGHT_ALERTS, FlightAlertSettings, readFlightAlerts, type FlightAlertPrefs } from "./flight-alert-settings";
+import { DEFAULT_SETTINGS, loadClock, saveClock, type ClockData } from "./time-clock";
+import { clockFromVault, pickSyncedPrefs, sortedClock, vaultValuesOf } from "./vault-values";
+import { dedupePunches, merge, stable, stamp, values, type Values, type Vault } from "./vault-data";
+import { loadLocalVault, saveLocalVault, syncVault, type LocalVault } from "./vault";
+import { DEFAULT_FLIGHT_ALERTS, FlightAlertSettings, flightAlertSummary, readFlightAlerts, type FlightAlertPrefs } from "./flight-alert-settings";
 import { TimeClockCard, TimeClockSheet } from "./time-clock-ui";
 import {
   forgetLegacyTeam,
@@ -333,6 +344,16 @@ const DEFAULT_PREFS: Preferences = {
   flightApp: "flightaware",
   flightTime: "gate",
   flightAlerts: DEFAULT_FLIGHT_ALERTS,
+};
+
+/** "30 min, 1 hr before" (the soonest first). */
+const reminderSummary = (alerts: number[]) => {
+  const label = (minutes: number) => minutes === 0 ? "at start"
+    : minutes % 1440 === 0 ? `${minutes / 1440} day${minutes === 1440 ? "" : "s"}`
+      : minutes % 60 === 0 ? `${minutes / 60} hr` : `${minutes} min`;
+  const sorted = [...alerts].sort((a, b) => a - b);
+  const shown = sorted.slice(0, 3).map(label).join(", ");
+  return `${shown}${sorted.length > 3 ? ` +${sorted.length - 3}` : ""}${sorted.some((minutes) => minutes > 0) ? " before" : ""}`;
 };
 
 const ALERT_UNIT_OPTIONS = [
@@ -785,8 +806,6 @@ export default function HomePage() {
     saveClock(next);
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // What Settings looked like when it opened, so the X can turn into Save after a change.
-  const [settingsSnapshot, setSettingsSnapshot] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [nameMergeOpen, setNameMergeOpen] = useState(false);
   // Coworker emails/numbers live only in this device's storage.
@@ -1824,7 +1843,11 @@ export default function HomePage() {
       setBlocked(false);
       setMustPickName(false);
       setNameTaken(null);
-      if (result.name && result.name !== personRef.current) savePrefsRef.current({ person: result.name });
+      // The name the server has. Only a real change is saved: the same name spelled the way this
+      // device tidies it ("David LaBarre" vs "David Labarre") isn't, or it'd flip back and forth on every open.
+      if (result.name && canonicalSchedulePersonName(result.name) !== canonicalSchedulePersonName(personRef.current)) {
+        savePrefsRef.current({ person: result.name });
+      }
       return "ok";
     } catch (problem) {
       if (problem instanceof NameTakenError) {
@@ -1959,7 +1982,6 @@ export default function HomePage() {
     }
     if (kind === "settings") {
       return finish(() => {
-        setSettingsSnapshot(JSON.stringify(prefs));
         setSettingsOpen(true);
       });
     }
@@ -2942,70 +2964,166 @@ export default function HomePage() {
     syncApplied.current ??= loadApplied();
     const applied = new Set(syncApplied.current);
     const posts = me.selfPosts ?? [];
-    const incoming = posts.find((post) => !applied.has(post.id));
-    const outgoing = myPhones > 1
-      ? toSend(scheduleDocuments, posts, todayDate).filter((document) => !syncUnsendable.current.has(document.hash))
-      : [];
-    if (!incoming && !outgoing.length) return;
+    const have = new Set(scheduleDocuments.map((document) => document.hash));
     const remember = (ids: string[]) => {
       syncApplied.current = [...(syncApplied.current ?? []), ...ids];
       saveApplied(syncApplied.current);
     };
+    // Posts with nothing this device doesn't already have are done without a word.
+    const nothingNew = posts.filter((post) => !applied.has(post.id) && post.hashes.length > 0 && post.hashes.every((hash) => have.has(hash)));
+    // A post that failed a few times (its photos expired, or they don't read) is left alone.
+    const givenUp = posts.filter((post) => !applied.has(post.id) && failedTries(post.id) >= POST_TRIES);
+    if (nothingNew.length || givenUp.length) {
+      remember([...nothingNew, ...givenUp].map((post) => post.id));
+      setSyncPass((pass) => pass + 1);
+      return;
+    }
+    const incoming = posts.find((post) => !applied.has(post.id));
+    const skip = new Set([...loadSent(), ...loadUnsendable(), ...syncUnsendable.current]);
+    const outgoing = myPhones > 1
+      ? toSend(scheduleDocuments, posts, todayDate, [...(me.selfHashes ?? []), ...skip])
+      : [];
+    if (!incoming && !outgoing.length) return;
     syncBusy.current = true;
     void (async () => {
+      // The line at the top only shows when something actually moves.
+      let shown = false;
       try {
         if (incoming) {
-          setSyncStatus({ state: "getting", what: incoming.what });
-          const share = await openShareLink({ id: incoming.shareId, key: teamKey }, CALENDAR_SERVICE_ORIGIN);
-          const schedules = share.manifest.schedules ?? [];
-          const take = wanted(schedules.map((schedule) => schedule.hash), schedules.map((schedule) => schedule.dates),
-            incoming.createdAt, scheduleDocuments, isScheduleRevision);
-          const picked = schedules.flatMap((schedule, index) => take[index] && share.files[index] ? [{ schedule, file: share.files[index] }] : []);
-          if (picked.length) {
-            const files = picked.map(({ schedule, file }) => new File([file],
-              `Schedule ${weekLabel(schedule.dates)}.${schedule.type === "application/pdf" ? "pdf" : schedule.type === "image/png" ? "png" : "jpg"}`,
-              { type: schedule.type }));
-            const ok = await processFilesRef.current?.(files, {
-              person: prefs.person,
-              fromShare: true,
-              quiet: true,
-              reads: picked.map(({ schedule }) => schedule.read),
-              hashes: picked.map(({ schedule }) => schedule.hash),
-            });
-            if (!ok) throw new Error("Not imported");
-            setToast(`Got ${incoming.what} from your other device`);
-          }
-          remember([incoming.id]);
-        } else {
-          setSyncStatus({ state: "sending", what: outgoing.length === 1 ? `the ${weekLabel(outgoing[0].dates)} schedule` : `${outgoing.length} schedules` });
-          const made = await sendToMyPhones({
-            service: CALENDAR_SERVICE_ORIGIN,
-            key: teamKey,
-            documents: outgoing,
-            person: prefs.person,
-            loadFile: (id, straightened) => loadScheduleImage(id, straightened),
-          }).catch((problem: unknown) => {
-            // Photos no longer on this phone can't be sent: don't keep trying.
-            if (problem instanceof Error && /aren’t on this device/.test(problem.message)) {
-              outgoing.forEach((document) => syncUnsendable.current.add(document.hash));
-              return [];
+          try {
+            setSyncStatus({ state: "getting", what: incoming.what });
+            shown = true;
+            const share = await openShareLink({ id: incoming.shareId, key: teamKey }, CALENDAR_SERVICE_ORIGIN);
+            const schedules = share.manifest.schedules ?? [];
+            const take = wanted(schedules.map((schedule) => schedule.hash), schedules.map((schedule) => schedule.dates),
+              incoming.createdAt, scheduleDocuments, isScheduleRevision);
+            const picked = schedules.flatMap((schedule, index) => take[index] && share.files[index] ? [{ schedule, file: share.files[index] }] : []);
+            if (picked.length) {
+              const files = picked.map(({ schedule, file }) => new File([file],
+                `Schedule ${weekLabel(schedule.dates)}.${schedule.type === "application/pdf" ? "pdf" : schedule.type === "image/png" ? "png" : "jpg"}`,
+                { type: schedule.type }));
+              const ok = await processFilesRef.current?.(files, {
+                person: prefs.person,
+                fromShare: true,
+                quiet: true,
+                reads: picked.map(({ schedule }) => schedule.read),
+                hashes: picked.map(({ schedule }) => schedule.hash),
+              });
+              if (!ok) throw new Error("Not imported");
+              setToast(`Got ${incoming.what} from your other device`);
             }
+            remember([incoming.id]);
+          } catch (problem) {
+            noteFailure(incoming.id);
             throw problem;
-          });
-          remember(made);
-          await refreshMeRef.current();
+          }
+        } else {
+          // Only schedules whose photo is still on this device can go.
+          const sendable: typeof outgoing = [];
+          for (const document of outgoing) {
+            if (await loadScheduleImage(document.id).catch(() => undefined)) sendable.push(document);
+            else syncUnsendable.current.add(document.hash);
+          }
+          rememberUnsendable(outgoing.filter((document) => !sendable.includes(document)).map((document) => document.hash));
+          if (sendable.length) {
+            setSyncStatus({ state: "sending", what: sendable.length === 1 ? `the ${weekLabel(sendable[0].dates)} schedule` : `${sendable.length} schedules` });
+            shown = true;
+            const { made, sent } = await sendToMyPhones({
+              service: CALENDAR_SERVICE_ORIGIN,
+              key: teamKey,
+              documents: sendable,
+              person: prefs.person,
+              loadFile: (id, straightened) => loadScheduleImage(id, straightened),
+            });
+            // What didn't make it into a post (photo unreadable) isn't tried again.
+            const left = sendable.filter((document) => !sent.includes(document.hash)).map((document) => document.hash);
+            left.forEach((hash) => syncUnsendable.current.add(hash));
+            rememberUnsendable(left);
+            remember(made);
+            await refreshMeRef.current();
+          }
         }
-        setSyncStatus({ state: "synced", at: Date.now() });
+        setSyncStatus(shown ? { state: "synced", at: Date.now() } : { state: "idle" });
+        // On to the next post (after a failure, the next check-in, a minute on, tries again).
+        setSyncPass((pass) => pass + 1);
       } catch {
         setSyncStatus({ state: "error", at: Date.now() });
       } finally {
         syncBusy.current = false;
-        setSyncPass((pass) => pass + 1);
       }
     })();
     // processFiles and the loaders read this render's state; these are what start a pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, backgroundHydrated, me, teamKey, scheduleDocuments, importState, syncPass, prefs.person]);
+
+  // Your own things on all your devices (vault.ts): time clock (punches, Paycom sheets, checks,
+  // pay settings), your settings, and name merges. Each change is stamped here, then merged with
+  // what your other devices saved, item by item.
+  const vaultRef = useRef<LocalVault | null>(null);
+  const vaultBusy = useRef(false);
+  const [vaultTick, setVaultTick] = useState(0);
+  useEffect(() => {
+    if (!hydrated || !clockData) return;
+    const local = (vaultRef.current ??= loadLocalVault());
+    const defaults: Values = { pref: pickSyncedPrefs(DEFAULT_PREFS), clock: { settings: DEFAULT_SETTINGS } };
+    const next = stamp(local.vault, vaultValuesOf(clockData, prefs, nameMerges, dismissedMerges), Date.now(), defaults, !local.stamped);
+    const changed = stable(next) !== stable(local.vault);
+    if (!changed && local.stamped) return;
+    vaultRef.current = { ...local, vault: next, stamped: true, dirty: local.dirty || changed };
+    saveLocalVault(vaultRef.current);
+  }, [hydrated, clockData, prefs, nameMerges, dismissedMerges]);
+  const applyVault = (vault: Vault) => {
+    const synced = clockFromVault(vault);
+    setClockData((current) => {
+      if (!current || stable(sortedClock(current)) === stable(synced)) return current;
+      saveClock(synced);
+      return synced;
+    });
+    const prefsIn = values(vault, "pref") as Partial<Preferences>;
+    setPrefs((current) => {
+      const picked = pickSyncedPrefs(current);
+      const next = { ...picked, ...prefsIn };
+      return stable(next) === stable(picked) ? current : { ...current, ...prefsIn };
+    });
+    const merges = values<string>(vault, "merge");
+    setNameMerges((current) => (stable(current) === stable(merges) ? current : merges));
+    const skipped = Object.keys(values(vault, "mergeSkip")).sort();
+    setDismissedMerges((current) => (stable([...current].sort()) === stable(skipped) ? current : skipped));
+  };
+  const vaultPersonId = me?.personId;
+  const serverVault = me?.vaultVersion ?? 0;
+  useEffect(() => {
+    const local = vaultRef.current;
+    if (!local || !vaultPersonId || !teamKey || vaultBusy.current) return;
+    if (!local.dirty && serverVault === local.version) return;
+    // A moment's wait, so a burst of changes goes up as one save.
+    const timer = window.setTimeout(() => {
+      vaultBusy.current = true;
+      const started = vaultRef.current!;
+      void syncVault(started, {
+        get: (have) => getVault(CALENDAR_SERVICE_ORIGIN, have),
+        put: (data, base) => putVault(CALENDAR_SERVICE_ORIGIN, data, base),
+      }, teamKey, vaultPersonId)
+        .then((result) => {
+          // Changed here while it was saving: keep those too (they go up next).
+          const latest = vaultRef.current ?? started;
+          let vault = latest === started ? result.vault : merge(result.vault, latest.vault);
+          const deduped = dedupePunches(vault);
+          const dirty = latest !== started || deduped !== vault;
+          vault = deduped;
+          vaultRef.current = { vault, version: result.version, stamped: true, dirty };
+          saveLocalVault(vaultRef.current);
+          applyVault(vault);
+          if (dirty) setVaultTick((tick) => tick + 1);
+        })
+        .catch(() => undefined) // Tried again at the next check-in or change.
+        .finally(() => {
+          vaultBusy.current = false;
+        });
+    }, 1200);
+    return () => window.clearTimeout(timer);
+    // The clock, settings and merges are listed because a change to them is what gets sent.
+  }, [vaultTick, vaultPersonId, serverVault, teamKey, clockData, prefs, nameMerges, dismissedMerges]);
 
   const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
     void processFiles(Array.from(event.target.files ?? []));
@@ -3996,7 +4114,6 @@ export default function HomePage() {
             ariaLabel: "Open settings",
             icon: Settings,
             onSelect: () => {
-              setSettingsSnapshot(JSON.stringify(prefs));
               setSettingsOpen(true);
             },
           },
@@ -4112,11 +4229,24 @@ export default function HomePage() {
                 <h2>Alerts</h2>
                 <p>Reminders before your shifts, and flight alerts.</p>
               </div>
-              <button onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><X /></button>
+              <SheetClose
+                className=""
+                watch={[prefs.title, prefs.location, prefs.locationLat, prefs.locationLon, prefs.alerts, prefs.flightAlerts]}
+                label="Close alerts"
+                saving={notificationSyncState === "syncing"}
+                onClose={() => setNotificationsOpen(false)}
+                onSave={() => {
+                  if (notificationProfile) void saveNotificationSettings();
+                  else {
+                    setNotificationsOpen(false);
+                    setToast("Saved");
+                  }
+                }}
+              />
             </header>
             <div className="sheet-scroll">
             <div
-              className={`notify-status ${
+              className={`notify-status compact ${
                 notificationPermission === "granted" && notificationProfile ? "on" : "off"
               }`}
             >
@@ -4131,7 +4261,7 @@ export default function HomePage() {
                 </b>
                 <small>
                   {notificationPermission === "granted" && notificationProfile
-                    ? `${prefs.alerts.length} alert${prefs.alerts.length === 1 ? "" : "s"} per shift · updates automatically`
+                    ? "On this device · updates automatically"
                     : android
                       ? "Turn them on below. Chrome will ask to allow notifications."
                       : "On iPhone, open Shiftdeck from its Home Screen icon, then turn them on below."}
@@ -4149,7 +4279,12 @@ export default function HomePage() {
               )}
             </div>
 
-            <span className="notify-section-label">Shift details</span>
+            <Disclosure
+              icon={BriefcaseBusiness}
+              title="Shift details"
+              className="notify-group"
+              summary={[prefs.title.trim() || "Work", prefs.location.trim().split(",")[0]].filter(Boolean).join(" · ")}
+            >
             <div className="export-fields notify-card">
               <label>
                 <span>Default job title</span>
@@ -4330,11 +4465,15 @@ export default function HomePage() {
                 </div>
               )}
             </div>
+            </Disclosure>
 
-            <div className="notify-section-head">
-              <span className="notify-section-label">Alerts</span>
-              <small>{prefs.alerts.length} of 12</small>
-            </div>
+            <Disclosure
+              icon={AlarmClock}
+              title="Shift reminders"
+              className="notify-group"
+              defaultOpen={!notificationProfile}
+              summary={reminderSummary(prefs.alerts)}
+            >
             <div className="notify-card notify-alerts">
               {prefs.alerts.map((minutes, index) => {
                 const unit = alertUnitFor(minutes);
@@ -4409,9 +4548,13 @@ export default function HomePage() {
                   <Plus /> Custom
                 </button>
               </div>
+              <small className="notify-count">{prefs.alerts.length} of 12 alerts</small>
             </div>
+            </Disclosure>
 
-            <FlightAlertSettings value={prefs.flightAlerts} onChange={(flightAlerts) => savePrefs({ flightAlerts })} />
+            <Disclosure icon={Plane} title="Flight alerts" className="notify-group" summary={flightAlertSummary(prefs.flightAlerts)}>
+              <FlightAlertSettings bare value={prefs.flightAlerts} onChange={(flightAlerts) => savePrefs({ flightAlerts })} />
+            </Disclosure>
 
             {notificationProfile && (
               <button
@@ -4424,6 +4567,7 @@ export default function HomePage() {
             )}
             </div>
 
+            {!notificationProfile && (
             <footer className="sheet-foot">
             <button
               className="button primary"
@@ -4440,6 +4584,7 @@ export default function HomePage() {
                   : "Turn on notifications"}
             </button>
             </footer>
+            )}
           </section>
         </div>
       )}
@@ -4458,20 +4603,16 @@ export default function HomePage() {
                 >
                   {theme === "dark" ? <Moon /> : <Sun />}
                 </button>
-              {settingsSnapshot !== null && settingsSnapshot !== JSON.stringify(prefs) ? (
-                  <button
-                  className="settings-save"
-                  onClick={() => {
+                <SheetClose
+                  className=""
+                  watch={prefs}
+                  label="Close settings"
+                  onClose={() => setSettingsOpen(false)}
+                  onSave={() => {
                     setSettingsOpen(false);
-                    setToast("Preferences saved on this device");
+                    setToast(me ? "Saved · on your other devices too" : "Preferences saved on this device");
                   }}
-                  aria-label="Save preferences"
-                >
-                  <Check /> Save
-                </button>
-                ) : (
-                  <button onClick={() => setSettingsOpen(false)} aria-label="Close settings"><X /></button>
-                )}
+                />
               </div>
             </header>
             <div className="settings-name-row">
@@ -4767,7 +4908,6 @@ export default function HomePage() {
             savePrefs({ person: "" });
             // A phone that isn't set up yet goes back to the name screen; otherwise pick in Settings.
             if (mustPickName || !me) return;
-            setSettingsSnapshot(JSON.stringify({ ...prefs, person: "" }));
             setSettingsOpen(true);
           }}
           onClose={() => setNameTaken(null)}
@@ -4954,7 +5094,6 @@ export default function HomePage() {
           onUndoDifferent={(key) => setDismissedMerges((current) => current.filter((item) => item !== key))}
           onClose={() => {
             setNameMergeOpen(false);
-            setSettingsSnapshot(JSON.stringify(prefs));
             setSettingsOpen(true);
           }}
         />

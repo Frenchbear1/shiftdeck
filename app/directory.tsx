@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus, X,
+  ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { backdropClose } from "./home-sections";
@@ -20,7 +20,7 @@ import {
 } from "./directory-data";
 import type { Contacts } from "./contacts-data";
 import { ReadingBar } from "./reading-bar";
-import { AddMenu, SearchToggle } from "./sheet-tools";
+import { AddMenu, SearchToggle, SheetClose } from "./sheet-tools";
 import { TeamSendPrompt } from "./share-sheet";
 import type { Team } from "./team";
 import { coolReader, warmReader } from "./ocr-reader";
@@ -202,7 +202,7 @@ export function DirectorySheet({ entries, workers, coworkers, hiddenCount = 0, c
                 ]}
               />
             )}
-            <button type="button" className="sheet-tool" onClick={onClose} aria-label="Close directory"><X /></button>
+            <SheetClose watch={entries} label="Close directory" onClose={onClose} />
           </div>
         </header>
         <div className="sheet-scroll">
