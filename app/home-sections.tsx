@@ -635,10 +635,9 @@ export function ScheduleViews({
               {weekdayOf(day.date).slice(0, range === "month" ? 1 : 3)}
             </span>
           ))}
-        {rows.map((row, rowIndex) => (
+        {rows.map((row) => (
           <Fragment key={row[0].date}>
-          {row.map((day, dayIndex) => {
-            const cell = `day:${range}:${rowIndex}:${dayIndex}`;
+          {row.map((day) => {
             const info = dayStatus(day.date);
             const nextDay = info.status === "working" && showRanges &&
               normalizedInterval(info.start!, info.end!)[1] > 1440;
@@ -674,19 +673,19 @@ export function ScheduleViews({
               >
                 <span className="day-top">
                   {range === "3d" && <small>{isToday ? "Today" : weekdayOf(day.date)}</small>}
-                  <b><Flip value={dayOfMonth(day.date)} memory={`${cell}:date`} /></b>
+                  <b>{dayOfMonth(day.date)}</b>
                 </span>
                 <span className="day-time">
                   {info.status === "working" ? (
                     showRanges ? (
                       <>
-                        <span><Flip value={compactTime(info.start!)} memory={`${cell}:start`} /></span>
+                        <span>{compactTime(info.start!)}</span>
                         <span className={`day-end${nextDay ? " next-day" : ""}`}>
-                          <Flip value={compactTime(info.end!)} memory={`${cell}:end`} />
+                          {compactTime(info.end!)}
                         </span>
                       </>
                     ) : (
-                      <span><Flip value={compactTime(info.start!)} memory={`${cell}:start`} /></span>
+                      <span>{compactTime(info.start!)}</span>
                     )
                   ) : info.status === "pto" ? (
                     <span>PTO</span>
@@ -697,7 +696,7 @@ export function ScheduleViews({
                   )}
                 </span>
                 {range === "3d" && info.status === "working" && showRanges && (
-                  <small className="day-length"><Flip value={durationLabel(info.start!, info.end!)} memory={`${cell}:length`} /></small>
+                  <small className="day-length">{durationLabel(info.start!, info.end!)}</small>
                 )}
               </button>
             );
