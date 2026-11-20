@@ -52,6 +52,37 @@
           })
           .catch(() => {});
       }
+      // A Home Screen app coming back from the background keeps running the version it started
+      // with (an iPhone can keep it for days). Back after a while, it looks for a newer version
+      // and reloads into it, so fixes and new kinds of sync reach every device without a force-close.
+      (() => {
+        let hiddenAt = 0;
+        const current = () => {
+          const script = document.querySelector('script[type="module"][src*="assets/"]');
+          return script ? new URL(script.getAttribute("src"), document.baseURI).pathname : "";
+        };
+        const check = () => {
+          const mine = current();
+          if (!mine) return;
+          fetch(new URL("./", document.baseURI).href, { cache: "no-store" })
+            .then((response) => (response.ok ? response.text() : ""))
+            .then((html) => {
+              const match = /<script[^>]*type="module"[^>]*src="([^"]*assets\/[^"]+)"/.exec(html);
+              if (!match) return;
+              const latest = new URL(match[1], document.baseURI).pathname;
+              if (latest !== mine && document.visibilityState === "visible") location.reload();
+            })
+            .catch(() => {});
+        };
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") hiddenAt = Date.now();
+          else if (hiddenAt && Date.now() - hiddenAt > 20000) check();
+        });
+        // Left open on screen a long time: look every 30 minutes.
+        setInterval(() => {
+          if (document.visibilityState === "visible") check();
+        }, 30 * 60 * 1000);
+      })();
     </script>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
