@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import type { Map as LeafletMap, Marker } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { LocateFixed, Radar } from "lucide-react";
@@ -374,7 +375,7 @@ export function LiveMapPanel({
     <section className="panel map-panel">
       <div className="panel-head">
         <h2>
-          Live map <span className="count">{shown.length}</span>
+          Live map <span className="count"><Flip value={shown.length} /></span>
         </h2>
         <div className="pill-toggle" role="group" aria-label="Which planes">
           <button type="button" className={!allegiantOnly ? "active" : ""} onClick={() => setFilter(false)}>
@@ -440,7 +441,7 @@ export function LiveMapPanel({
             className={failed || (age !== null && age > 45) ? "stale" : age !== null ? "live" : ""}
             aria-label={failed ? "Not updating" : "Live"}
           />
-          {view.radius >= MAX_RADIUS_NM ? "250 nm (max)" : `${view.radius} nm`}
+          <Flip value={view.radius >= MAX_RADIUS_NM ? "250 nm (max)" : `${view.radius} nm`} />
         </span>
         <span>
           Data:{" "}

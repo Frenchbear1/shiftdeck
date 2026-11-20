@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import { ChevronDown } from "lucide-react";
 import { ReactNode, useEffect, useState } from "react";
 import type { LiveStatus } from "./live-flights";
@@ -75,20 +76,20 @@ export function LiveStatusSetting({
   return (
     <Collapsible
       title="Live times"
-      summary={`${status.used}/${status.dailyLimit} today · ${short}`}
+      summary={<Flip value={`${status.used}/${status.dailyLimit} today · ${short}`} />}
       tone={waiting ? "waiting" : ""}
     >
       <span>Shared by everyone</span>
       <b>
-        {status.used} of {status.dailyLimit} refreshes used today · {emergencyLeft} emergency left
+        <Flip value={status.used} /> of <Flip value={status.dailyLimit} /> refreshes used today · <Flip value={emergencyLeft} /> emergency left
       </b>
       <div className="live-status-bar" aria-hidden="true">
         <i style={{ width: `${Math.min(100, (status.used / status.dailyLimit) * 100)}%` }} />
       </div>
-      <small className={waiting ? "waiting" : ""}>{next}</small>
+      <small className={waiting ? "waiting" : ""}><Flip value={next} /></small>
       <small>
-        This month: {money(status.monthSpentCents)} of {money(status.monthFreeCents)} free used
-        {updatedAt ? ` · last updated ${clock(new Date(updatedAt))}` : ""}
+        This month: <Flip value={money(status.monthSpentCents)} /> of <Flip value={money(status.monthFreeCents)} /> free used
+        {updatedAt ? <> · last updated <Flip value={clock(new Date(updatedAt))} /></> : ""}
       </small>
     </Collapsible>
   );
@@ -183,7 +184,7 @@ export function LearningSetting({ url }: { url: string }) {
       ? `${results.flights} logged · ±${results.ourErr15} vs ±${results.faErr15} min`
       : `${results.flights} logged · ${seenPct}% seen`;
   return (
-    <Collapsible title="Flight learning" summary={summary}>
+    <Collapsible title="Flight learning" summary={<Flip value={summary} />}>
       <span>{since ? `Since ${since}` : "Flight learning"}</span>
       {results.flights === 0 ? (
         <small>
@@ -193,22 +194,22 @@ export function LearningSetting({ url }: { url: string }) {
       ) : (
         <>
           <b>
-            {results.flights} arrival{results.flights === 1 ? "" : "s"} logged · free tracking saw{" "}
-            {results.seen} ({seenPct}%)
+            <Flip value={results.flights} /> arrival{results.flights === 1 ? "" : "s"} logged · free tracking saw{" "}
+            <Flip value={results.seen} /> (<Flip value={`${seenPct}%`} />)
           </b>
           {results.firstSeenNm !== null && (
-            <small>Usually first spotted ~{Math.round(results.firstSeenNm)} nm out</small>
+            <small>Usually first spotted ~<Flip value={Math.round(results.firstSeenNm)} /> nm out</small>
           )}
           <div className="learning-compare">
             <span />
             <span>30 min out</span>
             <span>15 min out</span>
             <span>FlightAware</span>
-            <span>{minutes(results.faErr30)}</span>
-            <span>{minutes(results.faErr15)}</span>
+            <span><Flip value={minutes(results.faErr30)} /></span>
+            <span><Flip value={minutes(results.faErr15)} /></span>
             <span>Shiftdeck</span>
-            <span>{minutes(results.ourErr30)}</span>
-            <span>{minutes(results.ourErr15)}</span>
+            <span><Flip value={minutes(results.ourErr30)} /></span>
+            <span><Flip value={minutes(results.ourErr15)} /></span>
           </div>
           <small>
             How far off each landing estimate typically was

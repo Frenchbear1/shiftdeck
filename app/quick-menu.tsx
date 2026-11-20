@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -191,7 +192,7 @@ export function QuickMenu({ actions, badge, style }: { actions: QuickAction[]; b
                 <span className="quick-label">{action.label}</span>
                 <span className="quick-icon">
                   <Icon aria-hidden="true" />
-                  {Boolean(action.badge) && <i className="quick-badge">{action.badge}</i>}
+                  {Boolean(action.badge) && <i className="quick-badge"><Flip value={action.badge!} /></i>}
                 </span>
               </button>
             );
@@ -250,7 +251,7 @@ export function QuickMenu({ actions, badge, style }: { actions: QuickAction[]; b
           }}
         >
           <span className="quick-bars" aria-hidden="true"><i /><i /><i /></span>
-          {badge > 0 && <i className="quick-badge main" aria-hidden="true">{badge > 99 ? "99+" : badge}</i>}
+          {badge > 0 && <i className="quick-badge main" aria-hidden="true"><Flip value={badge > 99 ? "99+" : badge} /></i>}
         </button>
       </div>
     </>

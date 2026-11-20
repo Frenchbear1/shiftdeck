@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import { AlertTriangle, Check, KeyRound, Loader2 } from "lucide-react";
 
 export type SyncStatus =
@@ -26,7 +27,7 @@ export function SyncBar({ status, devices }: { status: SyncStatus; devices: numb
   return (
     <p className={`sync-bar is-${status.state}`} role="status" aria-live="polite">
       <Icon className={busy ? "spin" : undefined} aria-hidden="true" />
-      <span>{text}</span>
+      <span><Flip value={text} /></span>
     </p>
   );
 }

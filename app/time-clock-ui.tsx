@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import { AlertTriangle, Check, ChevronLeft, ChevronRight, FileUp, Loader2, Plus, RotateCcw, Timer, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { asPunch, compareSheet, isFlag, readPaycomSheet, type PaycomSheet, type SheetCheck } from "./paycom-sheet";
@@ -98,23 +99,23 @@ export function TimeClockCard({ data, onChange, onOpen, scheduled }: {
           <Timer aria-hidden="true" /> Time clock
         </h2>
         <button type="button" className="clock-card-more" onClick={onOpen}>
-          {hoursText(totals.hours)} h this period <ChevronRight aria-hidden="true" />
+          <span><Flip value={hoursText(totals.hours)} /> h this period</span> <ChevronRight aria-hidden="true" />
         </button>
       </div>
       <div className="clock-card-body">
         <div className="clock-card-status">
           {open ? (
             <>
-              <b className="clock-card-timer">{elapsed(open.in, now)}</b>
+              <b className="clock-card-timer"><Flip value={elapsed(open.in, now)} /></b>
               <span>
-                In since {clockText(open.in)}
-                {settings.roundTo > 1 && ` · counts from ${clockText(roundPunch(new Date(open.in), settings.roundTo))}`}
+                In since <Flip value={clockText(open.in)} />
+                {settings.roundTo > 1 && <> · counts from <Flip value={clockText(roundPunch(new Date(open.in), settings.roundTo))} /></>}
               </span>
             </>
           ) : (
             <>
               <b>Not clocked in</b>
-              <span>{scheduled ? `Scheduled ${scheduled}` : `Paid ${dayText(period.payday)}`}</span>
+              <span><Flip value={scheduled ? `Scheduled ${scheduled}` : `Paid ${dayText(period.payday)}`} /></span>
             </>
           )}
         </div>
@@ -144,7 +145,7 @@ export function TimeClockCard({ data, onChange, onOpen, scheduled }: {
           </>
         ) : (
           <>
-            {periodLabel(period)} · ≈ {money(totals.net)} take-home · paid {dayText(period.payday, { weekday: "short", month: "short", day: "numeric" })}
+            <span><Flip value={periodLabel(period)} /> · ≈ <Flip value={money(totals.net)} /> take-home · paid <Flip value={dayText(period.payday, { weekday: "short", month: "short", day: "numeric" })} /></span>
           </>
         )}
       </p>
@@ -237,8 +238,8 @@ export function TimeClockSheet({ data, onChange, onClose }: {
           <div className="clock-period">
             <button type="button" onClick={() => step(-1)} aria-label="Earlier pay period"><ChevronLeft /></button>
             <div>
-              <b>{periodLabel(period)}</b>
-              <small>Paid {dayText(period.payday, { weekday: "long", month: "short", day: "numeric" })}</small>
+              <b><Flip value={periodLabel(period)} /></b>
+              <small>Paid <Flip value={dayText(period.payday, { weekday: "long", month: "short", day: "numeric" })} /></small>
             </div>
             <button type="button" onClick={() => step(1)} aria-label="Later pay period"><ChevronRight /></button>
           </div>
@@ -384,7 +385,7 @@ function PunchesTab({ data, period, now, onChange, onPaycom }: {
                       <b>{clockText(roundedIn)} – {roundedOut ? clockText(roundedOut) : "now"}</b>
                       <small>Punched {clockText(punch.in)} – {punch.out ? clockText(punch.out) : "still in"}</small>
                     </span>
-                    <span className="clock-punch-hours">{hoursText(punchHours(punch, step, new Date(now)))} h</span>
+                    <span className="clock-punch-hours"><Flip value={hoursText(punchHours(punch, step, new Date(now)))} /> h</span>
                   </button>
                 )}
               </li>
@@ -431,25 +432,25 @@ function PayTab({ data, period, now, onChange, onPaycom }: {
         </thead>
         <tbody>
           <tr>
-            <td>Regular</td><td>{money(settings.wage)}</td><td>{hoursText(totals.regular)}</td>
-            <td>{money(Math.round(totals.regular * settings.wage * 100) / 100)}</td>
+            <td>Regular</td><td><Flip value={money(settings.wage)} /></td><td><Flip value={hoursText(totals.regular)} /></td>
+            <td><Flip value={money(Math.round(totals.regular * settings.wage * 100) / 100)} /></td>
           </tr>
           {totals.overtime > 0 && (
             <tr>
-              <td>Overtime</td><td>{money(settings.wage * settings.overtime.times)}</td><td>{hoursText(totals.overtime)}</td>
-              <td>{money(Math.round(totals.overtime * settings.wage * settings.overtime.times * 100) / 100)}</td>
+              <td>Overtime</td><td><Flip value={money(settings.wage * settings.overtime.times)} /></td><td><Flip value={hoursText(totals.overtime)} /></td>
+              <td><Flip value={money(Math.round(totals.overtime * settings.wage * settings.overtime.times * 100) / 100)} /></td>
             </tr>
           )}
-          <tr className="clock-stub-total"><td>Gross</td><td /><td>{hoursText(totals.hours)}</td><td>{money(totals.gross)}</td></tr>
+          <tr className="clock-stub-total"><td>Gross</td><td /><td><Flip value={hoursText(totals.hours)} /></td><td><Flip value={money(totals.gross)} /></td></tr>
         </tbody>
       </table>
 
       <table>
         <thead><tr><th>Employee taxes</th><th>Amount</th></tr></thead>
         <tbody>
-          {totals.taxes.map((tax) => <tr key={tax.id}><td>{tax.label}</td><td>{money(tax.amount)}</td></tr>)}
+          {totals.taxes.map((tax) => <tr key={tax.id}><td>{tax.label}</td><td><Flip value={money(tax.amount)} /></td></tr>)}
           {!totals.taxes.length && <tr><td colSpan={2} className="clock-empty">No pay yet this period.</td></tr>}
-          <tr className="clock-stub-total"><td>Total</td><td>{money(totals.taxTotal)}</td></tr>
+          <tr className="clock-stub-total"><td>Total</td><td><Flip value={money(totals.taxTotal)} /></td></tr>
         </tbody>
       </table>
 
@@ -457,14 +458,14 @@ function PayTab({ data, period, now, onChange, onPaycom }: {
         <table>
           <thead><tr><th>Deductions</th><th>Amount</th></tr></thead>
           <tbody>
-            {totals.deductions.map((item) => <tr key={item.id}><td>{item.label}</td><td>{money(item.amount)}</td></tr>)}
+            {totals.deductions.map((item) => <tr key={item.id}><td>{item.label}</td><td><Flip value={money(item.amount)} /></td></tr>)}
           </tbody>
         </table>
       )}
 
       <div className="clock-net">
         <span>Take-home</span>
-        <b>{money(totals.net)}</b>
+        <b><Flip value={money(totals.net)} /></b>
       </div>
 
       <section className="clock-check">
@@ -574,8 +575,8 @@ function SheetReview({ sheet, data, now, onChange }: {
   return (
     <div className="clock-sheet-review">
       <div className="clock-sheet-summary">
-        <span><small>Paycom</small><b>{sheet.total !== null ? hoursText(sheet.total) : "—"} h</b></span>
-        <span><small>Your punches</small><b>{hoursText(mine)} h</b></span>
+        <span><small>Paycom</small><b><Flip value={sheet.total !== null ? hoursText(sheet.total) : "—"} /> h</b></span>
+        <span><small>Your punches</small><b><Flip value={hoursText(mine)} /> h</b></span>
         <span className={flags.length ? "flagged" : "ok"}>
           {flags.length ? <AlertTriangle aria-hidden="true" /> : <Check aria-hidden="true" />}
           {flags.length ? `${flags.length} to check` : "All good"}

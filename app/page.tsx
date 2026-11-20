@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -3787,11 +3788,11 @@ export default function HomePage() {
         <div className="sheet-scroll notifications-body">
           {cleared && (
             <div className="notifications-undo" role="status">
-              <span>Cleared {cleared.count === 1 ? "1 notification" : `${cleared.count} notifications`}</span>
+              <span>Cleared <Flip value={cleared.count} /> {cleared.count === 1 ? "notification" : "notifications"}</span>
               <button type="button" onClick={undoClearNotifications}>
                 <Undo2 aria-hidden="true" /> Undo
                 <span className="notifications-undo-count" style={{ "--left": `${(clearSecondsLeft / 10) * 100}%` } as CSSProperties}>
-                  {clearSecondsLeft}
+                  <Flip value={clearSecondsLeft} />
                 </span>
               </button>
             </div>

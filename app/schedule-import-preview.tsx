@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import { Check, FileImage, FileText, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { scanConfidence } from "./schedule-parser";
@@ -276,8 +277,8 @@ export function ScheduleImportPreview({
           <i style={{ transform: `scaleX(${snapshot.progress / 100})` }} />
         </div>
         <p className="import-detail">
-          <span>{file ? `Schedule ${file.index + 1} of ${count} · ${file.name}` : snapshot.detail || "Preparing"}</span>
-          <b>{snapshot.progress}%</b>
+          <span>{file ? <>Schedule <Flip value={file.index + 1} /> of <Flip value={count} /> · {file.name}</> : snapshot.detail || "Preparing"}</span>
+          <b><Flip value={`${snapshot.progress}%`} /></b>
         </p>
       </div>
     </dialog>

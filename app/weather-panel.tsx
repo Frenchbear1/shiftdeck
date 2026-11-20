@@ -24,6 +24,7 @@ import {
   Wind,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Flip } from "./flip";
 import type { Shift } from "./sample-data";
 import {
   compass,
@@ -244,12 +245,12 @@ export function WeatherPanel({ shift, date, today }: {
             />
             {daySummary && (
               <div className="wx-facts">
-                <span><Thermometer /><small>High / low</small><b>{daySummary.high}° / {daySummary.low}°</b></span>
-                <span><Droplets /><small>Rain</small><b>{daySummary.precip >= 0.01 ? `${daySummary.precip.toFixed(2)} in` : `${daySummary.rainChance}%`}</b></span>
-                <span><Wind /><small>Gusts</small><b>{daySummary.gustMax} mph</b></span>
-                <span><SunMedium /><small>UV max</small><b>{Math.round(daySummary.uvMax)}</b></span>
-                <span><Sunrise /><small>Sunrise</small><b>{sunClock(daySummary.sunrise)}</b></span>
-                <span><Sunset /><small>Sunset</small><b>{sunClock(daySummary.sunset)}</b></span>
+                <span><Thermometer /><small>High / low</small><b><Flip value={`${daySummary.high}° / ${daySummary.low}°`} /></b></span>
+                <span><Droplets /><small>Rain</small><b><Flip value={daySummary.precip >= 0.01 ? `${daySummary.precip.toFixed(2)} in` : `${daySummary.rainChance}%`} /></b></span>
+                <span><Wind /><small>Gusts</small><b><Flip value={`${daySummary.gustMax} mph`} /></b></span>
+                <span><SunMedium /><small>UV max</small><b><Flip value={Math.round(daySummary.uvMax)} /></b></span>
+                <span><Sunrise /><small>Sunrise</small><b><Flip value={sunClock(daySummary.sunrise)} /></b></span>
+                <span><Sunset /><small>Sunset</small><b><Flip value={sunClock(daySummary.sunset)} /></b></span>
               </div>
             )}
           </div>
@@ -300,7 +301,7 @@ function UpdatedAt({ fetchedAt, now, failed, refreshing, onRefresh }: {
       aria-label={`${label}. Tap to update the weather`}
     >
       <RefreshCw className={refreshing ? "spin" : ""} aria-hidden="true" />
-      {label}
+      {refreshing ? label : <span>Updated <Flip value={label.slice("Updated ".length)} /></span>}
     </button>
   );
 }
@@ -313,8 +314,8 @@ function DayHero({ day }: { day: DayOutlook }) {
         <span className="wx-hero-icon"><WeatherIcon code={day.code} day /></span>
         <div>
           <small>High / low</small>
-          <b>{day.high}° / {day.low}°</b>
-          <span>{weatherLabel(day.code)} · feels {day.feelsLow}–{day.feelsHigh}°</span>
+          <b><Flip value={`${day.high}° / ${day.low}°`} /></b>
+          <span>{weatherLabel(day.code)} · feels <Flip value={`${day.feelsLow}–${day.feelsHigh}°`} /></span>
         </div>
       </div>
       <div className="wx-compass" aria-label={`Wind ${compass(day.direction)} up to ${day.windMax} mph, gusts ${day.gustMax} mph`}>
@@ -322,8 +323,8 @@ function DayHero({ day }: { day: DayOutlook }) {
           <i>N</i>
           <WindArrow direction={day.direction} size={26} />
         </div>
-        <b>{compass(day.direction)} {day.windMax}<small> mph</small></b>
-        <span>Gusts {day.gustMax}</span>
+        <b>{compass(day.direction)} <Flip value={day.windMax} /><small> mph</small></b>
+        <span>Gusts <Flip value={day.gustMax} /></span>
       </div>
     </div>
   );
@@ -349,16 +350,16 @@ function CompactWeather({ weather, hours, day }: {
       <div className="wx-compact-line">
         <span className="wx-compact-icon"><WeatherIcon code={code} day={isDay} /></span>
         <span className="wx-compact-main">
-          <b>{feelsLow === feelsHigh ? `${feelsLow}°` : `${feelsLow}–${feelsHigh}°`}</b>
+          <b><Flip value={feelsLow === feelsHigh ? `${feelsLow}°` : `${feelsLow}–${feelsHigh}°`} /></b>
           <small>{weatherLabel(code)}</small>
         </span>
         <span className="wx-compact-stat">
           <WindArrow direction={windiest.direction} />
-          <b>{windiest.wind}</b><small>{windiest.gust > windiest.wind + 4 ? `G${windiest.gust}` : "mph"}</small>
+          <b><Flip value={windiest.wind} /></b><small><Flip value={windiest.gust > windiest.wind + 4 ? `G${windiest.gust}` : "mph"} /></small>
         </span>
         <span className="wx-compact-stat">
           <Droplets />
-          <b>{rain}%</b>
+          <b><Flip value={`${rain}%`} /></b>
         </span>
         {warnings.length > 0 && (
           <span className="wx-compact-storm" aria-label={warnings.map((warning) => warning.text).join(". ")}>
@@ -373,9 +374,9 @@ function CompactWeather({ weather, hours, day }: {
           </div>
         ))}
         <div className="wx-strip-ends">
-          <small>{clock(hours[0].time, true)}</small>
+          <small><Flip value={clock(hours[0].time, true)} /></small>
           <small>Feels · rain · wind</small>
-          <small>{clock(hours.at(-1)!.time, true)}</small>
+          <small><Flip value={clock(hours.at(-1)!.time, true)} /></small>
         </div>
       </div>
     </div>
@@ -401,7 +402,7 @@ function FullWeather({ weather, hours }: { weather: NonNullable<ReturnType<typeo
           </span>
           <div>
             <small>Feels like</small>
-            <b>{range}</b>
+            <b><Flip value={range} /></b>
             <span>{weatherLabel(weather.code)}</span>
           </div>
         </div>
@@ -411,10 +412,10 @@ function FullWeather({ weather, hours }: { weather: NonNullable<ReturnType<typeo
             <WindArrow direction={weather.direction} size={26} />
           </div>
           <b>
-            {compass(weather.direction)} {weather.windMax}
+            {compass(weather.direction)} <Flip value={weather.windMax} />
             <small> mph</small>
           </b>
-          <span>Gusts {weather.gustMax}</span>
+          <span>Gusts <Flip value={weather.gustMax} /></span>
         </div>
       </div>
 
@@ -428,21 +429,23 @@ function FullWeather({ weather, hours }: { weather: NonNullable<ReturnType<typeo
       <div className="wx-chips">
         <span>
           <Droplets />
-          {weather.wetFrom
-            ? `${weather.rainMax}% from ${clock(weather.wetFrom.time)}${precip >= 0.01 ? ` · ${precip.toFixed(2)} in` : ""}`
-            : `${weather.rainMax}% chance of rain`}
+          <Flip
+            value={weather.wetFrom
+              ? `${weather.rainMax}% from ${clock(weather.wetFrom.time)}${precip >= 0.01 ? ` · ${precip.toFixed(2)} in` : ""}`
+              : `${weather.rainMax}% chance of rain`}
+          />
         </span>
         <span>
           <Thermometer />
-          Actual {weather.tempMin === weather.tempMax ? `${weather.tempMin}°` : `${weather.tempMin}–${weather.tempMax}°`}
+          Actual <Flip value={weather.tempMin === weather.tempMax ? `${weather.tempMin}°` : `${weather.tempMin}–${weather.tempMax}°`} />
         </span>
-        {humidity && <span><Waves />Humidity {humidity[0] === humidity[1] ? `${humidity[0]}%` : `${humidity[0]}–${humidity[1]}%`}</span>}
-        <span><Eye />Visibility {lowestVisibility >= 10 ? "10+" : lowestVisibility.toFixed(lowestVisibility < 3 ? 1 : 0)} mi</span>
-        {uv >= 1 && <span><SunMedium />UV {Math.round(uv)}</span>}
+        {humidity && <span><Waves />Humidity <Flip value={humidity[0] === humidity[1] ? `${humidity[0]}%` : `${humidity[0]}–${humidity[1]}%`} /></span>}
+        <span><Eye />Visibility <Flip value={`${lowestVisibility >= 10 ? "10+" : lowestVisibility.toFixed(lowestVisibility < 3 ? 1 : 0)} mi`} /></span>
+        {uv >= 1 && <span><SunMedium />UV <Flip value={Math.round(uv)} /></span>}
         {weather.sun && (
           <span>
             {weather.sun.kind === "sunset" ? <Sunset /> : <Sunrise />}
-            {weather.sun.kind === "sunset" ? "Sunset" : "Sunrise"} {clock(weather.sun.time)}
+            {weather.sun.kind === "sunset" ? "Sunset" : "Sunrise"} <Flip value={clock(weather.sun.time)} />
           </span>
         )}
       </div>
@@ -456,10 +459,10 @@ function FullWeather({ weather, hours }: { weather: NonNullable<ReturnType<typeo
           <div key={hour.time} className="wx-hour" role="listitem">
             <small>{clock(hour.time, true)}</small>
             <WeatherIcon code={hour.code} day={hour.day} />
-            <b>{hour.feels}°</b>
+            <b><Flip value={`${hour.feels}°`} /></b>
             <span className="wx-hour-wind">
               <WindArrow direction={hour.direction} size={11} />
-              {hour.wind}
+              <Flip value={hour.wind} />
             </span>
             <span className="wx-hour-rain" aria-label={`${hour.rain}% chance of rain`}>
               <i style={{ height: `${Math.max(hour.rain, 4)}%` }} />

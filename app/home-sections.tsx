@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import {
   ArrowLeftRight,
   ArrowUpDown,
@@ -213,15 +214,15 @@ export function TodayHero({
   onToday: () => void;
 }) {
   const label = isToday ? `Today · ${formatDate(date)}` : formatDate(date, "long");
-  let status: { tone: string; text: string } | null = null;
+  let status: { tone: string; text: string; before?: string; after?: string } | null = null;
   let progress = 0;
   if (shift) {
     const [from, to] = shiftBounds(shift);
     if (now < from) {
-      status = { tone: "upcoming", text: `Starts in ${spanLabel(from.getTime() - now.getTime())}` };
+      status = { tone: "upcoming", before: "Starts in ", text: spanLabel(from.getTime() - now.getTime()) };
     } else if (now < to) {
       progress = (now.getTime() - from.getTime()) / (to.getTime() - from.getTime());
-      status = { tone: "live", text: `On shift · ${spanLabel(to.getTime() - now.getTime())} left` };
+      status = { tone: "live", before: "On shift · ", text: spanLabel(to.getTime() - now.getTime()), after: " left" };
     } else {
       progress = 1;
       status = { tone: "done", text: isToday && !otherShifts.length ? "Done for today" : "Worked" };
@@ -254,9 +255,9 @@ export function TodayHero({
         <h1 className={shift ? "hero-time" : "hero-off"}>
           {shift ? (
             <>
-              <span>{formatTime(shift.start)}</span>
+              <span><Flip value={formatTime(shift.start)} memory="hero-start" /></span>
               <i aria-hidden="true">–</i>
-              <span>{formatTime(shift.end)}</span>
+              <span><Flip value={formatTime(shift.end)} memory="hero-end" /></span>
             </>
           ) : isPto ? (
             "PTO"
@@ -268,7 +269,7 @@ export function TodayHero({
         </h1>
         <p className="hero-sub">
           {shift
-            ? `${title} · ${durationLabel(shift.start, shift.end)}`
+            ? <>{title} · <Flip value={durationLabel(shift.start, shift.end)} memory="hero-length" /></>
             : loaded
               ? "Nothing scheduled"
               : "Import a schedule photo to fill this in"}
@@ -281,9 +282,17 @@ export function TodayHero({
               {status?.tone === "live" && <b style={{ left: `${progress * 100}%` }} />}
             </div>
             <div className="hero-track-labels">
-              <span>{compactTime(shift.start)}</span>
-              {status && <em className={`hero-status ${status.tone}`}>{status.text}</em>}
-              <span>{compactTime(shift.end)}</span>
+              <span><Flip value={compactTime(shift.start)} memory="hero-from" /></span>
+              {status && (
+                <em className={`hero-status ${status.tone}`}>
+                  <span>
+                    {status.before}
+                    <Flip value={status.text} memory={`hero-status-${status.tone}`} />
+                    {status.after}
+                  </span>
+                </em>
+              )}
+              <span><Flip value={compactTime(shift.end)} memory="hero-to" /></span>
             </div>
           </div>
         )}
@@ -299,7 +308,7 @@ export function TodayHero({
               onClick={() => onEdit(other.id)}
               aria-label={`Edit shift from ${formatTime(other.start)} to ${formatTime(other.end)}`}
             >
-              {formatTime(other.start)}–{formatTime(other.end)} <Pencil />
+              <Flip value={`${formatTime(other.start)}–${formatTime(other.end)}`} /> <Pencil />
             </button>
           ))}
         </div>
@@ -574,7 +583,7 @@ export function ScheduleViews({
         <button type="button" onClick={() => page(-1)} aria-label="Previous">
           <ChevronLeft />
         </button>
-        <strong>{view.title}</strong>
+        <strong><Flip value={view.title} /></strong>
         <button type="button" onClick={() => page(1)} aria-label="Next">
           <ChevronRight />
         </button>
@@ -626,9 +635,10 @@ export function ScheduleViews({
               {weekdayOf(day.date).slice(0, range === "month" ? 1 : 3)}
             </span>
           ))}
-        {rows.map((row) => (
+        {rows.map((row, rowIndex) => (
           <Fragment key={row[0].date}>
-          {row.map((day) => {
+          {row.map((day, dayIndex) => {
+            const cell = `day:${range}:${rowIndex}:${dayIndex}`;
             const info = dayStatus(day.date);
             const nextDay = info.status === "working" && showRanges &&
               normalizedInterval(info.start!, info.end!)[1] > 1440;
@@ -664,19 +674,19 @@ export function ScheduleViews({
               >
                 <span className="day-top">
                   {range === "3d" && <small>{isToday ? "Today" : weekdayOf(day.date)}</small>}
-                  <b>{dayOfMonth(day.date)}</b>
+                  <b><Flip value={dayOfMonth(day.date)} memory={`${cell}:date`} /></b>
                 </span>
                 <span className="day-time">
                   {info.status === "working" ? (
                     showRanges ? (
                       <>
-                        <span>{compactTime(info.start!)}</span>
+                        <span><Flip value={compactTime(info.start!)} memory={`${cell}:start`} /></span>
                         <span className={`day-end${nextDay ? " next-day" : ""}`}>
-                          {compactTime(info.end!)}
+                          <Flip value={compactTime(info.end!)} memory={`${cell}:end`} />
                         </span>
                       </>
                     ) : (
-                      <span>{compactTime(info.start!)}</span>
+                      <span><Flip value={compactTime(info.start!)} memory={`${cell}:start`} /></span>
                     )
                   ) : info.status === "pto" ? (
                     <span>PTO</span>
@@ -687,7 +697,7 @@ export function ScheduleViews({
                   )}
                 </span>
                 {range === "3d" && info.status === "working" && showRanges && (
-                  <small className="day-length">{durationLabel(info.start!, info.end!)}</small>
+                  <small className="day-length"><Flip value={durationLabel(info.start!, info.end!)} memory={`${cell}:length`} /></small>
                 )}
               </button>
             );
@@ -931,7 +941,7 @@ export function FlightList({
     <section className="panel flights-panel">
       <div className="panel-head">
         <h2>
-          Flights <span className="count">{visible.length}</span>
+          Flights <span className="count"><Flip value={visible.length} /></span>
         </h2>
         {canFilter && (
           <div className="pill-toggle" role="group" aria-label="Which flights">
@@ -995,14 +1005,14 @@ export function FlightList({
         <div className="flight-live-note">
           <span className="flight-live-dot" aria-hidden="true" />
           <p>
-            {liveHint ??
+            <Flip value={liveHint ??
               (liveUpdated
                 ? `${boardUpdated ? "ABE board · " : ""}${liveAge! >= 15 ? "Last checked" : "Updated"} ${formatTime(
                     `${String(liveUpdated.getHours()).padStart(2, "0")}:${String(
                       liveUpdated.getMinutes(),
                     ).padStart(2, "0")}`,
                   )} · ${liveAge! < 1 ? "just now" : `${liveAge} min ago`}`
-                : "No live times yet")}
+                : "No live times yet")} />
           </p>
           <button
             type="button"
@@ -1106,7 +1116,7 @@ export function FlightList({
                   }${flight.trackingId ? `, flight ${flightNumber(flight.trackingId)}` : ""}${match?.label ? `, ${match.label}` : ""}. ${expanded ? "Hide" : "Show"} details`}
                 >
                   <span className={`flight-time ${timeTone}`}>
-                    <time>{formatTime(time)}</time>
+                    <time><Flip value={formatTime(time)} /></time>
                     {changed && <s>{formatTime(scheduledTime)}</s>}
                   </span>
                   <span className="flight-place">
@@ -1120,12 +1130,12 @@ export function FlightList({
                     )}
                   </span>
                   {match?.label && (
-                    <span className={`flight-live ${timeTone}`}>{match.label}</span>
+                    <span className={`flight-live ${timeTone}`}><Flip value={match.label} /></span>
                   )}
                   {match?.live.gate && (
                     <span className="flight-gate" aria-label={`Gate ${match.live.gate}`}>
                       <small>Gate</small>
-                      {match.live.gate}
+                      <Flip value={match.live.gate} />
                     </span>
                   )}
                   <span className={`flight-tag tag-${tag.toLowerCase()}`}>{tag}</span>
@@ -1137,7 +1147,7 @@ export function FlightList({
                         <FlightDetails flight={flight} match={match} boardUpdatedAt={boardUpdated} />
                         {out && (
                           <span>
-                            Out {formatTime(out.time)}
+                            Out <Flip value={formatTime(out.time)} />
                             {out.live.gate && ` · Gate ${out.live.gate}`}
                             {out.label && ` · ${out.label}`}
                           </span>
@@ -1274,11 +1284,11 @@ function FlightDetails({
       {facts.length > 0 && <span>{facts.join(" · ")}</span>}
       {(progressLine || delayText) && (
         <span>
-          {[progressLine, delayText].filter(Boolean).join(" · ")}
+          <Flip value={[progressLine, delayText].filter(Boolean).join(" · ")} />
         </span>
       )}
       {droppedOff && !live.done && !live.cancelled && (
-        <span>Last shown on ABE board at {clockFromIso(new Date(live.airportBoardSeenAt!).toISOString())}</span>
+        <span>Last shown on ABE board at <Flip value={clockFromIso(new Date(live.airportBoardSeenAt!).toISOString()) ?? ""} /></span>
       )}
       {flying && (
         <span className="flight-progress" aria-label={`${live.progress}% of the way`}>
@@ -1328,7 +1338,7 @@ export function CrewPanel({
     <section className="panel crew-panel">
       <div className="panel-head">
         <h2>
-          {myShift ? "Crew" : "Working"} <span className="count">{crewCount}</span>
+          {myShift ? "Crew" : "Working"} <span className="count"><Flip value={crewCount} /></span>
         </h2>
         {!myShift && timeline && <span className="panel-note">You’re off</span>}
       </div>
@@ -1345,7 +1355,7 @@ export function CrewPanel({
           <div className="crew-axis" aria-hidden="true">
             {timeline.ticks.map((tick) => (
               <span key={tick.minutes} style={{ left: `${tick.left}%` }}>
-                {compactTime(minutesToClock(tick.minutes))}
+                <Flip value={compactTime(minutesToClock(tick.minutes))} />
               </span>
             ))}
           </div>
@@ -1364,7 +1374,7 @@ export function CrewPanel({
                         ))}
                   </span>
                   <span className="crew-hours">
-                    {compactTime(row.start)}–{compactTime(row.end)}
+                    <Flip value={`${compactTime(row.start)}–${compactTime(row.end)}`} />
                   </span>
                 </div>
                 <div className="crew-track">

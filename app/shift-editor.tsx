@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import { Calendar, Check, Clock3, Moon, Trash2, X } from "lucide-react";
 import {
   Dispatch,
@@ -344,7 +345,7 @@ export function ShiftEditorSheet({
                 <span className="shift-editor-row-icon">{row.icon}</span>
                 <span className="shift-editor-row-label">{row.label}</span>
                 {row.badge && <i>{row.badge}</i>}
-                <b>{row.value}</b>
+                <b><Flip value={row.value} /></b>
               </button>
               {open === row.field && (
                 <div className="shift-editor-wheels">
@@ -363,9 +364,9 @@ export function ShiftEditorSheet({
         </div>
 
         <p className="shift-editor-summary">
-          <b>{formatDuration(duration)}</b>
+          <b><Flip value={formatDuration(duration)} /></b>
           {overnight
-            ? ` · ends ${formatDate(nextDay(draft.date), false)}`
+            ? <> · ends <Flip value={formatDate(nextDay(draft.date), false)} /></>
             : " shift"}
         </p>
 

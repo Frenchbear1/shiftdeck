@@ -2,6 +2,7 @@
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { DayOutlook, HourDetail } from "./weather";
+import { Flip } from "./flip";
 
 const hourLabel = (time: string) => {
   const hour = Number(time.slice(11, 13));
@@ -178,12 +179,12 @@ export function DayGraph({ hours, shift, now, metric, onMetric }: {
       <p className="wx-readout" aria-live="polite">
         {readout ? (
           <>
-            <b>{longHour(readout.time)}</b>
+            <b><Flip value={longHour(readout.time)} /></b>
             {chosen
-              ? <> · {chosen.format(chosen.value(readout))}{chosen.second ? ` · ${chosen.second.label.toLowerCase()} ${chosen.key === "wind" ? `${chosen.second.value(readout)} mph` : `${chosen.second.value(readout)}°`}` : ""}{chosen.key === "rain" && readout.precip > 0 ? ` · ${readout.precip.toFixed(2)} in` : ""}</>
-              : <> · {readout.temp}° (feels {readout.feels}°) · {readout.rain}% rain · {readout.wind}–{readout.gust} mph · {readout.cloud}% clouds</>}
+              ? <> · <Flip value={chosen.format(chosen.value(readout))} />{chosen.second && <> · {chosen.second.label.toLowerCase()} <Flip value={chosen.key === "wind" ? `${chosen.second.value(readout)} mph` : `${chosen.second.value(readout)}°`} /></>}{chosen.key === "rain" && readout.precip > 0 && <> · <Flip value={`${readout.precip.toFixed(2)} in`} /></>}</>
+              : <> · <Flip value={`${readout.temp}°`} /> (feels <Flip value={`${readout.feels}°`} />) · <Flip value={`${readout.rain}%`} /> rain · <Flip value={readout.wind} />–<Flip value={readout.gust} /> mph · <Flip value={`${readout.cloud}%`} /> clouds</>}
           </>
-        ) : chosen ? chosen.summary(hours) : "Every hour at a glance · drag to read an hour"}
+        ) : chosen ? <Flip key={chosen.key} value={chosen.summary(hours)} /> : "Every hour at a glance · drag to read an hour"}
       </p>
 
       {chosen ? (
@@ -381,9 +382,9 @@ export function Outlook({ days, today, selected, onSelect, icon }: {
             <b>{dayName(day.date, today)}</b>
             <span className="wx-outlook-icon">
               {icon(day.code)}
-              {day.rainChance >= 20 && <small>{day.rainChance}%</small>}
+              {day.rainChance >= 20 && <small><Flip value={`${day.rainChance}%`} /></small>}
             </span>
-            <span className="wx-outlook-low">{day.low}°</span>
+            <span className="wx-outlook-low"><Flip value={`${day.low}°`} /></span>
             <span className="wx-outlook-bar">
               <i style={{
                 left: `${((day.low - low) / span) * 100}%`,
@@ -391,7 +392,7 @@ export function Outlook({ days, today, selected, onSelect, icon }: {
                 background: `linear-gradient(90deg, ${temperatureColor(day.low)}, ${temperatureColor(day.high)})`,
               }} />
             </span>
-            <span className="wx-outlook-high">{day.high}°</span>
+            <span className="wx-outlook-high"><Flip value={`${day.high}°`} /></span>
           </button>
         </li>
       ))}

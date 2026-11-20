@@ -1,5 +1,6 @@
 "use client";
 
+import { Flip } from "./flip";
 import { Ban, Check, ChevronDown, ChevronRight, Copy, Crown, KeyRound, LoaderCircle, Send, ShieldCheck, Smartphone, Trash2, Undo2, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { backdropClose } from "./home-sections";
@@ -200,7 +201,7 @@ export function LinkCodeSheet({ owner, onMakeCode, onClose }: {
             <p className="link-code">{code.code.slice(0, 3)} {code.code.slice(3)}</p>
             <small>
               {left > 0
-                ? `On your other device, pick your name, then type this code. It works once and expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}.`
+                ? <>On your other device, pick your name, then type this code. It works once and expires in <Flip value={`${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`} />.</>
                 : "This code expired. Close and open this again for a new one."}
               {owner ? " That device gets owner access too." : ""}
             </small>
@@ -240,7 +241,7 @@ function Section({ icon: Icon, title, summary, alert, defaultOpen = false, child
       <button type="button" className="owner-section-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <Icon className="owner-section-icon" aria-hidden="true" />
         <span>{title}</span>
-        {summary !== undefined && <b>{summary}</b>}
+        {summary !== undefined && <b>{typeof summary === "string" || typeof summary === "number" ? <Flip value={summary} /> : summary}</b>}
         <ChevronDown className="owner-section-chevron" aria-hidden="true" />
       </button>
       {open && <div className="owner-section-body">{children}</div>}
@@ -325,8 +326,8 @@ export function OwnerSheet({
         <span className="owner-top-copy">
           <b>You own Shiftdeck</b>
           <small>
-            {people.length} {people.length === 1 ? "person" : "people"}
-            {blocked.length ? ` · ${blocked.length} blocked` : ""}
+            <Flip value={people.length} /> {people.length === 1 ? "person" : "people"}
+            {blocked.length ? <> · <Flip value={blocked.length} /> blocked</> : ""}
           </small>
         </span>
         <button type="button" className="owner-top-action" onClick={onAddPhone}>
