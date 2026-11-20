@@ -350,7 +350,7 @@ test("uses durable, duplicate-safe PWA shift notifications", async () => {
   assert.match(page, />Location</);
   assert.match(page, /className="notify-presets"/);
   assert.match(page, /updateNotificationAlert/);
-  assert.match(page, /prefs\.alerts\.length >= 12/);
+  assert.match(page, /(?:alertPrefs|prefs)\.alerts\.length >= 12/);
   assert.match(page, /DEFAULT_ALERT_MINUTES = 120/);
   assert.match(page, /sendTestNotification\(\)/);
   assert.match(page, /Add shifts for Waze/);
