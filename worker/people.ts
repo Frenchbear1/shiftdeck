@@ -120,6 +120,8 @@ async function ensureSchema(db: CalendarDatabase) {
     ["app_people", "synced_state TEXT"],
     // A post to your own phones: which schedules (photo hashes) it carries.
     ["app_posts", "hashes TEXT"],
+    // How many times more was added to a send (each one shows as new again).
+    ["app_posts", "rev INTEGER"],
   ]) {
     await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column}`).run().catch(() => undefined);
   }
@@ -392,10 +394,10 @@ async function view(db: CalendarDatabase, me: Me) {
     key.wrapped = device.wrapped_key;
   }
 
-  const posts = await db.prepare(`SELECT id, person_id, share_id, from_name, what, kind, recipients, created_at, expires_at
+  const posts = await db.prepare(`SELECT id, person_id, share_id, from_name, what, kind, recipients, rev, created_at, expires_at
       FROM app_posts WHERE expires_at > ?1 AND (kind IS NULL OR kind != 'self') ORDER BY created_at DESC LIMIT 80`)
     .bind(now).all<{ id: string; person_id: string; share_id: string; from_name: string; what: string; kind: string | null;
-      recipients: string | null; created_at: number; expires_at: number }>();
+      recipients: string | null; rev: number | null; created_at: number; expires_at: number }>();
 
   // Schedules you imported on your other phones (only you see these).
   // The newest 60 (oldest first), and every schedule any of them carries, so a device never sends one again.
@@ -436,6 +438,7 @@ async function view(db: CalendarDatabase, me: Me) {
         mine,
         direct: Boolean(recipients),
         to: recipients && mine ? recipients.map((id) => nameOf.get(id) ?? "Someone who left") : undefined,
+        ...(post.rev ? { rev: post.rev } : {}),
         createdAt: iso(post.created_at),
         expiresAt: iso(post.expires_at),
       }];
@@ -754,6 +757,13 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
     : [];
   const recipients = picked.length ? picked : null;
   if (swap && recipients?.length !== 1) return json(request, { error: "A swap goes to one person." }, 400);
+  // More for something you just sent (forgot the directory): it goes into that same notification,
+  // as long as it's to the same people and nobody's cleared it yet. Otherwise nothing's sent and
+  // the app sends it as a new one.
+  if (!swap && typeof body.amend === "string" && ID.test(body.amend)) {
+    const amended = await amendPost(db, env, me.person, body.amend, recipients, shareId, what, share.expires_at);
+    return json(request, amended ?? { amended: false }, amended ? 200 : 409);
+  }
   const id = newId();
   await db.prepare(`INSERT INTO app_posts (id, person_id, share_id, from_name, what, kind, recipients, created_at, expires_at)
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`)
@@ -767,6 +777,39 @@ async function post(request: Request, db: CalendarDatabase, env: PushEnvironment
     notified += await ping(db, env, { personId }, message, `post-${id}`, `post:${id}`);
   }
   return json(request, { id, notified, to: recipients?.length ?? null }, 201);
+}
+
+/** Puts a new share (everything sent before plus what's added) into an earlier post; null if it can't. */
+async function amendPost(
+  db: CalendarDatabase,
+  env: PushEnvironment,
+  me: { id: string; name: string },
+  postId: string,
+  recipients: string[] | null,
+  shareId: string,
+  what: string,
+  expiresAt: number,
+) {
+  const now = Date.now();
+  const earlier = await db.prepare(`SELECT id, recipients FROM app_posts
+      WHERE id = ?1 AND person_id = ?2 AND kind IS NULL AND expires_at > ?3`)
+    .bind(postId, me.id, now).first<{ id: string; recipients: string | null }>();
+  if (!earlier) return null;
+  const sameTo = (list: string[] | null) => (list ? [...list].sort().join() : "");
+  if (sameTo(recipientsOf(earlier.recipients)) !== sameTo(recipients)) return null;
+  // Everyone it went to still has it (nobody cleared it).
+  const people = await db.prepare("SELECT id, synced_state FROM app_people WHERE blocked_at IS NULL")
+    .all<{ id: string; synced_state: string | null }>();
+  const to = (people.results ?? []).filter((row) => row.id !== me.id && (!recipients || recipients.includes(row.id)));
+  if (to.some((row) => readState(row.synced_state).dismissed.includes(postId))) return null;
+  await db.prepare(`UPDATE app_posts SET share_id = ?2, what = ?3, expires_at = ?4, created_at = ?5, rev = COALESCE(rev, 0) + 1
+      WHERE id = ?1`).bind(postId, shareId, what, expiresAt, now).run();
+  // The same tag: on their phone the notification is replaced, not added to.
+  const first = me.name.split(" ")[0];
+  const message = recipients ? `${first} sent you ${what}` : `${first} shared ${what}`;
+  let notified = 0;
+  for (const row of to) notified += await ping(db, env, { personId: row.id }, message, `post-${postId}`, `post:${postId}`);
+  return { id: postId, notified, to: recipients?.length ?? null, amended: true };
 }
 
 /* ---------- names ---------- */

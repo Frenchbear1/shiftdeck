@@ -35,9 +35,14 @@ export type TeamPost = {
   direct?: boolean;
   /** Who you sent it to (your own direct posts). */
   to?: string[];
+  /** How many times something was added to it since it was sent (each time it's new again). */
+  rev?: number;
   createdAt: string;
   expiresAt: string;
 };
+
+/** What "seen" is kept under: a post that had something added is new again. */
+export const postSeenKey = (post: Pick<TeamPost, "id" | "rev">) => (post.rev ? `${post.id}#${post.rev}` : post.id);
 
 /** What teams used to be stored as (before the app was one team): its key can become the team key. */
 const LEGACY_TEAM_KEY = "shiftdeck.team";
@@ -81,9 +86,9 @@ export function saveSeenPosts(ids: string[]) {
  * Encrypts with the team key, uploads, and tells everyone, or only the
  * picked people (`to`: person ids). Those with notifications on get a push.
  */
-export async function postToTeam(service: string, team: Team, share: SharePackage, what: string, to?: string[]) {
+export async function postToTeam(service: string, team: Team, share: SharePackage, what: string, to?: string[], amend?: string) {
   const { id: shareId } = await uploadShare(share, { service, days: 7, key: team.key });
-  return sendPost(service, { shareId, what, ...(to?.length ? { to } : {}) });
+  return sendPost(service, { shareId, what, ...(to?.length ? { to } : {}), ...(amend ? { amend } : {}) });
 }
 
 /** Sends a swap request to one person inside the app (the swap is registered first). */

@@ -22,7 +22,7 @@ import {
 import type { Contacts } from "./contacts-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle, SheetClose } from "./sheet-tools";
-import { TeamSendPrompt } from "./share-sheet";
+import { TeamSendPrompt, type TeamSendResult } from "./share-sheet";
 import { CoworkersPane } from "./contacts";
 import type { RosterStatus } from "./roster-status";
 import type { Team } from "./team";
@@ -100,7 +100,7 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
   contacts: Contacts;
   /** After an import, offers to send the directory to this team. */
   team?: Team | null;
-  onSendToTeam?: (to: string[]) => Promise<number>;
+  onSendToTeam?: (to: string[]) => Promise<TeamSendResult>;
   onChange: (entries: DirectoryEntry[]) => void;
   /** Clear everything, hidden people too. */
   onClear?: () => void;
@@ -429,8 +429,8 @@ export function DirectorySheet({ tab: firstTab, focus, entries, workers, coworke
   contacts: Contacts;
   statuses?: Map<string, RosterStatus>;
   team?: Team | null;
-  onSendDirectory?: (to: string[]) => Promise<number>;
-  onSendContacts?: (to: string[]) => Promise<number>;
+  onSendDirectory?: (to: string[]) => Promise<TeamSendResult>;
+  onSendContacts?: (to: string[]) => Promise<TeamSendResult>;
   onChange: (entries: DirectoryEntry[]) => void;
   onContactsChange: (contacts: Contacts) => void;
   onClear?: () => void;

@@ -248,8 +248,11 @@ export const recoverOwner = async (service: string, key: string, checkIn: CheckI
 export const sendWrappedKeys = (service: string, wraps: Array<{ deviceId: string; data: string }>) =>
   call<{ ok: boolean; saved: number }>(service, "keys", { wraps });
 
-export const sendPost = (service: string, post: { shareId: string; what?: string; kind?: "swap" | "self"; to?: string[]; hashes?: string[] }) =>
-  call<{ id: string; notified: number }>(service, "post", post);
+export const sendPost = (service: string, post: {
+  shareId: string; what?: string; kind?: "swap" | "self"; to?: string[]; hashes?: string[];
+  /** Put this into that earlier post instead (see amendPost in the worker). */
+  amend?: string;
+}) => call<{ id: string; notified: number; amended?: boolean }>(service, "post", post);
 
 /** The person the owner picked: the key the owner gave you. */
 export const acceptHandover = (service: string, key: string) => call<Me>(service, "accept-handover", { key });

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { backdropClose } from "./home-sections";
 import type { Contacts } from "./contacts-data";
 import type { DirectoryEntry } from "./directory-data";
-import { buildShare, contactCount, type ShareableDocument } from "./share-build";
+import { contactCount, type ShareableDocument } from "./share-build";
 import {
   firstName,
   mergeSharedContacts,
@@ -14,7 +14,6 @@ import {
   mergeSummary,
   weekLabel,
   type ShareManifest,
-  type SharePackage,
   type SharedRead,
 } from "./share-data";
 import { teammates, type Team } from "./team";
@@ -150,14 +149,12 @@ const shiftDay = (day: string, days: number) => {
 };
 
 export function ShareSheet({
-  schedules, today, directory, contacts, person, loadFile, team, signedIn, inviteUrl, onSendToTeam, onClose,
+  schedules, today, directory, contacts, team, signedIn, inviteUrl, onSendToTeam, onClose,
 }: {
   schedules: ShareableDocument[];
   today: string;
   directory: DirectoryEntry[];
   contacts: Contacts;
-  person: string;
-  loadFile: (id: string, straightened?: boolean) => Promise<Blob | undefined>;
   /** Null until this phone has a name and the team key. */
   team: Team | null;
   /** This phone has picked its name. */
@@ -165,7 +162,8 @@ export function ShareSheet({
   /** The app's address, to invite coworkers. */
   inviteUrl: string;
   /** Resolves with how many people got a notification. `to` empty = everyone. */
-  onSendToTeam: (share: SharePackage, what: string, to: string[]) => Promise<number>;
+  /** Sends what's picked (`to` empty = everyone); may add it to your last send. */
+  onSendToTeam: (part: { documentIds: string[]; directory: boolean; contacts: boolean }, to: string[]) => Promise<TeamSendResult>;
   onClose: () => void;
 }) {
   const sorted = useMemo(() =>
@@ -187,7 +185,7 @@ export function ShareSheet({
   const shownWeeks = [...recent, ...older.slice(0, olderShown)];
   const [state, setState] = useState<"idle" | "sending" | "error">("idle");
   const [error, setError] = useState("");
-  const [sent, setSent] = useState<{ what: string; notified: number; to: string[] } | null>(null);
+  const [sent, setSent] = useState<(TeamSendResult & { to: string[] }) | null>(null);
   const [to, setTo] = useState<string[]>([]);
 
   const picked = sorted.filter((document) => weeks.has(document.id));
@@ -197,14 +195,8 @@ export function ShareSheet({
     setState("sending");
     setError("");
     try {
-      const { share, what } = await buildShare({
-        documents: picked,
-        directory: withDirectory ? directory : undefined,
-        contacts: withContacts ? contacts : undefined,
-        person,
-        loadFile,
-      });
-      setSent({ what, to, notified: await onSendToTeam(share, what, to) });
+      const result = await onSendToTeam({ documentIds: picked.map((document) => document.id), directory: withDirectory, contacts: withContacts }, to);
+      setSent({ ...result, to });
       setState("idle");
     } catch (problem) {
       setState("error");
@@ -225,11 +217,14 @@ export function ShareSheet({
           {sent ? (
             <div className="share-done">
               <span className="share-done-icon"><Send /></span>
-              <p>Sent to {team ? recipientsLabel(team, sent.to) : ""}</p>
+              <p>{sent.added ? "Added to what you sent" : "Sent to"} {team ? recipientsLabel(team, sent.to) : ""}</p>
               <small>
-                {sent.what.charAt(0).toUpperCase() + sent.what.slice(1)} is in {sent.to.length ? "their" : "everyone’s"} Notifications
-                {sent.notified ? `, and ${sent.notified} ${sent.notified === 1 ? "device" : "devices"} got a ping` : ""}.
-                {sent.to.length ? " Nobody else on the team sees it." : ""} It’s there for a week.
+                {sent.added
+                  ? <>Still one notification: it now has {sent.what}.</>
+                  : <>{sent.what.charAt(0).toUpperCase() + sent.what.slice(1)} is in {sent.to.length ? "their" : "everyone’s"} Notifications</>}
+                {sent.notified ? `${sent.added ? " " : ", and "}${sent.notified} ${sent.notified === 1 ? "device" : "devices"} got a ping${sent.added ? "." : ""}` : ""}
+                {sent.added ? "" : "."}
+                {sent.to.length && !sent.added ? " Nobody else on the team sees it." : ""} {sent.added ? "" : "It’s there for a week."}
               </small>
               <button type="button" className="share-again" onClick={() => setSent(null)}>Send something else</button>
             </div>
@@ -540,16 +535,20 @@ export function SharedImportSheet({ share, error, loading, person, haveWeek, dir
 
 /* ---------- "send this to the team?" after an import ---------- */
 
+/** How a send to the team went: who got a ping, and whether it went into your last send. */
+export type TeamSendResult = { notified: number; added: boolean; what: string };
+
 export function TeamSendPrompt({ team, what, onSend }: {
   team: Team;
   /** "the Nov 22 – 28 schedule" */
   what: string;
-  /** Resolves with how many teammates got a notification. `to` empty = everyone. */
-  onSend: (to: string[]) => Promise<number>;
+  /** Resolves with how many teammates got a ping, and whether it was added to your last send. `to` empty = everyone. */
+  onSend: (to: string[]) => Promise<TeamSendResult>;
 }) {
   const [state, setState] = useState<"ask" | "sending" | "sent" | "error" | "dismissed">("ask");
   const [to, setTo] = useState<string[]>([]);
   const [notified, setNotified] = useState(0);
+  const [added, setAdded] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     if (state !== "sent") return;
@@ -561,10 +560,10 @@ export function TeamSendPrompt({ team, what, onSend }: {
     <div className="team-prompt" role="status">
       <span className="share-choice-icon">{state === "sent" ? <Check /> : <Send />}</span>
       <span className="share-choice-copy">
-        <b>{state === "sent" ? `Sent to ${recipientsLabel(team, to)}` : `Send ${what} to ${to.length ? recipientsLabel(team, to) : "everyone"}?`}</b>
+        <b>{state === "sent" ? `${added ? "Added to what you sent" : "Sent to"} ${recipientsLabel(team, to)}` : `Send ${what} to ${to.length ? recipientsLabel(team, to) : "everyone"}?`}</b>
         <small>
           {state === "sent"
-            ? notified ? `${notified} ${notified === 1 ? "device" : "devices"} got a ping.` : to.length ? "It’s in their Notifications." : "It’s in everyone’s Notifications."
+            ? added ? "Still one notification on their end." : notified ? `${notified} ${notified === 1 ? "device" : "devices"} got a ping.` : to.length ? "It’s in their Notifications." : "It’s in everyone’s Notifications."
             : state === "error" ? error : to.length ? "Only who you pick gets it." : "Everyone on Shiftdeck gets it in Notifications."}
         </small>
       </span>
@@ -583,7 +582,9 @@ export function TeamSendPrompt({ team, what, onSend }: {
             onClick={async () => {
               setState("sending");
               try {
-                setNotified(await onSend(to));
+                const result = await onSend(to);
+                setNotified(result.notified);
+                setAdded(result.added);
                 setState("sent");
               } catch (problem) {
                 setError(problem instanceof Error ? problem.message : "Couldn’t send. Try again.");

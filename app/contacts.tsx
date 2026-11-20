@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { addPeopleToDirectory, callLink, findPerson, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
 import { AddMenu, SearchToggle } from "./sheet-tools";
-import { TeamSendPrompt } from "./share-sheet";
+import { TeamSendPrompt, type TeamSendResult } from "./share-sheet";
 import type { Team } from "./team";
 import { rosterLabel, type RosterStatus } from "./roster-status";
 import { coolReader, warmReader } from "./ocr-reader";
@@ -53,7 +53,7 @@ export function CoworkersPane({
   onDirectoryChange: (entries: DirectoryEntry[]) => void;
   /** After an import, offers to send coworker contacts to this team. */
   team?: Team | null;
-  onSendToTeam?: (to: string[]) => Promise<number>;
+  onSendToTeam?: (to: string[]) => Promise<TeamSendResult>;
   /** Opened from a swap match: show just this person first. */
   focus?: string;
   onChange: (contacts: Contacts) => void;

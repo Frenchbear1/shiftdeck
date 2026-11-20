@@ -148,10 +148,10 @@ import {
 } from "./people";
 import { hasLeft, rosterStatuses } from "./roster-status";
 import { DEFAULT_QUICK_MENU, loadQuickMenuStyle, QUICK_MENU_KEY, QuickMenu, type QuickMenuStyle } from "./quick-menu";
-import { ShareSheet, SharedImportSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
+import { ShareSheet, type TeamSendResult, SharedImportSheet, TeamSendPrompt, type OpenedShare, type SharedImport } from "./share-sheet";
 import { openShareLink, type ShareKey } from "./share-link";
 import { buildShare, describeShare } from "./share-build";
-import { weekLabel, type SharePackage, type SharedRead } from "./share-data";
+import { weekLabel, type SharedRead } from "./share-data";
 import {
   failedTries, loadApplied, loadSent, loadUnsendable, noteFailure, POST_TRIES, rememberUnsendable, saveApplied, sendToMyPhones, toSend, wanted,
 } from "./self-sync";
@@ -168,6 +168,7 @@ import {
   loadSeenPosts,
   postSwapToTeam,
   postToTeam,
+  postSeenKey,
   saveSeenPosts,
   teammates,
   type Team,
@@ -734,6 +735,26 @@ const formatShortDay = (date: string) =>
 const formatTimeRange = ({ start, end }: { start: string; end: string }) =>
   `${compactTime(start)}–${compactTime(end)}`;
 
+/** Your last send to the team, so more can be added to it (sendImportToTeam). */
+type LastTeamSend = { postId: string; to: string[]; part: { documentIds: string[]; directory: boolean; contacts: boolean }; at: number };
+const LAST_TEAM_SEND_KEY = "shiftdeck.lastTeamSend";
+const wallClock = () => Date.now();
+const loadLastTeamSend = (): LastTeamSend | null => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAST_TEAM_SEND_KEY) ?? "null") as LastTeamSend | null;
+    return saved && typeof saved.postId === "string" && Array.isArray(saved.to) && saved.part ? saved : null;
+  } catch {
+    return null;
+  }
+};
+const saveLastTeamSend = (send: LastTeamSend) => {
+  try {
+    localStorage.setItem(LAST_TEAM_SEND_KEY, JSON.stringify(send));
+  } catch {
+    // The next send goes on its own.
+  }
+};
+
 export default function HomePage() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [scheduleRange, setScheduleRange] = useState<ScheduleRange>("week");
@@ -1084,7 +1105,7 @@ export default function HomePage() {
   const unseenSwapAnswers = sentSwaps.filter((swap) => swap.status !== "waiting" && !swap.seen).length;
   const airportNoticeCount = visibleAirportAlerts.length;
   const teamInbox = teamPosts.filter((post) => !post.mine && !dismissedPosts.includes(post.id));
-  const unseenTeamPosts = teamInbox.filter((post) => !seenPosts.includes(post.id)).length;
+  const unseenTeamPosts = teamInbox.filter((post) => !seenPosts.includes(postSeenKey(post))).length;
   const allOwnerRequests = me?.owner ? (me.requests ?? []).filter((request) => request.personId !== me.personId) : [];
   // Cleared from notifications (still waiting in the owner popup).
   const ownerRequests = allOwnerRequests.filter((request) => !dismissedPosts.includes(`request:${request.id}`));
@@ -1942,23 +1963,52 @@ export default function HomePage() {
     };
   }, [syncedName, notificationProfile?.id]);
 
-  const sendToTeam = async (share: SharePackage, what: string, to?: string[]) => {
+  /**
+   * Sends schedules, the directory and/or contacts to the team (`to` empty = everyone). If you
+   * sent something to the same people in the last week and none of them has cleared it, this is
+   * added to that send: one notification with everything, its ping replaced. Otherwise it goes
+   * out on its own.
+   */
+  const sendImportToTeam = async (
+    part: { documentIds?: string[]; directory?: boolean; contacts?: boolean },
+    to: string[] = [],
+  ): Promise<TeamSendResult> => {
     if (!team) throw new Error("This device is still getting the team key. Try again in a minute.");
-    const result = await postToTeam(CALENDAR_SERVICE_ORIGIN, team, share, what, to);
-    markPostsSeen([result.id]);
-    return result.notified;
+    const recipients = [...to].sort();
+    const send = async (wanted: LastTeamSend["part"], amend?: string) => {
+      const { share, what } = await buildShare({
+        documents: scheduleDocuments.filter((document) => wanted.documentIds.includes(document.id)),
+        directory: wanted.directory ? directory : undefined,
+        contacts: wanted.contacts ? contacts : undefined,
+        person: prefs.person,
+        loadFile: (id, straightened) => loadScheduleImage(id, straightened),
+      });
+      const result = await postToTeam(CALENDAR_SERVICE_ORIGIN, team, share, what, recipients, amend);
+      saveLastTeamSend({ postId: result.id, to: recipients, part: wanted, at: wallClock() });
+      markPostsSeen([result.id]);
+      return { notified: result.notified, added: Boolean(result.amended), what };
+    };
+    const asked = { documentIds: part.documentIds ?? [], directory: Boolean(part.directory), contacts: Boolean(part.contacts) };
+    const last = loadLastTeamSend();
+    const stillThere = last && last.to.join() === recipients.join() && wallClock() - last.at < 6.5 * 86_400_000 &&
+      teamPosts.some((post) => post.id === last.postId && post.mine);
+    if (last && stillThere) {
+      const both = {
+        documentIds: [...new Set([...last.part.documentIds, ...asked.documentIds])]
+          .filter((id) => scheduleDocuments.some((document) => document.id === id)),
+        directory: last.part.directory || asked.directory,
+        contacts: last.part.contacts || asked.contacts,
+      };
+      try {
+        return await send(both, last.postId);
+      } catch (problem) {
+        // Someone cleared it (or it's gone): this goes on its own.
+        if ((problem as { status?: number }).status !== 409) throw problem;
+      }
+    }
+    return send(asked);
   };
-  /** After an import: sends just that (schedule weeks, the directory, or contacts) to the team. */
-  const sendImportToTeam = async (part: { documentIds?: string[]; directory?: boolean; contacts?: boolean }, to?: string[]) => {
-    const { share, what } = await buildShare({
-      documents: scheduleDocuments.filter((document) => part.documentIds?.includes(document.id)),
-      directory: part.directory ? directory : undefined,
-      contacts: part.contacts ? contacts : undefined,
-      person: prefs.person,
-      loadFile: (id, straightened) => loadScheduleImage(id, straightened),
-    });
-    return sendToTeam(share, what, to);
-  };
+  const sendToTeam = sendImportToTeam;
 
   // Focus rings are for keyboards: a tap that opens a popup (which moves focus
   // to its first button) shouldn't draw one. Tab brings them back.
@@ -2048,7 +2098,7 @@ export default function HomePage() {
       if (post.kind === "swap") return finish(() => setSwapAnswerId(post.shareId));
       if (!team) return; // The team key arrives with the check-in too.
       return finish(() => {
-        markPostsSeen([post.id]);
+        markPostsSeen([postSeenKey(post)]);
         openIncomingShare({ id: post.shareId, key: team.key }, post.id);
       });
     }
@@ -4008,7 +4058,7 @@ export default function HomePage() {
             ? current.map((swap) => swap.status !== "waiting" ? { ...swap, seen: true } : swap)
             : current);
           setNotificationsInfo(false);
-          markPostsSeen(teamInbox.map((post) => post.id));
+          markPostsSeen(teamInbox.map(postSeenKey));
         }}
       >
         <header className="sheet-head notifications-head">
@@ -4063,7 +4113,7 @@ export default function HomePage() {
               <h3>Team</h3>
               <ul className="swap-reply-list team-post-list">
                 {teamInbox.map((post) => (
-                  <li key={post.id} className={seenPosts.includes(post.id) ? "" : "is-new"}>
+                  <li key={post.id} className={seenPosts.includes(postSeenKey(post)) ? "" : "is-new"}>
                     <span className="swap-reply-icon"><Users /></span>
                     <div>
                       <b>
@@ -4077,7 +4127,7 @@ export default function HomePage() {
                       type="button"
                       className="airport-alert-dismiss team-post-open"
                       onClick={() => {
-                        markPostsSeen([post.id]);
+                        markPostsSeen([postSeenKey(post)]);
                         airportAlertsDialog.current?.close();
                         if (post.kind === "swap") setSwapAnswerId(post.shareId);
                         else if (team) openIncomingShare({ id: post.shareId, key: team.key }, post.id);
@@ -4943,8 +4993,6 @@ export default function HomePage() {
           today={todayDate}
           directory={directory}
           contacts={contacts}
-          person={prefs.person}
-          loadFile={(id, straightened) => loadScheduleImage(id, straightened)}
           team={sendTeam}
           signedIn={Boolean(me)}
           inviteUrl={`${window.location.origin}${window.location.pathname}`}
