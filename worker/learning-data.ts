@@ -212,14 +212,15 @@ export function estimateArrival(
     if (times.length >= MIN_HISTORY) break;
   }
   // Taxi to the gate: same runway and gate first (where it turns off and how far
-  // it parks), then same gate, then same runway, then every flight.
+  // it parks), then the same runway (each runway's taxiways are a different
+  // distance from the terminal), then the same gate, then every flight.
   const taxiOf = (flights: HistoryFlight[]) => withoutOutliers(
     flights.map((flight) => flight.taxiS).filter((value): value is number => typeof value === "number" && value > 0),
   );
   const taxiGroups = [
     gate && runway ? history.filter((flight) => flight.gate === gate && flight.runway === runway) : [],
-    gate ? history.filter((flight) => flight.gate === gate) : [],
     runway ? history.filter((flight) => flight.runway === runway) : [],
+    gate ? history.filter((flight) => flight.gate === gate) : [],
     history,
   ];
   let taxi: number[] = [];

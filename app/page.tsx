@@ -70,8 +70,10 @@ import {
   nameKey,
   resolveMergedName,
   ScheduleRange,
+  flightTime,
   flightWorkday,
   importedFlightOnCalendar,
+  isFlightInShift,
   shiftBounds,
   shiftCalendarDate,
   workdayAt,
@@ -144,6 +146,7 @@ import { weekLabel, type SharePackage, type SharedRead } from "./share-data";
 import { loadApplied, saveApplied, sendToMyPhones, toSend, wanted } from "./self-sync";
 import { SyncBar, type SyncStatus } from "./sync-bar";
 import { loadClock, saveClock, type ClockData } from "./time-clock";
+import { DEFAULT_FLIGHT_ALERTS, FlightAlertSettings, readFlightAlerts, type FlightAlertPrefs } from "./flight-alert-settings";
 import { TimeClockCard, TimeClockSheet } from "./time-clock-ui";
 import {
   forgetLegacyTeam,
@@ -207,6 +210,9 @@ type Preferences = {
   homeAirport: string;
   airline: string;
   flightApp: FlightApp;
+  /** Arrival times in Flights: at the gate, or landing (touchdown). */
+  flightTime: "gate" | "landing";
+  flightAlerts: FlightAlertPrefs;
 };
 
 type NotificationProfile = {
@@ -230,6 +236,9 @@ type NotificationSyncPayload = {
   location: string;
   timezone: string;
   alerts: number[];
+  flightAlerts: FlightAlertPrefs;
+  /** Flights in your upcoming shifts (what "My shifts" alerts follow). */
+  flights: Array<{ ident: string; kind: "arrival" | "departure"; at: string }>;
   events: Array<{
     key: string;
     date: string;
@@ -321,6 +330,8 @@ const DEFAULT_PREFS: Preferences = {
   homeAirport: "ABE",
   airline: "Allegiant",
   flightApp: "flightaware",
+  flightTime: "gate",
+  flightAlerts: DEFAULT_FLIGHT_ALERTS,
 };
 
 const ALERT_UNIT_OPTIONS = [
@@ -1140,6 +1151,8 @@ export default function HomePage() {
             airline: DEFAULT_PREFS.airline,
             flightApp:
               saved.flightApp === "flightradar24" ? "flightradar24" : "flightaware",
+            flightTime: saved.flightTime === "landing" ? "landing" : "gate",
+            flightAlerts: readFlightAlerts(saved.flightAlerts),
           };
           setPrefs(parsedPrefs);
         } catch {
@@ -1932,6 +1945,17 @@ export default function HomePage() {
     if (kind === "home") return finish();
     if (kind === "notifications") return finish(() => airportAlertsDialog.current?.showModal());
     if (kind === "day") return finish(() => /^\d{4}-\d\d-\d\d$/.test(value) && setSelectedDate(value));
+    if (kind === "flight") {
+      // A flight alert: today's Flights, that flight highlighted and scrolled to.
+      return finish(() => {
+        setSelectedDate(workdayAt(new Date()));
+        setMapPicked(value);
+        window.setTimeout(() => {
+          document.querySelector(`[data-live-flight~="${CSS.escape(value)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 700);
+        window.setTimeout(() => setMapPicked((current) => (current === value ? null : current)), 15_000);
+      });
+    }
     if (kind === "settings") {
       return finish(() => {
         setSettingsSnapshot(JSON.stringify(prefs));
@@ -2097,6 +2121,22 @@ export default function HomePage() {
       timezone:
         Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
       alerts: prefs.alerts,
+      flightAlerts: prefs.flightAlerts,
+      flights: (() => {
+        // Each Allegiant flight in one of your shifts from today on (a week).
+        const today = todayDate;
+        const until = new Date(Date.parse(`${today}T12:00:00`) + 8 * 86_400_000).toISOString().slice(0, 10);
+        const upcoming = events.filter((event) => event.date >= today && event.date <= until);
+        return importedFlights.flatMap((flight) => {
+          const ident = flight.trackingId?.toUpperCase().replace(/\s+/g, "").replace(/^AAY/, "G4");
+          if (!ident || !/^G4\d+$/.test(ident)) return [];
+          const shift = upcoming.find((event) => isFlightInShift(flight, { ...event, worker: prefs.person, status: "working" } as Shift, 45));
+          if (!shift) return [];
+          const kind = flight.kind === "departure" ? "departure" as const : "arrival" as const;
+          const time = flightTime(flight);
+          return [{ ident, kind, at: new Date(`${flight.date}T${time}:00`).toISOString() }];
+        }).slice(0, 120);
+      })(),
       events: events
         .map((event) => {
           const date = eventCalendarDate(event);
@@ -2119,9 +2159,13 @@ export default function HomePage() {
     }),
     [
       events,
+      importedFlights,
       prefs.alerts,
+      prefs.flightAlerts,
       prefs.location,
+      prefs.person,
       prefs.title,
+      todayDate,
     ],
   );
   const canEnableNotifications = events.length > 0;
@@ -3668,6 +3712,7 @@ export default function HomePage() {
         onRefresh={liveFlights.refresh}
         refreshing={liveFlights.refreshing}
         pickedLive={mapPicked}
+        timeMode={prefs.flightTime}
       />
     ),
     map: (
@@ -4063,8 +4108,8 @@ export default function HomePage() {
           >
             <header className="sheet-head">
               <div>
-                <h2>Shift alerts</h2>
-                <p>Reminders before each shift you work.</p>
+                <h2>Alerts</h2>
+                <p>Reminders before your shifts, and flight alerts.</p>
               </div>
               <button onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><X /></button>
             </header>
@@ -4365,6 +4410,8 @@ export default function HomePage() {
               </div>
             </div>
 
+            <FlightAlertSettings value={prefs.flightAlerts} onChange={(flightAlerts) => savePrefs({ flightAlerts })} />
+
             {notificationProfile && (
               <button
                 type="button"
@@ -4487,6 +4534,13 @@ export default function HomePage() {
               <div role="group" aria-label="Open flights in">
                 <button className={prefs.flightApp === "flightaware" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightaware" })}>FlightAware</button>
                 <button className={prefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => savePrefs({ flightApp: "flightradar24" })}>Flightradar24</button>
+              </div>
+            </div>
+            <div className="theme-setting compact">
+              <span>Arrival time</span>
+              <div role="group" aria-label="Arrival time shown in Flights">
+                <button className={prefs.flightTime === "landing" ? "active" : ""} onClick={() => savePrefs({ flightTime: "landing" })}>Landing</button>
+                <button className={prefs.flightTime !== "landing" ? "active" : ""} onClick={() => savePrefs({ flightTime: "gate" })}>At gate</button>
               </div>
             </div>
             <HomeOrderRow order={homeOrder} onChange={saveHomeOrder} />

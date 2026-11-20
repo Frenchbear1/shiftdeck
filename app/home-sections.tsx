@@ -769,6 +769,7 @@ export function FlightList({
   onRefresh,
   refreshing = false,
   pickedLive = null,
+  timeMode = "gate",
 }: {
   flights: Flight[];
   shifts: Shift[];
@@ -784,6 +785,8 @@ export function FlightList({
   refreshing?: boolean;
   /** The live flight of the plane tapped on the map: its row is highlighted. */
   pickedLive?: string | null;
+  /** Arrivals show the gate time (default) or the landing time. */
+  timeMode?: "gate" | "landing";
 }) {
   const [showAll, setShowAll] = useState(false);
   const [shownFor, setShownFor] = useState(date);
@@ -801,7 +804,7 @@ export function FlightList({
   const liveById = useMemo(() => {
     const result = new Map<string, { match: LiveMatch | null; departureMatch: LiveMatch | null; effective: Flight }>();
     for (const flight of boardFlights) {
-      const match = matchLiveFlight(flight, flightTime(flight), live);
+      const match = matchLiveFlight(flight, flightTime(flight), live, timeMode);
       const effective = { ...flight };
       let departureMatch: LiveMatch | null = null;
       if (match) {
@@ -823,7 +826,7 @@ export function FlightList({
       result.set(flight.id, { match, departureMatch, effective });
     }
     return result;
-  }, [boardFlights, live]);
+  }, [boardFlights, live, timeMode]);
   const effectiveOf = (flight: Flight) => liveById.get(flight.id)?.effective ?? flight;
   const minutesFor = (flight: Flight) => {
     const scheduled = flightTime(flight);

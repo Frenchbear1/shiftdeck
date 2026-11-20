@@ -17,6 +17,7 @@ import {
   PushEnvironment,
   sendDueNotifications,
 } from "./push-service";
+import { sendFlightAlerts } from "./flight-alerts";
 
 interface Env extends PushEnvironment, FlightStatusEnvironment {
   DB: CalendarDatabase;
@@ -66,6 +67,7 @@ const worker = {
       return;
     }
     context.waitUntil(sendDueNotifications(env.DB, env, controller.scheduledTime));
+    context.waitUntil(sendFlightAlerts(env.DB, env, controller.scheduledTime).catch((error) => console.error("Flight alerts:", error)));
     context.waitUntil(collectFlightLearning(env.DB, controller.scheduledTime));
   },
 };

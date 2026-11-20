@@ -207,6 +207,8 @@ export function matchLiveFlight(
   flight: Flight,
   shownTime: string,
   live: LiveFlights | null,
+  /** Arrivals: show when it reaches the gate (default) or when it lands. */
+  timeMode: "gate" | "landing" = "gate",
 ): LiveMatch | null {
   if (!live?.flights.length) return null;
   const kind = flight.kind === "departure" ? "departure" : "arrival";
@@ -261,7 +263,12 @@ export function matchLiveFlight(
       : /en route|taxiing|landed|arrived|departed|in air|delay|diverted|boarding|early|on time/i.test(match.status)
         ? match.status.replace(/\s*\/.*$/, "")
         : null;
-  const time = match.airportBoardId ? abeClock.format(current).slice(-5) : clockOf(current);
+  // Delays stay against the gate schedule; only the time shown follows the setting.
+  const landing = match.kind === "arrival" && timeMode === "landing" && !match.done && !match.cancelled
+    ? new Date(tracked?.landing ?? match.estimatedOn ?? current.toISOString())
+    : null;
+  const shown = landing && Number.isFinite(landing.getTime()) ? landing : current;
+  const time = match.airportBoardId && !landing ? abeClock.format(shown).slice(-5) : clockOf(shown);
   return { live: match, time, delay, label, tracked };
 }
 

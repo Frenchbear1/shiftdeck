@@ -24,6 +24,9 @@ type NotificationPayload = {
   timezone?: string;
   alerts?: number[];
   events?: NotificationEvent[];
+  /** Flight alert choices and the flights in your shifts (see flight-alerts.ts). */
+  flightAlerts?: unknown;
+  flights?: unknown;
 };
 
 type PushSubscriptionPayload = {
@@ -441,6 +444,9 @@ async function syncProfile(
   ];
   await runBatches(db, statements);
   await rebuildDeliveries(db, profileId, alertsJson);
+  // Loaded here (not at the top) so this file still loads on its own in tests.
+  const { saveFlightAlerts } = await import("./flight-alerts");
+  await saveFlightAlerts(db, profileId, raw.flightAlerts, raw.flights, payload.timezone);
   return json(request, { syncedAt: now });
 }
 
