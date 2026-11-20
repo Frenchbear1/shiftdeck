@@ -43,7 +43,7 @@ import {
   type DayOutlook,
   type HourDetail,
 } from "./weather";
-import { DayGraph, METRICS, Outlook, type MetricKey } from "./weather-charts";
+import { DayGraph, Outlook, temperatureColor, type MetricKey } from "./weather-charts";
 
 const COMPACT_KEY = "shiftdeck.weatherCompact";
 
@@ -344,7 +344,6 @@ function CompactWeather({ weather, hours, day }: {
   const windiest = hours.reduce((best, hour) => (hour.gust > best.gust ? hour : best));
   const rain = Math.max(...hours.map((hour) => hour.rain));
   const warnings = rampWarnings(hours);
-  const rows = METRICS.filter((metric) => ["temp", "rain", "wind"].includes(metric.key));
   return (
     <div className={`wx-compact wx-${mood(code, isDay)}`}>
       <div className="wx-compact-line">
@@ -367,17 +366,63 @@ function CompactWeather({ weather, hours, day }: {
           </span>
         )}
       </div>
-      <div className="wx-strip" aria-hidden="true">
-        {rows.map((metric) => (
-          <div key={metric.key} className="wx-strip-row" style={{ gridTemplateColumns: `repeat(${hours.length}, 1fr)` }}>
-            {hours.map((hour) => <i key={hour.time} style={{ background: metric.color(hour) }} />)}
-          </div>
+      <HourStrip hours={hours} />
+    </div>
+  );
+}
+
+/**
+ * Your shift hour by hour, small: what it feels like (each hour's number in its
+ * temperature colour), the chance of rain (blue bars, tallest = likeliest) and
+ * the wind (an arrow pointing where it blows, and its speed), with the times
+ * along the bottom. Each row has its icon, so nothing needs a key.
+ */
+function HourStrip({ hours }: { hours: HourDetail[] }) {
+  // Room for a number under every hour up to 12; past that, every other one.
+  const every = hours.length > 12 ? 2 : 1;
+  const labelled = (index: number) => index % every === 0 || index === hours.length - 1;
+  const rainMax = Math.max(...hours.map((hour) => hour.rain));
+  const windMax = Math.max(...hours.map((hour) => hour.wind));
+  const columns = { gridTemplateColumns: `repeat(${hours.length}, minmax(0, 1fr))` };
+  const middle = Math.floor((hours.length - 1) / 2);
+  return (
+    <div className="wx-strip2" role="img" aria-label={`Hour by hour: feels ${hours.map((hour) => `${hour.feels}°`).join(", ")}; rain up to ${rainMax}%; wind up to ${windMax} mph`}>
+      <span className="wx-strip2-icon" title="Feels like"><Thermometer /></span>
+      <div className="wx-strip2-temps" style={columns}>
+        {hours.map((hour, index) => (
+          <b key={hour.time} style={{ color: temperatureColor(hour.feels) }}>{labelled(index) ? `${hour.feels}°` : ""}</b>
         ))}
-        <div className="wx-strip-ends">
-          <small><Flip value={clock(hours[0].time, true)} /></small>
-          <small>Feels · rain · wind</small>
-          <small><Flip value={clock(hours.at(-1)!.time, true)} /></small>
+      </div>
+      <span className="wx-strip2-icon" title="Chance of rain"><Droplets /></span>
+      {rainMax < 5 ? (
+        <small className="wx-strip2-none">No rain</small>
+      ) : (
+        <div className="wx-strip2-rain" style={columns}>
+          {hours.map((hour) => (
+            <i key={hour.time} title={`${hour.rain}%`}>
+              <u style={{ height: `${Math.max(hour.rain, 4)}%`, opacity: hour.rain < 5 ? 0.25 : 1 }} />
+              {hour.rain === rainMax && hour.rain >= 5 && hours.findIndex((item) => item.rain === rainMax) === hours.indexOf(hour) && (
+                // The likeliest hour's %: inside a tall bar, just above a short one (inside the row either way).
+                <em className={hour.rain >= 55 ? "in" : ""} style={hour.rain >= 55 ? undefined : { bottom: `${Math.max(hour.rain, 4)}%` }}>{hour.rain}%</em>
+              )}
+            </i>
+          ))}
         </div>
+      )}
+      <span className="wx-strip2-icon" title="Wind"><Wind /></span>
+      <div className="wx-strip2-wind" style={columns}>
+        {hours.map((hour, index) => (
+          <span key={hour.time} className={hour.gust >= 25 ? "gusty" : ""}>
+            <WindArrow direction={hour.direction} size={11} />
+            {labelled(index) && <small>{hour.wind}</small>}
+          </span>
+        ))}
+      </div>
+      <span />
+      <div className="wx-strip2-times">
+        <small>{clock(hours[0].time, true)}</small>
+        {hours.length > 4 && <small>{clock(hours[middle].time, true)}</small>}
+        <small>{clock(hours.at(-1)!.time, true)}</small>
       </div>
     </div>
   );

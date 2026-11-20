@@ -8,6 +8,9 @@ type Engine = {
 };
 const digits = FlipDigits as unknown as Engine;
 
+/** <flip-n>: an inline element no page style targets (typed as a span for React). */
+const FlipBox = "flip-n" as unknown as "span";
+
 /** The last text shown under each memory key, so something that's rebuilt rolls from what was there. */
 const memory = new Map<string, string>();
 
@@ -36,8 +39,9 @@ function Digits({ text, remember, up }: { text: string; remember?: string; up?: 
     }
     if (remember) memory.set(remember, text);
   }, [text, remember, up]);
-  // The engine owns what's inside; React only owns the box.
-  return <span ref={ref} className="flip-num" />;
+  // The engine owns what's inside; React only owns the box. Not a <span>: page styles
+  // for spans in a card mustn't apply to it.
+  return <FlipBox ref={ref} className="flip-num" />;
 }
 
 /**
@@ -59,7 +63,7 @@ export function Flip({ value, memory: remember, className, style, up }: {
 }) {
   const parts = String(value).split(NUMBER);
   return (
-    <span className={className ? `flip ${className}` : "flip"} style={style}>
+    <FlipBox className={className ? `flip ${className}` : "flip"} style={style}>
       {parts.map((part, index) =>
         index % 2 ? (
           <Digits key={index} text={part} remember={remember && `${remember}:${index}`} up={up} />
@@ -67,6 +71,6 @@ export function Flip({ value, memory: remember, className, style, up }: {
           part
         ),
       )}
-    </span>
+    </FlipBox>
   );
 }

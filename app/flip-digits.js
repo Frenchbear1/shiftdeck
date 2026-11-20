@@ -15,7 +15,7 @@ const engine=(()=>{
  const num=s=>{const m=String(s).replace(/[−–]/g,'-').replace(GROUP,'$1').match(/-?\d+(?:[.,]\d+)?/);return m?parseFloat(m[0].replace(',','.')):NaN};
  if(typeof document!=='undefined'&&!document.getElementById('calfie-digits-css')){
   const st=document.createElement('style');st.id='calfie-digits-css';
-  st.textContent='.df-r{--dfp:calc(.34em + var(--ov-v,0em));box-sizing:content-box!important;position:relative;display:inline-grid;vertical-align:baseline;font-variant-numeric:tabular-nums;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--dfp),#000 calc(100% - var(--dfp)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--dfp),#000 calc(100% - var(--dfp)),transparent)}.df-r>span{grid-area:1/1;display:block;white-space:pre;width:max-content}.df-r>span.df-out{position:absolute;grid-area:auto;top:var(--dfp);left:.6em;right:.6em;width:auto;text-align:center}.df-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.df-v{white-space:pre}.df-v,.df-r>span,.df-sr{padding:0!important;margin:0!important}.df-r{padding:var(--dfp) .6em!important;margin:calc(var(--dfp)*-1) -.6em!important}.df-v,.df-r,.df-r>span,.df-sr{min-width:0!important;font:inherit!important;text-align:inherit!important;border:0!important;background:none!important}';
+  st.textContent='.df-r{--dfp:calc(.34em + var(--ov-v,0em));box-sizing:content-box!important;position:relative;display:inline-grid;vertical-align:baseline;font-variant-numeric:tabular-nums;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--dfp),#000 calc(100% - var(--dfp)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--dfp),#000 calc(100% - var(--dfp)),transparent)}.df-r>df-x{grid-area:1/1;display:block;white-space:pre;width:max-content}.df-r>df-x.df-out{position:absolute;grid-area:auto;top:var(--dfp);left:.6em;right:.6em;width:auto;text-align:center}.df-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.df-v{white-space:pre}.df-v,.df-r>df-x,.df-sr{padding:0!important;margin:0!important}.df-r{padding:var(--dfp) .6em!important;margin:calc(var(--dfp)*-1) -.6em!important}.df-v,.df-r,.df-r>df-x,.df-sr{min-width:0!important;font:inherit!important;text-align:inherit!important;border:0!important;background:none!important}';
   (document.head||document.documentElement).append(st);
  }
  const EASE='cubic-bezier(.22,.8,.3,1)',CLOSE='cubic-bezier(.45,0,.25,1)';
@@ -44,15 +44,15 @@ const engine=(()=>{
  /* the width of the digit itself: a column has room around it (so a digit on its way in or out is never cut off) that is not part of it */
  /* (its laid-out width, so a line that is being scaled on screen at the moment is not measured scaled) */
  const widthNow=cell=>{try{const w=parseFloat(getComputedStyle(cell).width);if(Number.isFinite(w))return w;const cs=getComputedStyle(cell);return cell.getBoundingClientRect().width-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0)}catch(_){return 0}};
- const glyph=ch=>{const g=document.createElement('span');g.textContent=ch;return g};
+ const glyph=ch=>{const g=document.createElement('df-x');g.textContent=ch;return g};
  const stop=st=>{if(!st)return;for(const c of st.cols)for(const g of c.glyphs)try{g.__a?.cancel()}catch(_){}};
  /* no animation: the element shows exactly this text */
  function plain(el,text){
   stop(el.__df);
-  const vis=document.createElement('span');vis.className='df-v';vis.setAttribute('aria-hidden','true');
-  const sr=document.createElement('span');sr.className='df-sr';sr.textContent=text;
+  const vis=document.createElement('df-x');vis.className='df-v';vis.setAttribute('aria-hidden','true');
+  const sr=document.createElement('df-x');sr.className='df-sr';sr.textContent=text;
   const chars=[...text],ks=keysOf(chars);
-  const cols=chars.map((ch,j)=>{const cell=document.createElement('span');cell.className='df-r';const g=glyph(ch);cell.append(g);vis.append(cell);return {cell,glyphs:[g],ch,k:ks[j]}});
+  const cols=chars.map((ch,j)=>{const cell=document.createElement('df-x');cell.className='df-r';const g=glyph(ch);cell.append(g);vis.append(cell);return {cell,glyphs:[g],ch,k:ks[j]}});
   el.textContent='';el.append(vis,sr);
   el.__df={vis,sr,cols,text};
   el.__dfText=text;
@@ -113,7 +113,7 @@ const engine=(()=>{
     while(col.glyphs.length>3){const x=col.glyphs.shift();try{x.__a?.cancel()}catch(_){}x.remove()}
     continue}
    /* a column that was not there: it grows open to its width while its character rolls in */
-   const cell=document.createElement('span');cell.className='df-r';const g=glyph(c);cell.append(g);
+   const cell=document.createElement('df-x');cell.className='df-r';const g=glyph(c);cell.append(g);
    cells[j]={cell,glyphs:[g],ch:c,k,fresh:true,delay};
   }
   /* put the new columns in their place, working from the right so each one has a neighbour to sit before */

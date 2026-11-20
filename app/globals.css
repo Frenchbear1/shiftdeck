@@ -11879,3 +11879,118 @@ html[data-menu="bottom"] .toast {
   color: var(--amber, #b7791f);
   font-size: 11.5px;
 }
+
+/* ---------- Compact weather: the shift hour by hour ---------- */
+.wx-strip2 {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 7px;
+  row-gap: 3px;
+  padding: 7px 9px 5px 7px;
+  color: #1f2937;
+  background: rgb(255 255 255 / 92%);
+  border-radius: 11px;
+}
+
+.wx-strip2-icon {
+  display: grid;
+  color: #64748b;
+}
+
+.wx-strip2-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.wx-strip2-temps,
+.wx-strip2-rain,
+.wx-strip2-wind {
+  display: grid;
+  gap: 2px;
+}
+
+.wx-strip2-temps b {
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  filter: saturate(1.2) brightness(.82);
+}
+
+.wx-strip2-rain {
+  height: 22px;
+}
+
+.wx-strip2-rain i {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  background: rgb(59 130 246 / 8%);
+  border-radius: 3px;
+}
+
+.wx-strip2-rain u {
+  width: 100%;
+  background: #3b82f6;
+  border-radius: 3px;
+}
+
+.wx-strip2-rain em {
+  position: absolute;
+  left: 50%;
+  color: #2563eb;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.wx-strip2-rain em.in {
+  top: 3px;
+  color: #fff;
+}
+
+.wx-strip2-none {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wx-strip2-wind span {
+  display: grid;
+  justify-items: center;
+  color: #475569;
+}
+
+.wx-strip2-wind span.gusty {
+  color: #7c3aed;
+}
+
+.wx-strip2-wind .wx-arrow {
+  color: inherit;
+}
+
+.wx-strip2-wind small {
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.wx-strip2-times {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 1px;
+  border-top: 1px solid rgb(100 116 139 / 18%);
+}
+
+.wx-strip2-times small {
+  color: #64748b;
+  font-size: 9.5px;
+  font-weight: 700;
+}
