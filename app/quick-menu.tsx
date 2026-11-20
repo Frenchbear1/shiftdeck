@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from "react";
 export type QuickAction = {
   id: string;
   label: string;
+  /** A shorter name for the bar, where six share the width ("Inbox" for Notifications). */
+  short?: string;
   /** Spoken name (e.g. "Notifications (2 new)"). */
   ariaLabel?: string;
   icon: LucideIcon;
@@ -16,15 +18,21 @@ export type QuickAction = {
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 
-/** Which bottom corner the button sits in, and whether it's just the icon. */
-export type QuickMenuStyle = { side: "left" | "right"; clear: boolean };
-export const DEFAULT_QUICK_MENU: QuickMenuStyle = { side: "right", clear: false };
+/**
+ * The menu: one floating button in a bottom corner (`side`, and `clear` for
+ * just the icon), or every action laid out in a floating bar at the top or
+ * bottom of the screen.
+ */
+export type QuickMenuLayout = "button" | "top" | "bottom";
+export type QuickMenuStyle = { layout: QuickMenuLayout; side: "left" | "right"; clear: boolean };
+export const DEFAULT_QUICK_MENU: QuickMenuStyle = { layout: "button", side: "right", clear: false };
 export const QUICK_MENU_KEY = "shiftdeck.quickMenu";
 
 export function loadQuickMenuStyle(): QuickMenuStyle {
   try {
     const saved = JSON.parse(localStorage.getItem(QUICK_MENU_KEY) ?? "null");
     return {
+      layout: saved?.layout === "top" || saved?.layout === "bottom" ? saved.layout : "button",
       side: saved?.side === "left" ? "left" : "right",
       clear: saved?.clear === true,
     };
@@ -67,6 +75,38 @@ const buzz = (ms = 8) => {
  * the column is still springing out.
  */
 export function QuickMenu({ actions, badge, style }: { actions: QuickAction[]; badge: number; style: QuickMenuStyle }) {
+  if (style.layout !== "button") return <QuickBar actions={actions} at={style.layout} />;
+  return <QuickButton actions={actions} badge={badge} style={style} />;
+}
+
+/** Every action in a floating bar along the top or bottom of the screen. */
+function QuickBar({ actions, at }: { actions: QuickAction[]; at: "top" | "bottom" }) {
+  // The page makes room for it (globals.css: html[data-menu]).
+  useEffect(() => {
+    document.documentElement.dataset.menu = at;
+    return () => {
+      delete document.documentElement.dataset.menu;
+    };
+  }, [at]);
+  return (
+    <nav className={`quick-bar at-${at}`} aria-label="Menu">
+      {actions.map((action) => {
+        const Icon = action.icon;
+        return (
+          <button key={action.id} type="button" aria-label={action.ariaLabel ?? action.label} onClick={action.onSelect}>
+            <span className="quick-bar-icon">
+              <Icon aria-hidden="true" />
+              {Boolean(action.badge) && <i className="quick-badge"><Flip value={action.badge! > 99 ? "99+" : action.badge!} /></i>}
+            </span>
+            <span className="quick-bar-label">{action.short ?? action.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function QuickButton({ actions, badge, style }: { actions: QuickAction[]; badge: number; style: QuickMenuStyle }) {
   const [view, setView] = useState({ width: 0, height: 0 });
   const [insets, setInsets] = useState<Insets>({ top: 0, right: 0, bottom: 0, left: 0 });
   const [open, setOpen] = useState(false);

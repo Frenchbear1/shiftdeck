@@ -4208,6 +4208,7 @@ export default function HomePage() {
           {
             id: "notifications",
             label: "Notifications",
+            short: "Inbox",
             ariaLabel: `Notifications${notificationCount ? ` (${notificationCount} new)` : ""}`,
             icon: Bell,
             badge: notificationCount,
@@ -4813,7 +4814,7 @@ export default function HomePage() {
                   {[
                     prefs.flightTime === "landing" ? "Landing times" : "Gate times",
                     homeOrder.some((tile, index) => tile !== DEFAULT_HOME_ORDER[index]) ? "custom order" : null,
-                    `menu ${quickMenu.side}`,
+                    quickMenu.layout === "button" ? `menu ${quickMenu.side}` : `${quickMenu.layout} bar`,
                   ].filter(Boolean).join(" · ")}
                 </b>
               </button>

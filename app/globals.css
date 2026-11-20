@@ -11418,3 +11418,145 @@ button.sheet-save svg {
 .setup-group .settings-segment {
   background: var(--surface);
 }
+
+/* ---------- The menu as a floating bar (Settings → Home screen → Menu) ---------- */
+.quick-bar {
+  position: fixed;
+  left: 50%;
+  z-index: 80;
+  display: flex;
+  gap: 2px;
+  width: min(calc(100% - 20px), 520px);
+  padding: 5px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 22px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .16), 0 1px 3px rgba(0, 0, 0, .08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  transform: translateX(-50%);
+  animation: quick-bar-in 320ms var(--ease-out) both;
+}
+
+.quick-bar.at-top {
+  top: calc(8px + env(safe-area-inset-top));
+}
+
+.quick-bar.at-bottom {
+  bottom: calc(10px + max(env(safe-area-inset-bottom), 4px));
+}
+
+@keyframes quick-bar-in {
+  from { opacity: 0; transform: translateX(-50%) scale(.96); }
+}
+
+.quick-bar button {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 7px 2px 6px;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: 16px;
+  font: inherit;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.quick-bar button:active {
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  transform: scale(.94);
+}
+
+.quick-bar-icon {
+  position: relative;
+  display: grid;
+  color: var(--blue);
+}
+
+.quick-bar-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.quick-bar-icon .quick-badge {
+  top: -6px;
+  right: -10px;
+}
+
+.quick-bar-label {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Room for the bar: the page starts below a top bar, or ends above a bottom one. */
+html[data-menu="top"] .home {
+  padding-top: calc(80px + env(safe-area-inset-top));
+}
+
+html[data-menu="bottom"] .home {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+
+/* Three layout cards in a row. */
+.home-setup-sheet .setup-options:has(> :nth-child(3)) {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.home-setup-sheet .setup-options:has(> :nth-child(3)) button {
+  grid-template-columns: 1fr;
+  justify-items: start;
+}
+
+.home-setup-sheet .setup-options:has(> :nth-child(3)) small {
+  grid-column: 1;
+}
+
+.setup-menu.bar-only {
+  margin-top: 4px;
+}
+
+.setup-phone em {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-around;
+  padding: 5px 4px;
+  background: color-mix(in srgb, var(--blue) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--blue) 30%, var(--line));
+  border-radius: 9px;
+  animation: pop 220ms var(--ease-out) both;
+}
+
+.setup-phone.layout-top {
+  padding-top: 38px;
+}
+
+.setup-phone.layout-top em {
+  top: 8px;
+}
+
+.setup-phone.layout-bottom em {
+  bottom: 8px;
+}
+
+.setup-phone em u {
+  width: 6px;
+  height: 6px;
+  background: var(--blue);
+  border-radius: 2px;
+}
+
+/* Toasts sit above a bottom bar. */
+html[data-menu="bottom"] .toast {
+  bottom: calc(92px + env(safe-area-inset-bottom));
+}

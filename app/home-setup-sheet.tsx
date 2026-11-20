@@ -72,7 +72,7 @@ export function HomeSetupSheet({ value, onSave, onClose }: {
         <header className="sheet-head">
           <div>
             <h2>Home screen</h2>
-            <p>Flights, the order of your sections, and the menu button.</p>
+            <p>Flights, the order of your sections, and the menu.</p>
           </div>
           <SheetClose className="" watch={draft} label="Close home screen settings" onClose={onClose} onSave={() => onSave(draft)} />
         </header>
@@ -113,32 +113,51 @@ export function HomeSetupSheet({ value, onSave, onClose }: {
             <HomeOrderList order={draft.order} onChange={(order) => edit({ order })} />
           </Group>
 
-          <Group icon={<Menu />} title="Menu button">
-            <div className="setup-menu">
-              <div className={`setup-phone side-${draft.menu.side}${draft.menu.clear ? " clear" : ""}`} aria-hidden="true">
+          <Group icon={<Menu />} title="Menu">
+            <Options
+              label="Menu layout"
+              value={draft.menu.layout}
+              onChange={(layout) => edit({ menu: { ...draft.menu, layout } })}
+              options={[
+                { value: "button", title: "One button", detail: "Opens a column of actions" },
+                { value: "bottom", title: "Bottom bar", detail: "Every action, always there" },
+                { value: "top", title: "Top bar", detail: "Every action, at the top" },
+              ]}
+            />
+            <div className={`setup-menu${draft.menu.layout === "button" ? "" : " bar-only"}`}>
+              <div className={`setup-phone layout-${draft.menu.layout} side-${draft.menu.side}${draft.menu.clear ? " clear" : ""}`} aria-hidden="true">
                 <i /><i /><i />
-                <b><Menu /></b>
+                {draft.menu.layout === "button"
+                  ? <b><Menu /></b>
+                  : <em><u /><u /><u /><u /><u /><u /></em>}
               </div>
-              <div className="setup-menu-choices">
-                <span className="setup-label">Corner</span>
-                <div className="settings-segment" role="radiogroup" aria-label="Menu button corner">
-                  {(["left", "right"] as const).map((side) => (
-                    <button key={side} type="button" role="radio" aria-checked={draft.menu.side === side}
-                      className={draft.menu.side === side ? "active" : ""} onClick={() => edit({ menu: { ...draft.menu, side } })}>
-                      {side === "left" ? "Left" : "Right"}
-                    </button>
-                  ))}
+              {draft.menu.layout === "button" ? (
+                <div className="setup-menu-choices">
+                  <span className="setup-label">Corner</span>
+                  <div className="settings-segment" role="radiogroup" aria-label="Menu button corner">
+                    {(["left", "right"] as const).map((side) => (
+                      <button key={side} type="button" role="radio" aria-checked={draft.menu.side === side}
+                        className={draft.menu.side === side ? "active" : ""} onClick={() => edit({ menu: { ...draft.menu, side } })}>
+                        {side === "left" ? "Left" : "Right"}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="setup-label">Look</span>
+                  <div className="settings-segment" role="radiogroup" aria-label="Menu button look">
+                    {([false, true] as const).map((clear) => (
+                      <button key={String(clear)} type="button" role="radio" aria-checked={draft.menu.clear === clear}
+                        className={draft.menu.clear === clear ? "active" : ""} onClick={() => edit({ menu: { ...draft.menu, clear } })}>
+                        {clear ? "Icon only" : "Solid"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <span className="setup-label">Look</span>
-                <div className="settings-segment" role="radiogroup" aria-label="Menu button look">
-                  {([false, true] as const).map((clear) => (
-                    <button key={String(clear)} type="button" role="radio" aria-checked={draft.menu.clear === clear}
-                      className={draft.menu.clear === clear ? "active" : ""} onClick={() => edit({ menu: { ...draft.menu, clear } })}>
-                      {clear ? "Icon only" : "Solid"}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              ) : (
+                <small className="setup-hint">
+                  Notifications, Import, Swap, Directory, Time clock and Settings sit in a bar at the {draft.menu.layout} of the screen,
+                  one tap away.
+                </small>
+              )}
             </div>
           </Group>
         </div>
