@@ -1,9 +1,11 @@
 "use client";
 
+import { HomeSetupSheet } from "./home-setup-sheet";
 import { Disclosure, SheetClose } from "./sheet-tools";
 import { Flip } from "./flip";
 import {
   AlarmClock,
+  LayoutGrid,
   AlertTriangle,
   BriefcaseBusiness,
   Plane,
@@ -189,7 +191,7 @@ import {
   saveSentSwaps,
   type SentSwap,
 } from "./swap-requests";
-import { DEFAULT_HOME_ORDER, HOME_TILES, HomeOrderRow, type HomeTile } from "./home-order";
+import { DEFAULT_HOME_ORDER, HOME_TILES, type HomeTile } from "./home-order";
 import { isAndroid, isHeic } from "./platform";
 import { LearningSetting, LiveStatusSetting, prefetchLearning, SettingPlaceholder } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
@@ -809,6 +811,7 @@ export default function HomePage() {
     saveClock(next);
   };
   const [settingsOpen, setSettingsOpenState] = useState(false);
+  const [homeSetupOpen, setHomeSetupOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpenState] = useState(false);
   // What's changed in Settings or Alerts but not saved yet: nothing applies until Save
   // (closing without it drops them). Opening or closing either one starts clean.
@@ -826,7 +829,6 @@ export default function HomePage() {
   const alertPrefs: Preferences = prefsDraft?.sheet === "alerts" ? { ...prefs, ...prefsDraft.patch } : prefs;
   const settingsPrefs: Preferences = prefsDraft?.sheet === "settings" ? { ...prefs, ...prefsDraft.patch } : prefs;
   const editAlerts = editDraft("alerts");
-  const editSettings = editDraft("settings");
   /** Saves what was changed in that sheet. */
   const commitDraft = (sheet: "settings" | "alerts") => {
     if (prefsDraft?.sheet === sheet) savePrefs(prefsDraft.patch);
@@ -4696,6 +4698,24 @@ export default function HomePage() {
         </div>
       )}
 
+      {homeSetupOpen && (
+        <HomeSetupSheet
+          value={{ flightApp: prefs.flightApp, flightTime: prefs.flightTime, order: homeOrder, menu: quickMenu }}
+          onClose={() => {
+            setHomeSetupOpen(false);
+            setSettingsOpen(true);
+          }}
+          onSave={(next) => {
+            savePrefs({ flightApp: next.flightApp, flightTime: next.flightTime });
+            saveHomeOrder(next.order);
+            saveQuickMenu(next.menu);
+            setHomeSetupOpen(false);
+            setSettingsOpen(true);
+            setToast("Home screen saved");
+          }}
+        />
+      )}
+
       {settingsOpen && (
         <div className="modal-layer" role="presentation" {...backdropClose(() => setSettingsOpen(false))}>
           <section className="settings-sheet" role="dialog" aria-modal="true" aria-label="Settings">
@@ -4779,55 +4799,24 @@ export default function HomePage() {
                 {mergeSuggestions.length > 0 && <i>{mergeSuggestions.length}</i>}
               </button>
             </div>
-            <div className="theme-setting compact">
-              <span>Flight app</span>
-              <div role="group" aria-label="Open flights in">
-                <button className={settingsPrefs.flightApp === "flightaware" ? "active" : ""} onClick={() => editSettings({ flightApp: "flightaware" })}>FlightAware</button>
-                <button className={settingsPrefs.flightApp === "flightradar24" ? "active" : ""} onClick={() => editSettings({ flightApp: "flightradar24" })}>Flightradar24</button>
-              </div>
-            </div>
-            <div className="theme-setting compact">
-              <span>Arrival time</span>
-              <div role="group" aria-label="Arrival time shown in Flights">
-                <button className={settingsPrefs.flightTime === "landing" ? "active" : ""} onClick={() => editSettings({ flightTime: "landing" })}>Landing</button>
-                <button className={settingsPrefs.flightTime !== "landing" ? "active" : ""} onClick={() => editSettings({ flightTime: "gate" })}>At gate</button>
-              </div>
-            </div>
-            <HomeOrderRow order={homeOrder} onChange={saveHomeOrder} />
-            <div className="menu-button-setting">
-              <span>Menu button</span>
-              <div className="menu-button-options">
-                <div role="radiogroup" aria-label="Menu button corner" className="settings-segment">
-                  {(["left", "right"] as const).map((side) => (
-                    <button
-                      key={side}
-                      type="button"
-                      role="radio"
-                      aria-checked={quickMenu.side === side}
-                      className={quickMenu.side === side ? "active" : ""}
-                      onClick={() => saveQuickMenu({ ...quickMenu, side })}
-                    >
-                      {side === "left" ? "Bottom left" : "Bottom right"}
-                    </button>
-                  ))}
-                </div>
-                <div role="radiogroup" aria-label="Menu button look" className="settings-segment">
-                  {([false, true] as const).map((clear) => (
-                    <button
-                      key={String(clear)}
-                      type="button"
-                      role="radio"
-                      aria-checked={quickMenu.clear === clear}
-                      className={quickMenu.clear === clear ? "active" : ""}
-                      onClick={() => saveQuickMenu({ ...quickMenu, clear })}
-                    >
-                      {clear ? "Icon only" : "Solid"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
             <div className="settings-tiles">
+              <button
+                type="button"
+                className="settings-tile"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setHomeSetupOpen(true);
+                }}
+              >
+                <span><LayoutGrid /> Home screen</span>
+                <b>
+                  {[
+                    prefs.flightTime === "landing" ? "Landing times" : "Gate times",
+                    homeOrder.some((tile, index) => tile !== DEFAULT_HOME_ORDER[index]) ? "custom order" : null,
+                    `menu ${quickMenu.side}`,
+                  ].filter(Boolean).join(" · ")}
+                </b>
+              </button>
               <button
                 type="button"
                 className="settings-tile"

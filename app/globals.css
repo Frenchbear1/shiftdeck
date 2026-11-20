@@ -11151,3 +11151,270 @@ button.sheet-save svg {
 .share-sheet .sheet-scroll > * {
   flex: none;
 }
+
+/* ---------- Home screen popup (Settings → Home screen) ---------- */
+.home-setup-sheet .sheet-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-setup-sheet .sheet-scroll > * {
+  flex: none;
+}
+
+.setup-group {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.setup-group > header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 28px;
+}
+
+.setup-group h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.setup-group-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
+  border-radius: 9px;
+}
+
+.setup-group-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.setup-label {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.setup-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.setup-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.setup-reset svg {
+  width: 13px;
+  height: 13px;
+}
+
+.setup-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.setup-options button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 10px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.setup-options button i {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  border-radius: 50%;
+}
+
+.setup-options button.on {
+  background: color-mix(in srgb, var(--blue) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--blue) 60%, var(--line));
+}
+
+.setup-options button.on i {
+  border: 5px solid var(--blue);
+}
+
+.setup-options b {
+  font-size: 13.5px;
+}
+
+.setup-options small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+
+.home-order-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-order-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 4px 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  transform: translateY(var(--shift, 0));
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+.home-order-list li.dragging {
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 18%);
+  transition: box-shadow .18s ease;
+}
+
+.home-order-icon {
+  display: grid;
+  color: var(--blue);
+}
+
+.home-order-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.home-order-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.home-order-list small {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-order-handle {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  touch-action: none;
+  cursor: grab;
+}
+
+.home-order-handle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.setup-menu {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+/* A little phone showing where the button sits and how it looks. */
+.setup-phone {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  height: 150px;
+  padding: 16px 10px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: 20px;
+}
+
+.setup-phone i {
+  height: 22px;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+
+.setup-phone b {
+  position: absolute;
+  bottom: 10px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  background: var(--blue);
+  border-radius: 9px;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 18%);
+  transition: left .25s var(--ease-out), right .25s var(--ease-out), background .2s ease;
+}
+
+.setup-phone.side-right b {
+  right: 10px;
+}
+
+.setup-phone.side-left b {
+  left: 10px;
+}
+
+.setup-phone.clear b {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: none;
+}
+
+.setup-phone b svg {
+  width: 15px;
+  height: 15px;
+}
+
+.setup-menu-choices {
+  display: grid;
+  gap: 6px;
+}
+
+.setup-group .settings-segment {
+  background: var(--surface);
+}
