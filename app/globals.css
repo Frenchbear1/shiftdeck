@@ -11994,3 +11994,139 @@ html[data-menu="bottom"] .toast {
   font-size: 9.5px;
   font-weight: 700;
 }
+
+/* Shift details → Location */
+.place-field {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.place-field > label > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.place-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.place-input > svg {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.export-fields .place-input input {
+  padding-left: 32px;
+  padding-right: 36px;
+}
+
+.place-clear {
+  position: absolute;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.place-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+.place-field .place-suggestions {
+  top: 62px;
+}
+
+.place-map {
+  height: 128px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  z-index: 0;
+}
+
+.place-map .leaflet-control-attribution {
+  font-size: 8px;
+}
+
+:root[data-theme="dark"] .place-map .map-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6);
+}
+
+.place-pin {
+  width: 22px;
+  height: 22px;
+  background: var(--blue);
+  border: 3px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 35%);
+  transform: rotate(-45deg);
+}
+
+.place-unpinned,
+.place-hint,
+.place-note {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.place-unpinned {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.place-hint,
+.place-note {
+  color: var(--muted);
+}
+
+.place-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.place-actions button,
+.place-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.place-actions button:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.place-actions svg {
+  width: 13px;
+  height: 13px;
+}

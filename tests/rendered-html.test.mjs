@@ -406,10 +406,8 @@ test("restores a subtle Apple Calendar subscription with a work address", async 
     readFile(new URL("../worker/calendar-service.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(
-    page,
-    /DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109"/,
-  );
+  assert.match(page, /DEFAULT_WORK_LOCATION = ABE_PLACE\.label/);
+  assert.match(page, /location: !prefs\.location\.trim\(\) \|\| isAbePlace\(/);
   assert.match(page, /type CalendarSubscription/);
   assert.match(page, /createCalendarFeed/);
   assert.match(page, /syncCalendarFeed/);
@@ -423,6 +421,7 @@ test("restores a subtle Apple Calendar subscription with a work address", async 
     service,
     /if \(feed\.location\) lines\.push\(`LOCATION:\$\{safeIcsText\(feed\.location\)\}`\)/,
   );
+  assert.match(service, /X-APPLE-STRUCTURED-LOCATION/);
 });
 
 test("matches a FlightAware route result by weekday and arrival time", () => {

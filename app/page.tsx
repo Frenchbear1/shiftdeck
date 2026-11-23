@@ -19,6 +19,7 @@ import {
   FileImage,
   FileText,
   Info,
+  LocateFixed,
   MapPin,
   Moon,
   Plus,
@@ -196,6 +197,16 @@ import { isAndroid, isHeic } from "./platform";
 import { LearningSetting, LiveStatusSetting, prefetchLearning, SettingPlaceholder } from "./live-status-setting";
 import { WeatherPanel } from "./weather-panel";
 import { LiveMapPanel } from "./live-map";
+import { PlacePreview } from "./place-preview";
+import {
+  ABE_PLACE,
+  OLD_DEFAULT_LOCATION,
+  formatCoordinates,
+  isAbePlace,
+  isShortMapLink,
+  mapsLink,
+  parsePastedPlace,
+} from "./place-input";
 import {
   clearScheduleImages,
   deleteScheduleImage,
@@ -269,6 +280,8 @@ type NotificationSyncPayload = {
 type CalendarSyncPayload = {
   name: string;
   location: string;
+  locationLat: number | null;
+  locationLon: number | null;
   reminder1: string;
   events: Array<{
     key: string;
@@ -322,7 +335,10 @@ const isSchedulePdf = ({ mimeType, name }: ScheduleDocument) =>
 
 const DEFAULT_SHIFT_TITLE = "Work";
 const DEFAULT_ALERT_MINUTES = 120;
-const DEFAULT_WORK_LOCATION = "3311 Airport Rd, Allentown, PA 18109";
+const DEFAULT_WORK_LOCATION = ABE_PLACE.label;
+/** Bumped when a default changes for everyone (2: title "Work", location ABE Airport with its pin). */
+const DEFAULTS_VERSION_KEY = "shiftdeck.defaultsVersion";
+const DEFAULTS_VERSION = "2";
 const HOME_VIEW_KEY = "shiftdeck.homeView";
 const BLOCKED_KEY = "shiftdeck.blocked";
 const DISMISSED_POSTS_KEY = "shiftdeck.teamDismissed";
@@ -341,8 +357,8 @@ const DEFAULT_PREFS: Preferences = {
   title: DEFAULT_SHIFT_TITLE,
   alerts: [DEFAULT_ALERT_MINUTES],
   location: DEFAULT_WORK_LOCATION,
-  locationLat: null,
-  locationLon: null,
+  locationLat: ABE_PLACE.latitude,
+  locationLon: ABE_PLACE.longitude,
   notes: "",
   homeAirport: "ABE",
   airline: "Allegiant",
@@ -396,41 +412,6 @@ const formatUpdatedAt = (value: string) =>
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
-
-function parseCoordinatePair(value: string) {
-  const match = value
-    .trim()
-    .toUpperCase()
-    .replace(/[−–—]/g, "-")
-    .match(
-      /^([+-]?\d{1,2}(?:\.\d+)?)\s*°?\s*([NS])?\s*[,;]\s*([+-]?\d{1,3}(?:\.\d+)?)\s*°?\s*([EW])?$/,
-    );
-  if (!match) return null;
-  const latitudeDirection = match[2];
-  const longitudeDirection = match[4];
-  let latitude = Number(match[1]);
-  let longitude = Number(match[3]);
-  if (latitudeDirection) {
-    latitude = Math.abs(latitude) * (latitudeDirection === "S" ? -1 : 1);
-  }
-  if (longitudeDirection) {
-    longitude = Math.abs(longitude) * (longitudeDirection === "W" ? -1 : 1);
-  }
-  if (
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return null;
-  }
-  return { latitude, longitude };
-}
-
-const formatAppleCoordinates = (latitude: number, longitude: number) =>
-  `${Math.abs(latitude).toFixed(5)}° ${latitude < 0 ? "S" : "N"}, ${Math.abs(longitude).toFixed(5)}° ${longitude < 0 ? "W" : "E"}`;
 
 const cleanAirportCode = (value: string) =>
   (value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) || "ABE");
@@ -1071,8 +1052,9 @@ export default function HomePage() {
     "idle" | "loading" | "error"
   >("idle");
   const [placeMenuOpen, setPlaceMenuOpen] = useState(false);
-  const [coordinatesOpen, setCoordinatesOpen] = useState(false);
-  const [coordinateDraft, setCoordinateDraft] = useState("");
+  /** A line under Location: how a match was picked, or why something couldn't be read. */
+  const [placeNote, setPlaceNote] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
   const [toast, setToast] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [backgroundHydrated, setBackgroundHydrated] = useState(false);
@@ -1192,6 +1174,8 @@ export default function HomePage() {
     queueMicrotask(() => {
       if (cancelled) return;
       const savedPrefs = localStorage.getItem("shiftdeck.preferences");
+      const resetDefaults = localStorage.getItem(DEFAULTS_VERSION_KEY) !== DEFAULTS_VERSION;
+      localStorage.setItem(DEFAULTS_VERSION_KEY, DEFAULTS_VERSION);
       const savedTheme = localStorage.getItem("shiftdeck.theme");
       const savedDates = localStorage.getItem("shiftdeck.activeDates");
       const savedParsedShifts = localStorage.getItem("shiftdeck.parsedShifts");
@@ -1231,9 +1215,13 @@ export default function HomePage() {
                 ? saved.location
                 : DEFAULT_WORK_LOCATION,
             locationLat:
-              typeof saved.locationLat === "number" ? saved.locationLat : null,
+              typeof saved.location === "string" && saved.location.trim()
+                ? typeof saved.locationLat === "number" ? saved.locationLat : null
+                : ABE_PLACE.latitude,
             locationLon:
-              typeof saved.locationLon === "number" ? saved.locationLon : null,
+              typeof saved.location === "string" && saved.location.trim()
+                ? typeof saved.locationLon === "number" ? saved.locationLon : null
+                : ABE_PLACE.longitude,
             notes: "",
             homeAirport: DEFAULT_PREFS.homeAirport,
             airline: DEFAULT_PREFS.airline,
@@ -1242,6 +1230,18 @@ export default function HomePage() {
             flightTime: saved.flightTime === "landing" ? "landing" : "gate",
             flightAlerts: readFlightAlerts(saved.flightAlerts),
           };
+          if (resetDefaults) {
+            // Once: the job title back to "Work", and the old address default becomes ABE Airport (pinned).
+            parsedPrefs = { ...parsedPrefs, title: DEFAULT_SHIFT_TITLE };
+            if (parsedPrefs.location.trim() === OLD_DEFAULT_LOCATION) {
+              parsedPrefs = {
+                ...parsedPrefs,
+                location: DEFAULT_WORK_LOCATION,
+                locationLat: ABE_PLACE.latitude,
+                locationLon: ABE_PLACE.longitude,
+              };
+            }
+          }
           setPrefs(parsedPrefs);
         } catch {
           // A malformed local preference should never block the schedule.
@@ -1499,7 +1499,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const query = alertPrefs.location.trim();
-    if (!notificationsOpen || !placeMenuOpen || query.length < 3) {
+    if (!notificationsOpen || !placeMenuOpen || query.length < 3 || alertPrefs.locationLat != null) {
       return;
     }
     const controller = new AbortController();
@@ -1539,7 +1539,7 @@ export default function HomePage() {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [notificationsOpen, placeMenuOpen, alertPrefs.location]);
+  }, [notificationsOpen, placeMenuOpen, alertPrefs.location, alertPrefs.locationLat]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -2328,7 +2328,16 @@ export default function HomePage() {
   const calendarSyncPayload = useMemo<CalendarSyncPayload>(
     () => ({
       name: "Shiftdeck",
-      location: prefs.location.trim() || DEFAULT_WORK_LOCATION,
+      // "ABE Airport" alone is vague in a calendar app: send the full address (the pin goes too).
+      location: !prefs.location.trim() || isAbePlace(prefs.location, prefs.locationLat, prefs.locationLon)
+        ? ABE_PLACE.address
+        : prefs.location.trim(),
+      locationLat: prefs.location.trim()
+        ? Number.isFinite(prefs.locationLat) ? prefs.locationLat : null
+        : ABE_PLACE.latitude,
+      locationLon: prefs.location.trim()
+        ? Number.isFinite(prefs.locationLon) ? prefs.locationLon : null
+        : ABE_PLACE.longitude,
       reminder1: "",
       events: events
         .map((event) => ({
@@ -2346,7 +2355,7 @@ export default function HomePage() {
           ),
         ),
     }),
-    [events, prefs.location, prefs.title],
+    [events, prefs.location, prefs.locationLat, prefs.locationLon, prefs.title],
   );
   const calendarSubscriptionId = calendarSubscription?.id;
   const calendarSubscriptionWriteToken = calendarSubscription?.writeToken;
@@ -2504,15 +2513,86 @@ export default function HomePage() {
     });
   };
 
-  const updateCoordinateDraft = (value: string) => {
-    setCoordinateDraft(value);
-    const coordinate = parseCoordinatePair(value);
+  /** Pins the shift location; with no name, the spot's name is looked up. */
+  const pinLocation = (latitude: number, longitude: number, name?: string) => {
     editAlerts({
-      location:
-        coordinate && !alertPrefs.location.trim() ? "Pinned location" : alertPrefs.location,
-      locationLat: coordinate?.latitude ?? null,
-      locationLon: coordinate?.longitude ?? null,
+      location: name?.trim() || "Pinned location",
+      locationLat: latitude,
+      locationLon: longitude,
     });
+    setPlaceSuggestions([]);
+    setPlaceMenuOpen(false);
+    setPlaceNote(null);
+    if (name?.trim()) return;
+    void fetch(calendarServiceUrl(`/api/places?lat=${latitude}&lon=${longitude}`))
+      .then((response) => (response.ok ? (response.json() as Promise<{ features?: PhotonFeature[] }>) : null))
+      .then((result) => {
+        const found = result?.features?.[0] ? photonSuggestion(result.features[0], 0) : null;
+        if (!found) return;
+        const label = [found.primary, found.secondary.split(",")[0]].filter(Boolean).join(", ");
+        // Only if that's still the pin being edited (not moved again, not closed).
+        setPrefsDraft((current) =>
+          current?.sheet === "alerts" &&
+          current.patch.locationLat === latitude &&
+          current.patch.locationLon === longitude &&
+          current.patch.location === "Pinned location"
+            ? { ...current, patch: { ...current.patch, location: label } }
+            : current,
+        );
+      })
+      .catch(() => undefined); // "Pinned location" is fine.
+  };
+
+  /** Typed or pasted into Location: coordinates and map links pin right away; anything else searches. */
+  const changeLocationText = (value: string) => {
+    const pasted = parsePastedPlace(value);
+    if (pasted) {
+      pinLocation(pasted.latitude, pasted.longitude, pasted.name);
+      return;
+    }
+    editAlerts({ location: value, locationLat: null, locationLon: null });
+    setPlaceSuggestions([]);
+    setPlaceLookupState("idle");
+    if (isShortMapLink(value)) {
+      setPlaceMenuOpen(false);
+      setPlaceNote("Short share links can't be read here. Open it in Maps, then copy the coordinates or the full link.");
+      return;
+    }
+    setPlaceNote(null);
+    setPlaceMenuOpen(true);
+  };
+
+  /** Leaving Location (or Enter) with text but no pin: pin the closest match, keeping your wording. */
+  const settleLocation = () => {
+    setPlaceMenuOpen(false);
+    const best = placeSuggestions[0];
+    if (!best || !alertPrefs.location.trim() || Number.isFinite(alertPrefs.locationLat)) return;
+    editAlerts({ locationLat: best.latitude, locationLon: best.longitude });
+    setPlaceNote(`Pinned to the closest match: ${best.primary}${best.secondary ? `, ${best.secondary.split(",")[0]}` : ""}`);
+  };
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setPlaceNote("This device can't share its location.");
+      return;
+    }
+    setLocating(true);
+    setPlaceNote(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocating(false);
+        pinLocation(position.coords.latitude, position.coords.longitude);
+      },
+      (error) => {
+        setLocating(false);
+        setPlaceNote(
+          error.code === error.PERMISSION_DENIED
+            ? "Location access is off for Shiftdeck. Turn it on in your browser's settings, or paste coordinates."
+            : "Couldn't find where you are. Try again, or paste coordinates.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
+    );
   };
 
   const changeTheme = (nextTheme: "light" | "dark") => {
@@ -3474,11 +3554,6 @@ export default function HomePage() {
     setClearConfirmOpen(false);
     setToast("All imported schedules cleared");
   };
-
-  const hasStructuredCalendarPlace =
-    Boolean(prefs.location.trim()) &&
-    Number.isFinite(prefs.locationLat) &&
-    Number.isFinite(prefs.locationLon);
 
   const enableNotifications = async () => {
     if (!events.length) {
@@ -4469,50 +4544,50 @@ export default function HomePage() {
                 <input value={alertPrefs.title} onChange={(event) => editAlerts({ title: event.target.value })} placeholder="Work" />
                 <small>Used for imported shifts unless you rename one.</small>
               </label>
-              <label className="place-field">
-                <span>Location</span>
-                <input
-                  value={alertPrefs.location}
-                  onChange={(event) => {
-                    const coordinate = parseCoordinatePair(event.target.value);
-                    if (coordinate) {
-                      setCoordinateDraft(
-                        formatAppleCoordinates(
-                          coordinate.latitude,
-                          coordinate.longitude,
-                        ),
-                      );
-                      setCoordinatesOpen(true);
-                      editAlerts({
-                        location: "Pinned location",
-                        locationLat: coordinate.latitude,
-                        locationLon: coordinate.longitude,
-                      });
-                      setPlaceSuggestions([]);
-                      setPlaceMenuOpen(false);
-                      return;
-                    }
-                    editAlerts({
-                      location: event.target.value,
-                      locationLat: null,
-                      locationLon: null,
-                    });
-                    setPlaceSuggestions([]);
-                    setPlaceLookupState("idle");
-                    setPlaceMenuOpen(true);
-                  }}
-                  onFocus={() => setPlaceMenuOpen(true)}
-                  onBlur={() =>
-                    window.setTimeout(() => setPlaceMenuOpen(false), 120)
-                  }
-                  placeholder="Search a U.S. place or address"
-                  autoComplete="off"
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-expanded={placeMenuOpen && placeSuggestions.length > 0}
-                  aria-controls="calendar-place-suggestions"
-                />
-                {placeMenuOpen && alertPrefs.location.trim().length >= 3 && (
+              <div className="place-field">
+                <label htmlFor="shift-location">
+                  <span>Location</span>
+                </label>
+                <div className="place-input">
+                  <MapPin aria-hidden="true" />
+                  <input
+                    id="shift-location"
+                    value={alertPrefs.location}
+                    onChange={(event) => changeLocationText(event.target.value)}
+                    onFocus={() => setPlaceMenuOpen(true)}
+                    onBlur={() => window.setTimeout(settleLocation, 120)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      settleLocation();
+                      event.currentTarget.blur();
+                    }}
+                    placeholder="Search, or paste an address or coordinates"
+                    autoComplete="off"
+                    enterKeyHint="done"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={placeMenuOpen && placeSuggestions.length > 0}
+                    aria-controls="calendar-place-suggestions"
+                  />
+                  {alertPrefs.location && (
+                    <button
+                      type="button"
+                      className="place-clear"
+                      aria-label="Clear location"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        editAlerts({ location: "", locationLat: null, locationLon: null });
+                        setPlaceSuggestions([]);
+                        setPlaceNote(null);
+                        document.getElementById("shift-location")?.focus();
+                      }}
+                    >
+                      <X />
+                    </button>
+                  )}
+                </div>
+                {placeMenuOpen && alertPrefs.location.trim().length >= 3 && !Number.isFinite(alertPrefs.locationLat) && (
                   <div
                     className="place-suggestions"
                     id="calendar-place-suggestions"
@@ -4528,21 +4603,7 @@ export default function HomePage() {
                           role="option"
                           aria-selected="false"
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            editAlerts({
-                              location: suggestion.label,
-                              locationLat: suggestion.latitude,
-                              locationLon: suggestion.longitude,
-                            });
-                            setCoordinateDraft(
-                              formatAppleCoordinates(
-                                suggestion.latitude,
-                                suggestion.longitude,
-                              ),
-                            );
-                            setPlaceSuggestions([]);
-                            setPlaceMenuOpen(false);
-                          }}
+                          onClick={() => pinLocation(suggestion.latitude, suggestion.longitude, suggestion.label)}
                         >
                           <b>{suggestion.primary}</b>
                           {suggestion.secondary && (
@@ -4553,8 +4614,8 @@ export default function HomePage() {
                     ) : (
                       <span className="place-lookup-message">
                         {placeLookupState === "error"
-                          ? "Place search is unavailable right now."
-                          : "No matching places found."}
+                          ? "Place search is unavailable right now. Coordinates still work."
+                          : "No matching places. Try a street address, or paste coordinates."}
                       </span>
                     )}
                     <small>
@@ -4562,86 +4623,50 @@ export default function HomePage() {
                     </small>
                   </div>
                 )}
-                {alertPrefs.location &&
-                  Number.isFinite(alertPrefs.locationLat) &&
-                  Number.isFinite(alertPrefs.locationLon) && (
+                {Number.isFinite(alertPrefs.locationLat) && Number.isFinite(alertPrefs.locationLon) ? (
+                  <>
+                    <PlacePreview latitude={alertPrefs.locationLat!} longitude={alertPrefs.locationLon!} />
                     <small className="place-selected">
-                      <MapPin />
-                      Map pin attached ·{" "}
-                      {formatAppleCoordinates(
-                        alertPrefs.locationLat!,
-                        alertPrefs.locationLon!,
-                      )}
+                      <Check />
+                      Pinned · {formatCoordinates(alertPrefs.locationLat!, alertPrefs.locationLon!)}
                     </small>
-                  )}
-              </label>
-              <div className="coordinate-tools" hidden>
-                <button
-                  type="button"
-                  className="coordinate-toggle"
-                  onClick={() => {
-                    setCoordinatesOpen((current) => {
-                      const next = !current;
-                      if (next) {
-                        setCoordinateDraft(
-                          typeof alertPrefs.locationLat === "number" &&
-                            typeof alertPrefs.locationLon === "number"
-                            ? formatAppleCoordinates(
-                                alertPrefs.locationLat,
-                                alertPrefs.locationLon,
-                              )
-                            : "",
-                        );
-                      }
-                      return next;
-                    });
-                  }}
-                >
-                  <MapPin />
-                  {coordinatesOpen ? "Hide coordinates" : "Enter coordinates"}
-                </button>
-                {hasStructuredCalendarPlace && (
-                  <a
-                    href={`https://maps.apple.com/?ll=${alertPrefs.locationLat},${alertPrefs.locationLon}&q=${encodeURIComponent(alertPrefs.location.trim())}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Preview in Apple Maps
-                  </a>
+                  </>
+                ) : alertPrefs.location.trim() ? (
+                  <small className="place-unpinned">
+                    Not pinned yet. Pick a match, or paste coordinates or a map link.
+                  </small>
+                ) : (
+                  <small className="place-hint">
+                    Search a place, or paste an address, coordinates (40.6538, -75.4323) or a Google/Apple Maps link.
+                  </small>
                 )}
-              </div>
-              {false && coordinatesOpen && (
-                <div className="coordinate-fields">
-                  <label>
-                    <span className="coordinate-field-heading">
-                      <span>Coordinates</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCoordinateDraft("");
-                          editAlerts({
-                            locationLat: null,
-                            locationLon: null,
-                          });
-                        }}
-                      >
-                        Clear pin
-                      </button>
-                    </span>
-                    <input
-                      type="text"
-                      inputMode="text"
-                      value={coordinateDraft}
-                      onChange={(event) => updateCoordinateDraft(event.target.value)}
-                      placeholder="40.65382° N, 75.43225° W"
-                      autoCapitalize="characters"
-                      autoCorrect="off"
-                      spellCheck="false"
-                    />
-                  </label>
-                  <small>Paste from Apple Maps</small>
+                {placeNote && <small className="place-note">{placeNote}</small>}
+                <div className="place-actions">
+                  <button type="button" onClick={useCurrentLocation} disabled={locating}>
+                    <LocateFixed />
+                    {locating ? "Finding you…" : "Use my location"}
+                  </button>
+                  {!isAbePlace(alertPrefs.location, alertPrefs.locationLat, alertPrefs.locationLon) && (
+                    <button
+                      type="button"
+                      onClick={() => pinLocation(ABE_PLACE.latitude, ABE_PLACE.longitude, ABE_PLACE.label)}
+                    >
+                      <Plane />
+                      ABE Airport
+                    </button>
+                  )}
+                  {Number.isFinite(alertPrefs.locationLat) && Number.isFinite(alertPrefs.locationLon) && (
+                    <a
+                      href={mapsLink(alertPrefs.location, alertPrefs.locationLat!, alertPrefs.locationLon!, android)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ArrowUpRight />
+                      Open in Maps
+                    </a>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
             </Disclosure>
 

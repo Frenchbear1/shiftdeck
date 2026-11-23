@@ -176,11 +176,20 @@ async function searchPlaces(request: Request) {
   if (!isAllowedBrowserOrigin(request)) {
     return json(request, { error: "Origin not allowed" }, 403);
   }
-  const query = cleanText(new URL(request.url).searchParams.get("q"), 160);
-  if (query.length < 3) return json(request, { features: [] });
+  const params = new URL(request.url).searchParams;
+  const query = cleanText(params.get("q"), 160);
+  // ?lat=&lon=: the name of a pinned spot (pasted coordinates, "Use my location").
+  const lat = Number(params.get("lat"));
+  const lon = Number(params.get("lon"));
+  const reverse = params.has("lat") && Number.isFinite(lat) && Number.isFinite(lon) &&
+    Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+  if (!reverse && query.length < 3) return json(request, { features: [] });
   try {
     const response = await fetch(
-      `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=en&limit=10&countrycode=US`,
+      reverse
+        ? `https://photon.komoot.io/reverse?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&lang=en&limit=1`
+        // Nearest-to-ABE first, so "Airport Rd" means the one at work.
+        : `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=en&limit=10&countrycode=US&lat=40.6538&lon=-75.4323`,
       {
         headers: { Accept: "application/json" },
         cf: { cacheEverything: true, cacheTtl: 3600 },
@@ -323,13 +332,40 @@ function normalizePayload(payload: SyncPayload) {
     name,
     title,
     location,
-    locationLat: null,
-    locationLon: null,
+    locationLat: validLatitude(payload.locationLat) ? payload.locationLat : null,
+    locationLon: validLatitude(payload.locationLat) && validLongitude(payload.locationLon) ? payload.locationLon : null,
     notes: "",
     reminder1: allowedReminders.has(reminder1) ? reminder1 : "",
     reminder2: "",
     events,
   };
+}
+
+const validLatitude = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 90;
+const validLongitude = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 180;
+
+/** Lines over 75 bytes are folded (RFC 5545), which long structured-location lines need. */
+function foldIcsLine(line: string) {
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= 75) return line;
+  const parts: string[] = [];
+  let current = "";
+  let size = 0;
+  for (const char of line) {
+    const bytes = encoder.encode(char).length;
+    const limit = parts.length ? 74 : 75;
+    if (size + bytes > limit) {
+      parts.push(current);
+      current = "";
+      size = 0;
+    }
+    current += char;
+    size += bytes;
+  }
+  parts.push(current);
+  return parts.join("\r\n ");
 }
 
 function safeIcsText(value: string) {
@@ -397,6 +433,16 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
     );
     if (event.status === "confirmed") {
       if (feed.location) lines.push(`LOCATION:${safeIcsText(feed.location)}`);
+      if (validLatitude(feed.location_lat) && validLongitude(feed.location_lon)) {
+        // The exact pin, so tapping the location opens that spot (Apple Calendar reads the X-APPLE one).
+        const lat = feed.location_lat.toFixed(6);
+        const lon = feed.location_lon.toFixed(6);
+        lines.push(`GEO:${lat};${lon}`);
+        const title = (feed.location || "Work").replace(/"/g, "'");
+        lines.push(
+          `X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-APPLE-RADIUS=150;X-TITLE="${title}":geo:${lat},${lon}`,
+        );
+      }
       if (reminder) {
         lines.push(...renderAppleTimedAlarm(feed.id, event.event_key, reminder));
       }
@@ -404,7 +450,7 @@ function renderCalendar(feed: CalendarFeedRow, events: CalendarEventRow[]) {
     lines.push("END:VEVENT");
   });
   lines.push("END:VCALENDAR");
-  return `${lines.join("\r\n")}\r\n`;
+  return `${lines.map(foldIcsLine).join("\r\n")}\r\n`;
 }
 
 async function getAuthorizedFeed(
