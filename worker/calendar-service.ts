@@ -710,11 +710,13 @@ async function serveFeed(request: Request, db: CalendarDatabase, id: string) {
       `SELECT calendar_id, event_key, date, start_time, end_time, base_title,
         signature, sequence, status, updated_at
        FROM calendar_events
-       WHERE calendar_id = ?1
+       WHERE calendar_id = ?1 AND status = 'confirmed'
        ORDER BY date, start_time, event_key`,
     )
     .bind(id)
     .all<CalendarEventRow>();
+  // Removed shifts are left out (not sent as cancelled): a subscribed calendar drops what's
+  // gone on its next refresh, while cancelled events show as crossed-out "CANCELED" entries.
   const etag = `"shiftdeck-v${CALENDAR_FORMAT_VERSION}-${Date.parse(feed.updated_at)}"`;
   const lastModified = new Date(feed.updated_at).toUTCString();
   if (request.headers.get("If-None-Match") === etag) {
