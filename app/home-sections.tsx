@@ -183,6 +183,13 @@ const spanLabel = (ms: number) => {
 
 /* ---------- today hero ---------- */
 
+const MILITARY_KEY = "shiftdeck.heroMilitary";
+/** "05:30" → "0530" (shift times are stored as 24-hour HH:MM). */
+const militaryTime = (value: string) => {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return `${hours.padStart(2, "0")}${minutes.padStart(2, "0").slice(0, 2)}`;
+};
+
 export type DayStatus = {
   status: "working" | "off" | "pto" | "none";
   start?: string;
@@ -215,6 +222,25 @@ export function TodayHero({
   onToday: () => void;
 }) {
   const label = isToday ? `Today · ${formatDate(date)}` : formatDate(date, "long");
+  // Tap the big shift time to flip between 5:30 AM and 0530; remembered on this device.
+  const [military, setMilitary] = useState(() => {
+    try {
+      return localStorage.getItem(MILITARY_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleMilitary = () => {
+    setMilitary((current) => {
+      try {
+        localStorage.setItem(MILITARY_KEY, current ? "0" : "1");
+      } catch {
+        // Fine: it just won't be remembered.
+      }
+      return !current;
+    });
+  };
+  const heroTime = (value: string) => (military ? militaryTime(value) : formatTime(value));
   let status: { tone: string; text: string; before?: string; after?: string } | null = null;
   let progress = 0;
   if (shift) {
@@ -255,11 +281,16 @@ export function TodayHero({
       <div className="hero-body" key={`${date}-${shift?.start ?? "off"}-${shift?.end ?? ""}`}>
         <h1 className={shift ? "hero-time" : "hero-off"}>
           {shift ? (
-            <>
-              <span><Flip value={formatTime(shift.start)} memory="hero-start" /></span>
+            <button
+              type="button"
+              className="hero-time-toggle"
+              onClick={toggleMilitary}
+              aria-label={`${formatTime(shift.start)} to ${formatTime(shift.end)}. Tap for ${military ? "12-hour" : "24-hour"} time`}
+            >
+              <span><Flip value={heroTime(shift.start)} memory="hero-start" /></span>
               <i aria-hidden="true">–</i>
-              <span><Flip value={formatTime(shift.end)} memory="hero-end" /></span>
-            </>
+              <span><Flip value={heroTime(shift.end)} memory="hero-end" /></span>
+            </button>
           ) : isPto ? (
             "PTO"
           ) : loaded ? (

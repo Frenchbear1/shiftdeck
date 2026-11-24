@@ -1856,6 +1856,25 @@ html:not([data-input="keyboard"]) :is(button, a, select, summary, [role="button"
   white-space: nowrap;
 }
 
+.hero-time-toggle {
+  display: inherit;
+  align-items: inherit;
+  gap: inherit;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hero-time-toggle:active {
+  opacity: .75;
+}
+
 .hero-time i {
   font-style: normal;
   font-weight: 500;
