@@ -68,6 +68,41 @@ export function normalizeWatch(raw: unknown): WatchedFlight[] {
   });
 }
 
+/** One of your shifts, as instants (from the shifts the app already syncs for reminders). */
+export type ShiftWindow = { start: number; end: number };
+
+const ARRIVAL_LEAD = 45 * MINUTE;
+const DELAY_GRACE = 6 * 60 * MINUTE;
+
+/** A shift row (start_at in UTC, HH:MM start/end) → its window; overnight shifts end the next day. */
+export function shiftWindow(startAt: string, startTime: string, endTime: string): ShiftWindow | null {
+  const start = Date.parse(startAt);
+  const toMinutes = (value: string) => {
+    const [hours, minutes] = value.split(":").map(Number);
+    return hours * 60 + minutes;
+  };
+  const from = toMinutes(startTime);
+  const to = toMinutes(endTime);
+  if (!Number.isFinite(start) || !Number.isFinite(from) || !Number.isFinite(to)) return null;
+  const length = ((to - from + 1440) % 1440) || 1440;
+  return { start, end: start + length * MINUTE };
+}
+
+/**
+ * Is this flight in one of your shifts? Same rule as Home's "My shift": its live
+ * time is in the shift (arrivals up to 45 min before you start), or it was
+ * scheduled in the shift and is no more than 6 hours late past the end.
+ */
+export function inShifts(flight: LiveFlight, windows: ShiftWindow[]) {
+  const scheduled = instant(flight.scheduled);
+  const live = flight.kind === "arrival" ? landingAt(flight) : instant(flight.estimated) ?? scheduled;
+  const lead = flight.kind === "arrival" ? ARRIVAL_LEAD : 0;
+  return windows.some(({ start, end }) => {
+    const inside = (time: number | null) => time !== null && time >= start - lead && time <= end;
+    return inside(live) || (inside(scheduled) && (live === null || live <= end + DELAY_GRACE));
+  });
+}
+
 /* ---------- what's worth telling ---------- */
 
 export type FlightNews = { kind: string; title: string; body: string; silent?: boolean };

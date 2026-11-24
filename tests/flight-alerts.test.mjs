@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_FLIGHT_ALERTS, flightKey, flightNews, normalizeFlightAlerts, normalizeWatch } from "../worker/flight-alerts-data.ts";
+import { DEFAULT_FLIGHT_ALERTS, flightKey, flightNews, inShifts, normalizeFlightAlerts, normalizeWatch, shiftWindow } from "../worker/flight-alerts-data.ts";
 
 const MIN = 60_000;
 const now = Date.parse("2026-11-20T01:30:00Z"); // 8:30 PM at ABE
@@ -52,4 +52,22 @@ test("reads choices and the watch list safely", () => {
   assert.deepEqual(normalizeWatch([{ ident: "aay 854", kind: "arrival", at: "2026-11-20T01:45:00Z" }, { ident: "DL5", at: "x" }]),
     [{ ident: "G4854", kind: "arrival", at: "2026-11-20T01:45:00.000Z" }]);
   assert.equal(flightKey(flight()), "G4854-arrival-2026-11-19");
+});
+
+test("flights in my shifts are matched by shift time (schedule flights have no flight number)", () => {
+  // 5:00 AM – 1:30 PM Eastern on Nov 24 (10:00Z – 18:30Z).
+  const shift = shiftWindow("2026-11-24T10:00:00.000Z", "05:00", "13:30");
+  assert.equal(shift.end - shift.start, 8.5 * 3_600_000);
+  const flight = (kind, scheduled, extra = {}) => ({ id: "x", ident: "G4854", kind, other: ["SFB"], scheduled, ...extra });
+  assert.ok(inShifts(flight("arrival", "2026-11-24T14:00:00Z"), [shift]));
+  // Arrivals landing up to 45 min before the start count; departures don't.
+  assert.ok(inShifts(flight("arrival", "2026-11-24T09:20:00Z"), [shift]));
+  assert.ok(!inShifts(flight("departure", "2026-11-24T09:20:00Z"), [shift]));
+  // Scheduled in the shift, running late: still yours for 6 hours past the end.
+  assert.ok(inShifts(flight("arrival", "2026-11-24T17:00:00Z", { estimated: "2026-11-24T22:00:00Z" }), [shift]));
+  assert.ok(!inShifts(flight("arrival", "2026-11-24T17:00:00Z", { estimated: "2026-11-25T02:00:00Z" }), [shift]));
+  assert.ok(!inShifts(flight("arrival", "2026-11-24T21:00:00Z"), [shift]));
+  // Overnight shift ends the next day.
+  const night = shiftWindow("2026-11-25T03:00:00.000Z", "22:00", "06:00");
+  assert.equal(night.end - night.start, 8 * 3_600_000);
 });

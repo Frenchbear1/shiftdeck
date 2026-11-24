@@ -16,11 +16,14 @@ import { sendProfilePush, type PushEnvironment } from "./push-service";
 import {
   flightKey,
   flightNews,
+  inShifts,
   instant,
   isLanded,
   landingAt,
   normalizeFlightAlerts,
   normalizeWatch,
+  shiftWindow,
+  type ShiftWindow,
   type WatchedFlight,
 } from "./flight-alerts-data";
 
@@ -111,12 +114,35 @@ async function checkAirborne(db: CalendarDatabase, flights: LiveFlight[], now: n
   return seen;
 }
 
-const watches = (flight: LiveFlight, watch: WatchedFlight[]) => {
+/**
+ * "Flights in my shifts": by flight number when the app knows it (charters), and
+ * otherwise by your shift times, since flights read off the ramp schedule don't
+ * carry a flight number.
+ */
+const watches = (flight: LiveFlight, watch: WatchedFlight[], shifts: ShiftWindow[]) => {
   const ident = flight.ident.replace(/^AAY/, "G4");
   const scheduled = instant(flight.scheduled);
-  return scheduled !== null && watch.some((item) =>
-    item.ident === ident && item.kind === flight.kind && Math.abs(Date.parse(item.at) - scheduled) <= 3 * 60 * MINUTE);
+  if (scheduled !== null && watch.some((item) =>
+    item.ident === ident && item.kind === flight.kind && Math.abs(Date.parse(item.at) - scheduled) <= 3 * 60 * MINUTE)) return true;
+  return inShifts(flight, shifts);
 };
+
+/** Each profile's shifts from a day ago to two days ahead. */
+async function shiftWindows(db: CalendarDatabase, profileIds: string[], now: number) {
+  const windows = new Map<string, ShiftWindow[]>();
+  if (!profileIds.length) return windows;
+  const rows = (await db.prepare(`SELECT profile_id, start_at, start_time, end_time FROM notification_events
+      WHERE status = 'confirmed' AND profile_id IN (${profileIds.map((_, index) => `?${index + 3}`).join(",")})
+        AND datetime(start_at) >= datetime(?1 / 1000, 'unixepoch') AND datetime(start_at) <= datetime(?2 / 1000, 'unixepoch')`)
+    .bind(now - 24 * 60 * MINUTE, now + 48 * 60 * MINUTE, ...profileIds)
+    .all<{ profile_id: string; start_at: string; start_time: string; end_time: string }>()).results ?? [];
+  for (const row of rows) {
+    const window = shiftWindow(row.start_at, row.start_time, row.end_time);
+    if (!window) continue;
+    windows.set(row.profile_id, [...(windows.get(row.profile_id) ?? []), window]);
+  }
+  return windows;
+}
 
 export async function sendFlightAlerts(db: CalendarDatabase, env: PushEnvironment, now = Date.now()) {
   await ensureSchema(db);
@@ -126,8 +152,9 @@ export async function sendFlightAlerts(db: CalendarDatabase, env: PushEnvironmen
     .all<{ profile_id: string; prefs: string; watch: string; timezone: string | null }>()).results ?? [];
   const active = profiles
     .map((row) => ({ ...row, settings: normalizeFlightAlerts(JSON.parse(row.prefs)), list: normalizeWatch(JSON.parse(row.watch)) }))
-    .filter((row) => row.settings.which !== "off" && (row.settings.which === "all" || row.list.length));
+    .filter((row) => row.settings.which !== "off");
   if (!active.length) return;
+  const shifts = await shiftWindows(db, active.filter((row) => row.settings.which === "shifts").map((row) => row.profile_id), now);
 
   // Only flights near now: from 3 hours ago to 12 hours ahead.
   const flights = (await currentFlights(db, now)).filter((flight) => {
@@ -135,13 +162,15 @@ export async function sendFlightAlerts(db: CalendarDatabase, env: PushEnvironmen
     return /^(G4|AAY)\d+$/.test(flight.ident) && time !== null && time > now - 3 * 60 * MINUTE && time < now + 12 * 60 * MINUTE;
   });
   if (!flights.length) return;
-  const wanted = flights.filter((flight) => active.some((row) => row.settings.which === "all" || watches(flight, row.list)));
+  const mineFor = (row: (typeof active)[number]) =>
+    flights.filter((flight) => row.settings.which === "all" || watches(flight, row.list, shifts.get(row.profile_id) ?? []));
+  const wanted = flights.filter((flight) => active.some((row) => mineFor(row).includes(flight)));
   const airborne = await checkAirborne(db, wanted, now);
 
   for (const row of active) {
     const timezone = row.timezone || "America/New_York";
     const clock = (time: number) => new Date(time).toLocaleTimeString("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit" });
-    const mine = wanted.filter((flight) => row.settings.which === "all" || watches(flight, row.list));
+    const mine = mineFor(row);
     if (!mine.length) continue;
     const keys = mine.map((flight) => flightKey(flight));
     const sentRows = (await db.prepare(`SELECT flight_key, kind FROM flight_alert_sent WHERE profile_id = ?1 AND flight_key IN (${keys.map((_, index) => `?${index + 2}`).join(",")})`)
