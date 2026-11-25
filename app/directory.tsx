@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  BookUser, ChevronDown, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus, Users,
+  BookUser, ChevronDown, ClipboardPaste, FileText, Image as ImageIcon, Mail, MessageSquare, Phone, Plus, Search, Smartphone, Trash2, UserPlus, Users,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -21,7 +21,8 @@ import {
 } from "./directory-data";
 import type { Contacts } from "./contacts-data";
 import { ReadingBar } from "./reading-bar";
-import { AddMenu, SearchToggle, SheetClose } from "./sheet-tools";
+import { AddMenu, CopyFormat, SearchToggle, SheetClose } from "./sheet-tools";
+import { DIRECTORY_JSON_PROMPT, parseDirectoryJson } from "./json-import";
 import { TeamSendPrompt, type TeamSendResult } from "./share-sheet";
 import { CoworkersPane } from "./contacts";
 import type { RosterStatus } from "./roster-status";
@@ -116,6 +117,8 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
   useEffect(() => coolReader, []);
   const [notice, setNotice] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState("");
   const images = useRef<HTMLInputElement>(null);
   const pdf = useRef<HTMLInputElement>(null);
 
@@ -133,23 +136,28 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
     : searchDirectory(everyone, query, department), [department, everyone, query]);
   const tabs = [null, ...departments];
 
+  /** Adds what was read or pasted; true when there was anything. */
+  const addFound = (read: DirectoryEntry[]) => {
+    const found = applyKnownNames(read, workers);
+    if (!found.length) return false;
+    const { entries: next, added, updated } = mergeDirectory(entries, found);
+    onChange(next);
+    if (added || updated) setOfferTeam((count) => count + 1);
+    const toCheck = found.filter((entry) => entry.check?.length).length;
+    setNotice(
+      `Added ${added}${updated ? ` · updated ${updated}` : ""}` +
+      (toCheck ? ` · ${toCheck} with a number to check` : ""),
+    );
+    return true;
+  };
+
   const importEntries = async (read: () => Promise<DirectoryEntry[]>) => {
     setNotice("");
     setReading({ label: "Starting the reader…", fraction: 0, secondsLeft: null });
     try {
-      const found = applyKnownNames(await read(), workers);
-      if (!found.length) {
+      if (!addFound(await read())) {
         setNotice("No numbers found. Take the photo straight on, in good light, with the whole page in view.");
-        return;
       }
-      const { entries: next, added, updated } = mergeDirectory(entries, found);
-      onChange(next);
-      if (added || updated) setOfferTeam((count) => count + 1);
-      const toCheck = found.filter((entry) => entry.check?.length).length;
-      setNotice(
-        `Added ${added}${updated ? ` · updated ${updated}` : ""}` +
-        (toCheck ? ` · ${toCheck} with a number to check` : ""),
-      );
     } catch {
       setNotice("That couldn’t be read. Try clearer photos, or add people by hand.");
     } finally {
@@ -201,6 +209,7 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
               items={[
                 { icon: ImageIcon, label: "Photos", onSelect: () => images.current?.click() },
                 { icon: FileText, label: "PDF", onSelect: () => pdf.current?.click() },
+                { icon: ClipboardPaste, label: "Paste JSON", onSelect: () => setPasting(true) },
                 { icon: UserPlus, label: "Add by hand", onSelect: () => setEditing({ department: department ?? undefined }) },
               ]}
             />
@@ -250,8 +259,50 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
                   }}
                 />
               </div>
+              {pasting && (
+                <div className="contacts-paste">
+                  <textarea
+                    value={pasted}
+                    onChange={(event) => setPasted(event.target.value)}
+                    rows={6}
+                    placeholder={'{"directory": [{"line": "Ticket Counter", "department": "Allegiant Air", "ext": "4021"}]}'}
+                    aria-label="Pasted directory JSON"
+                    spellCheck={false}
+                    autoFocus
+                  />
+                  <p className="contacts-hint">
+                    Have an AI do it: copy the format, give it to the AI with your directory pages, then paste its answer here.
+                  </p>
+                  <div className="contacts-paste-actions">
+                    <CopyFormat text={DIRECTORY_JSON_PROMPT} />
+                    <button type="button" className="button soft" onClick={() => { setPasting(false); setPasted(""); }}>Cancel</button>
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={!pasted.trim()}
+                      onClick={() => {
+                        let read: DirectoryEntry[];
+                        try {
+                          read = parseDirectoryJson(pasted);
+                        } catch {
+                          setNotice("That JSON couldn’t be read. Paste the AI’s whole answer.");
+                          return;
+                        }
+                        if (!addFound(read)) {
+                          setNotice("No entries with a number found in that JSON.");
+                          return;
+                        }
+                        setPasted("");
+                        setPasting(false);
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
               {reading && <ReadingBar progress={reading} />}
-              {!everyone.length && !notice && !reading && (
+              {!everyone.length && !notice && !reading && !pasting && (
                 <div className="sheet-empty">
                   <p>No one here yet</p>
                   <small>

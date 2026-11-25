@@ -12149,3 +12149,17 @@ html[data-menu="bottom"] .toast {
   width: 13px;
   height: 13px;
 }
+
+/* "Copy format for AI" sits at the left of the paste box's buttons. */
+.contacts-paste-actions .copy-format {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  justify-self: start;
+}
+
+.contacts-paste-actions .copy-format svg {
+  width: 15px;
+  height: 15px;
+}

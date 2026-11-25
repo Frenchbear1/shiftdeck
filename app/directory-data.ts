@@ -74,12 +74,12 @@ export const formatDirectoryPhone = (phone: string) => {
 const phoneText = (text: string) =>
   text.replace(/[Oo]/g, "0").replace(/[lI|]/g, "1").replace(/S/g, "5").replace(/B/g, "8");
 
-const tidyPhone = (text: string) => {
+export const tidyPhone = (text: string) => {
   const number = digits(phoneText(text));
   return number.length >= 7 && number.length <= 11 ? formatDirectoryPhone(number) : "";
 };
 
-const tidyExt = (text: string) => {
+export const tidyExt = (text: string) => {
   const number = digits(phoneText(text));
   return number.length >= 2 && number.length <= 6 ? number : "";
 };
@@ -372,7 +372,7 @@ export const entryName = (entry: DirectoryEntry) =>
 export const entryKey = (entry: Pick<DirectoryEntry, "first" | "last" | "line">) =>
   (entry.line ?? `${entry.last ?? ""}|${entry.first ?? ""}`).toLowerCase().replace(/[^a-z|]/g, "");
 
-const entryId = (entry: Omit<DirectoryEntry, "id">) =>
+export const entryId = (entry: Omit<DirectoryEntry, "id">) =>
   `${entryKey(entry)}|${entry.line ? `${(entry.department ?? "").toLowerCase()}|` : ""}${(entry.phone ?? entry.cell ?? entry.ext ?? "").replace(/\D/g, "")}`;
 
 /** Adds imported entries; someone already saved is updated, not duplicated. */

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, LoaderCircle, Plus, Search, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, Copy, LoaderCircle, Plus, Search, X, type LucideIcon } from "lucide-react";
 import { stable } from "./vault-data";
 import { Flip } from "./flip";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -159,6 +159,37 @@ export function SheetClose({ watch, label, onClose, onSave, saving, className = 
   return (
     <button type="button" className={`${className} sheet-save`} onClick={onSave ?? onClose} disabled={saving} aria-label="Save changes">
       {saving ? <LoaderCircle className="spin" /> : <Check />} {saving ? "Saving…" : "Save"}
+    </button>
+  );
+}
+
+/**
+ * Copies instructions for an AI model, so its answer comes back as JSON this
+ * app reads (Coworkers and Directory "Paste" boxes).
+ */
+export function CopyFormat({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      className="button soft copy-format"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+        } catch {
+          // No clipboard (old browser, no permission): show it to copy by hand.
+          window.prompt("Copy this and give it to the AI with your list:", text);
+        }
+      }}
+    >
+      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+      {copied ? "Copied" : "Copy format for AI"}
     </button>
   );
 }

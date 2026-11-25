@@ -5,7 +5,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { addPeopleToDirectory, callLink, findPerson, type DirectoryEntry } from "./directory-data";
 import { ReadingBar } from "./reading-bar";
-import { AddMenu, SearchToggle } from "./sheet-tools";
+import { AddMenu, CopyFormat, SearchToggle } from "./sheet-tools";
+import { COWORKERS_JSON_PROMPT, looksLikeJson, parseCoworkersJson } from "./json-import";
 import { TeamSendPrompt, type TeamSendResult } from "./share-sheet";
 import type { Team } from "./team";
 import { rosterLabel, type RosterStatus } from "./roster-status";
@@ -143,7 +144,7 @@ export function CoworkersPane({
                 },
               }] : []),
               { icon: ImageIcon, label: "Screenshots", onSelect: () => screenshotInput.current?.click() },
-              { icon: ClipboardPaste, label: "Paste a list", onSelect: () => setPasting(true) },
+              { icon: ClipboardPaste, label: "Paste a list or JSON", onSelect: () => setPasting(true) },
             ]}
           />
         </>,
@@ -201,18 +202,28 @@ export function CoworkersPane({
                 value={pasted}
                 onChange={(event) => setPasted(event.target.value)}
                 rows={5}
-                placeholder={"One person per line, in any order:\nLandon Weber, landon@email.com, 610-555-1234\nNicole Watson 484-555-9876"}
+                placeholder={"One person per line, in any order:\nLandon Weber, landon@email.com, 610-555-1234\nNicole Watson 484-555-9876\n\nOr paste JSON (tap Copy format for AI)."}
                 aria-label="Pasted contacts"
                 autoFocus
               />
+              <p className="contacts-hint">
+                Have an AI do it: copy the format, give it to the AI with your list or photos, then paste its answer here.
+              </p>
               <div className="contacts-paste-actions">
+                <CopyFormat text={COWORKERS_JSON_PROMPT} />
                 <button type="button" className="button soft" onClick={() => { setPasting(false); setPasted(""); }}>Cancel</button>
                 <button
                   type="button"
                   className="button primary"
                   disabled={!pasted.trim()}
                   onClick={() => {
-                    const entries = parseContactLines(pasted);
+                    let entries: ContactEntry[];
+                    try {
+                      entries = looksLikeJson(pasted) ? parseCoworkersJson(pasted) : parseContactLines(pasted);
+                    } catch {
+                      setNotice("That JSON couldn’t be read. Paste the AI’s whole answer, or a plain list.");
+                      return;
+                    }
                     if (!entries.length) {
                       setNotice("No emails or phone numbers found in that text.");
                       return;
