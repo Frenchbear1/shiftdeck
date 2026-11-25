@@ -4,6 +4,7 @@
  */
 
 import { contactKey, matchWorker, type ContactEntry, type Contacts } from "./contacts-data.ts";
+import { parseListPage } from "./directory-lists.ts";
 
 export type DirectoryEntry = {
   id: string;
@@ -28,7 +29,11 @@ export type NumberBoxes = Partial<Record<"phone" | "ext" | "cell", { x: number; 
 export const DIRECTORY_KEY = "shiftdeck.directory";
 
 /** A piece of text with its box, in top-down page coordinates. */
-export type PlacedText = { text: string; x: number; y: number; width: number; height: number; group?: number };
+export type PlacedText = {
+  text: string; x: number; y: number; width: number; height: number; group?: number;
+  /** OCR's confidence, 0–100 (PDF text has none: it's exact). */
+  conf?: number;
+};
 
 type Column = "last" | "first" | "department" | "title" | "phone" | "ext" | "cell" | "email";
 
@@ -89,6 +94,8 @@ const ACRONYMS = new Set([
   "abe", "tsa", "gsc", "faa", "arff", "cbp", "atc", "fbo", "it", "hr", "id", "vp", "avp", "svp", "evp",
   "ceo", "cfo", "coo", "cio", "gm", "agm", "us", "usa", "pa", "nj", "ny", "llc", "inc", "ii", "iii", "iv",
   "emt", "k9", "ops", "aoc", "soc", "lnai", "dhs", "fbi", "ice", "tso", "sso", "bso", "pr", "qa", "ap", "ar",
+  "lnaa", "fsdo", "afsfo", "atct", "tracon", "qc", "pbx", "lvas", "lccc", "opx", "gca", "vip", "fss", "lv", "ga",
+  "ups", "dhl", "usps", "dgs", "lvip", "muse", "did",
 ]);
 const SMALL = new Set(["a", "an", "and", "at", "by", "for", "in", "of", "on", "or", "the", "to", "with", "vs"]);
 
@@ -108,9 +115,17 @@ export function smartCase(text: string, allCaps = false) {
     if (/^\s+$/.test(word)) return word;
     const bare = word.replace(/[^a-z0-9]/g, "");
     if (ACRONYMS.has(bare)) return word.toUpperCase();
+    // "faa/fsdo", "afsfo/allan": each side on its own.
+    if (word.includes("/") && word.split("/").some((part) => ACRONYMS.has(part.replace(/[^a-z0-9]/g, "")))) {
+      return word.split("/").map((part) => ACRONYMS.has(part.replace(/[^a-z0-9]/g, ""))
+        ? part.toUpperCase()
+        : part.replace(/(^|[-'’(&.])([a-z])/g, (_, before: string, letter: string) => before + letter.toUpperCase())).join("/");
+    }
     if (index > 0 && SMALL.has(bare) && !/^\(/.test(word)) return word;
     return word
-      .replace(/(^|[-'’(/&.])([a-z])/g, (_, before: string, letter: string) => before + letter.toUpperCase())
+      .replace(/(^|[-(/&.])([a-z])/g, (_, before: string, letter: string) => before + letter.toUpperCase())
+      // O'Brien, D'Angelo — but not Hotel's.
+      .replace(/^([A-Za-z])['’]([a-z])/, (_, first: string, letter: string) => `${first}'${letter.toUpperCase()}`)
       .replace(/^Mc([a-z])/, (_, letter: string) => `Mc${letter.toUpperCase()}`);
   }).join("");
 }
@@ -236,6 +251,14 @@ export function parseDirectory(items: PlacedText[]): DirectoryEntry[] {
     const rows = lines(groups.get(key)!);
     const header = findHeader(rows);
     if (header) layout = header.layout;
+    else {
+      // No LAST/FIRST/PHONE header: a printed list ("Ticket Counter ...... 4021" under headings).
+      const listed = parseListPage(groups.get(key)!, key, recase);
+      if (listed.length >= 2 || !layout) {
+        for (const { boxes, ...entry } of listed) entries.push(withBoxes({ ...entry, id: entryId(entry) }, boxes));
+        continue;
+      }
+    }
     if (!layout) continue;
     const slack = median(rows.flat().map((item) => item.height)) * 0.6 || 6;
     const columnAt = (x: number) => [...layout!].reverse().find((column) => x >= column.x - slack)?.column ?? layout![0].column;
@@ -350,7 +373,7 @@ export const entryKey = (entry: Pick<DirectoryEntry, "first" | "last" | "line">)
   (entry.line ?? `${entry.last ?? ""}|${entry.first ?? ""}`).toLowerCase().replace(/[^a-z|]/g, "");
 
 const entryId = (entry: Omit<DirectoryEntry, "id">) =>
-  `${entryKey(entry)}|${(entry.phone ?? entry.cell ?? "").replace(/\D/g, "")}`;
+  `${entryKey(entry)}|${entry.line ? `${(entry.department ?? "").toLowerCase()}|` : ""}${(entry.phone ?? entry.cell ?? entry.ext ?? "").replace(/\D/g, "")}`;
 
 /** Adds imported entries; someone already saved is updated, not duplicated. */
 export function mergeDirectory(current: DirectoryEntry[], incoming: DirectoryEntry[]) {
@@ -373,9 +396,11 @@ export function mergeDirectory(current: DirectoryEntry[], incoming: DirectoryEnt
 
 export const newEntryId = () => `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-/** Calls the desk phone and dials the extension after a pause. */
-export const callLink = (phone: string, ext?: string) =>
-  `tel:${digits(phone)}${ext ? `,${digits(ext)}` : ""}`;
+/** Calls the desk phone and dials the extension after a pause (the first one, if there are two). */
+export const callLink = (phone: string, ext?: string) => {
+  const first = ext?.split(/[/,]/)[0] ?? "";
+  return `tel:${digits(phone)}${digits(first) ? `,${digits(first)}` : ""}`;
+};
 
 export const departmentsOf = (entries: DirectoryEntry[]) =>
   [...new Set(entries.map((entry) => entry.department).filter((value): value is string => Boolean(value)))]
@@ -406,6 +431,7 @@ export function wordsFromTsv(tsv: string, group = 0): PlacedText[] {
     .map((parts) => ({
       text: parts.slice(11).join(" ").trim(),
       x: Number(parts[6]), y: Number(parts[7]), width: Number(parts[8]), height: Number(parts[9]),
+      conf: Number(parts[10]),
       group,
     }))
     .filter((word) => Number.isFinite(word.x) && Number(word.height) > 0);

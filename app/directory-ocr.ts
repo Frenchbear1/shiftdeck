@@ -14,14 +14,19 @@ import { expectedChecksPerShot, progressClock, type ReadProgress } from "./read-
  * engine as schedule imports, or a PDF's own text (exact, no OCR).
  */
 
+/** Photos past this many pixels on the long side are scaled down (reading stays quick, text stays sharp). */
+const LONG_SIDE = 3000;
+
 /** Grayscale, and dark-mode screenshots turned dark-on-light. */
 async function prepare(file: Blob) {
   const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, LONG_SIDE / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
   const context = canvas.getContext("2d", { willReadFrequently: true })!;
-  context.drawImage(bitmap, 0, 0);
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
   const data = pixels.data;
   let total = 0;
@@ -40,6 +45,48 @@ async function prepare(file: Blob) {
   context.putImageData(pixels, 0, 0);
   const image = await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), "image/png"));
   return { image, canvas, bitmap };
+}
+
+/**
+ * The page with its lighting evened out: each pixel against the blurred page
+ * around it. Rescues photos with shadows, glare or colored table cells.
+ */
+function evenOut(source: HTMLCanvasElement) {
+  const { width, height } = source;
+  const small = document.createElement("canvas");
+  small.width = Math.max(1, Math.round(width / 24));
+  small.height = Math.max(1, Math.round(height / 24));
+  const smallContext = small.getContext("2d")!;
+  smallContext.imageSmoothingQuality = "high";
+  smallContext.drawImage(source, 0, 0, small.width, small.height);
+  const blurred = document.createElement("canvas");
+  blurred.width = width;
+  blurred.height = height;
+  const blurredContext = blurred.getContext("2d", { willReadFrequently: true })!;
+  blurredContext.imageSmoothingQuality = "high";
+  blurredContext.drawImage(small, 0, 0, width, height);
+  const background = blurredContext.getImageData(0, 0, width, height).data;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true })!;
+  const pixels = source.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, width, height);
+  const data = pixels.data;
+  for (let offset = 0; offset < data.length; offset += 4) {
+    const value = Math.min(255, (data[offset] / Math.max(1, background[offset])) * 235);
+    data[offset] = value;
+    data[offset + 1] = value;
+    data[offset + 2] = value;
+  }
+  context.putImageData(pixels, 0, 0);
+  return canvas;
+}
+
+/** How many real words OCR was sure of, and what share of them. */
+function sureness(words: PlacedText[]) {
+  const real = words.filter((word) => word.text.replace(/[^A-Za-z0-9]/g, "").length >= 3);
+  const sure = real.filter((word) => (word.conf ?? 100) >= 80).length;
+  return { sure, share: real.length ? sure / real.length : 0 };
 }
 
 /** One number cut out, enlarged and made black-on-white for a digits-only read. */
@@ -91,7 +138,7 @@ export async function readDirectoryImages(
     try {
       const words: PlacedText[] = [];
       for (let index = 0; index < shots; index += 1) {
-        clock.start(shots > 1 ? `Reading screenshot ${index + 1} of ${shots}` : "Reading the screenshot", "directory-shot");
+        clock.start(shots > 1 ? `Reading page ${index + 1} of ${shots}` : "Reading the page", "directory-shot");
         try {
           const { image, canvas, bitmap } = await prepare(files[index]);
           bitmap.close();
@@ -103,7 +150,23 @@ export async function readDirectoryImages(
             preserve_interword_spaces: "1",
           });
           const { data } = await worker.recognize(image, {}, { tsv: true });
-          words.push(...wordsFromTsv(data.tsv ?? "", index));
+          let read = wordsFromTsv(data.tsv ?? "", index);
+          // OCR mostly unsure (shadows, glare, colored cells): read it again with the lighting evened out.
+          const first = sureness(read);
+          if (first.share < 0.6) {
+            clock.end();
+            clock.start(shots > 1 ? `Reading page ${index + 1} again, clearer` : "Reading it again, clearer", "directory-shot");
+            const evened = evenOut(canvas);
+            const blob = await new Promise<Blob | null>((resolve) => evened.toBlob(resolve, "image/png"));
+            if (blob) {
+              const again = wordsFromTsv((await worker.recognize(blob, {}, { tsv: true })).data.tsv ?? "", index);
+              if (sureness(again).sure > first.sure) {
+                read = again;
+                canvases[index] = evened;
+              }
+            }
+          }
+          words.push(...read);
         } catch {
           // Keep what the other screenshots had.
         }

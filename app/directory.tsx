@@ -139,7 +139,7 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
     try {
       const found = applyKnownNames(await read(), workers);
       if (!found.length) {
-        setNotice("No directory rows found. Make sure the column headings (LAST, FIRST, PHONE…) are in the first screenshot.");
+        setNotice("No numbers found. Take the photo straight on, in good light, with the whole page in view.");
         return;
       }
       const { entries: next, added, updated } = mergeDirectory(entries, found);
@@ -151,7 +151,7 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
         (toCheck ? ` · ${toCheck} with a number to check` : ""),
       );
     } catch {
-      setNotice("That couldn’t be read. Try clearer screenshots, or add people by hand.");
+      setNotice("That couldn’t be read. Try clearer photos, or add people by hand.");
     } finally {
       setReading(null);
     }
@@ -166,7 +166,8 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
     for (const field of ["phone", "cell"] as const) {
       if (clean[field]) clean[field] = formatDirectoryPhone(clean[field]!);
     }
-    if (clean.ext) clean.ext = clean.ext.replace(/\D/g, "");
+    // Digits; two extensions stay apart ("4021 / 4022").
+    if (clean.ext) clean.ext = clean.ext.split(/[/,]/).map((part) => part.replace(/\D/g, "")).filter(Boolean).join(" / ");
     if (clean.line) {
       delete clean.first;
       delete clean.last;
@@ -196,9 +197,9 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
               label="Add to the directory"
               onOpen={() => void warmReader().catch(() => undefined)}
               busy={Boolean(reading)}
-              note="Screenshot each page of the directory and pick them all at once. Read on this device."
+              note="Take a photo or screenshot of each page and pick them all at once. Read on this device."
               items={[
-                { icon: ImageIcon, label: "Screenshots", onSelect: () => images.current?.click() },
+                { icon: ImageIcon, label: "Photos", onSelect: () => images.current?.click() },
                 { icon: FileText, label: "PDF", onSelect: () => pdf.current?.click() },
                 { icon: UserPlus, label: "Add by hand", onSelect: () => setEditing({ department: department ?? undefined }) },
               ]}
@@ -221,7 +222,7 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
                   accept="image/*"
                   multiple
                   hidden
-                  aria-label="Directory screenshots"
+                  aria-label="Directory photos"
                   onChange={(event) => {
                     const files = Array.from(event.target.files ?? []);
                     event.target.value = "";
@@ -254,8 +255,8 @@ function DirectoryPane({ tools, entries, workers, coworkers, hiddenCount = 0, co
                 <div className="sheet-empty">
                   <p>No one here yet</p>
                   <small>
-                    Tap <Plus aria-label="plus" /> to add screenshots of the directory (LAST · FIRST · DEPARTMENT ·
-                    TITLE · PHONE · EXT · CELL), its PDF, or people by hand.
+                    Tap <Plus aria-label="plus" /> to add photos of the directory pages (lists, tables or a
+                    LAST · FIRST · PHONE sheet), its PDF, or people by hand.
                   </small>
                 </div>
               )}
